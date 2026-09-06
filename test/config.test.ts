@@ -1,5 +1,5 @@
-// config.ts 纯函数测试：resolveConfig / versionKey / parseVersion
-import { resolveConfig, versionKey, parseVersion } from '../src/config'
+// config.ts 纯函数测试：resolveConfig / parseSnapshot / versionKey / parseVersion
+import { parseSnapshot, resolveConfig, versionKey, parseVersion } from '../src/config'
 import { check, stable } from './helper'
 
 /** 执行本文件的全部用例 */
@@ -39,4 +39,19 @@ export function run(): void {
     check('仅更高版本回默认', stable(resolveConfig({ 'version-9': { whatever: true } })) === DEFAULT_STABLE, resolveConfig({ 'version-9': { whatever: true } }))
     check('非法快照回默认', stable(resolveConfig({ 'version-2': 'garbage' })) === DEFAULT_STABLE, resolveConfig({ 'version-2': 'garbage' }))
     check('段为数组/非对象回默认', stable(resolveConfig([])) === DEFAULT_STABLE, resolveConfig([]))
+
+    // parseSnapshot：迁移侧据此判定当前版本快照是否仍可解析（决定要不要自愈重写）
+    check('parseSnapshot 合法快照物化为六布尔', stable(parseSnapshot(v2Entry)) === stable({
+        autoFill: { reasoning: true, context: false, image: false },
+        allowUpdate: { reasoning: false, context: false, image: true },
+    }), parseSnapshot(v2Entry))
+    check('parseSnapshot 省略字段落该项默认', stable(parseSnapshot({ configVersion: 2, autoFill: { context: false } })) === stable({
+        allowUpdate: { reasoning: false, context: false, image: false },
+        autoFill: { reasoning: true, context: false, image: true },
+    }), parseSnapshot({ configVersion: 2, autoFill: { context: false } }))
+    check('parseSnapshot 拒绝垃圾/布尔写法/非对象', parseSnapshot('garbage') === undefined
+        && parseSnapshot({ autoFill: true, allowUpdate: false }) === undefined
+        && parseSnapshot(undefined) === undefined
+        && parseSnapshot([]) === undefined)
+    check('parseSnapshot 剥离 configVersion 等运行时不消费的键', Object.keys(parseSnapshot(v2Entry) ?? {}).sort().join(',') === 'allowUpdate,autoFill', parseSnapshot(v2Entry))
 }

@@ -43,8 +43,11 @@ export function versionKey(version: number): string {
     return `${VERSION_PREFIX}${version}`
 }
 
-/** 校验单个快照值并物化默认；剥离 configVersion 等运行时不消费的键，非法返回 undefined */
-function parseEntry(value: unknown): PluginConfig | undefined {
+/**
+ * 校验单个快照值并物化默认；剥离 configVersion 等运行时不消费的键，非法返回 undefined。
+ * 导出供迁移侧判定「当前版本快照是否仍可解析」以决定是否需要自愈重写。
+ */
+export function parseSnapshot(value: unknown): PluginConfig | undefined {
     if (!isPlainObject(value)) return
     try {
         const parsed = PluginConfigSchema(value as unknown as PluginConfig)
@@ -64,7 +67,7 @@ export function resolveConfig(section: unknown): PluginConfig {
     for (const [key, value] of Object.entries(section)) {
         const version = parseVersion(key)
         if (version === undefined || version < MIN_SUPPORTED_VERSION || version > CONFIG_VERSION) continue
-        const config = parseEntry(value)
+        const config = parseSnapshot(value)
         if (!config) continue
         if (version === CONFIG_VERSION) return config
         if (!best || version > best.version) best = { version, config }

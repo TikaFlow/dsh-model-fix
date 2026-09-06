@@ -2,8 +2,8 @@ import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsNamespace, SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { CONFIG_VERSION, LEGACY_NS, MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION, PLUGIN_NAME, PLUGIN_NS, REGISTER_WAIT_MAX } from './constants'
-import { DEFAULT_CONFIG, parseVersion, versionKey } from './config'
-import type { LegacyConfig, LegacyFieldRules, LegacyFieldSwitch, PluginConfigSnapshot, V1FieldRules, V1PluginConfigSnapshot, VersionedSection } from './types'
+import { DEFAULT_CONFIG, parseSnapshot, parseVersion, resolveConfig, versionKey } from './config'
+import type { LegacyConfig, LegacyFieldRules, LegacyFieldSwitch, PluginConfig, PluginConfigSnapshot, V1FieldRules, V1PluginConfigSnapshot, VersionedSection } from './types'
 import { isPlainObject } from './types'
 
 // ---------- LEGACY（v0）迁移源代码：形态冻结（见 types.ts LEGACY 段说明），不引用当前版本的可演进定义。 ----------
@@ -95,12 +95,13 @@ export function upgradeConfig(config: unknown, fromVersion: number): PluginConfi
     return upgrade1To2(config, fromVersion)
 }
 
-/** 全新用户的规范默认快照（与升级链对空输入的结果一致，由 test 守护） */
-export const DEFAULT_STORED: PluginConfigSnapshot = {
-    configVersion: CONFIG_VERSION,
-    allowUpdate: DEFAULT_CONFIG.allowUpdate,
-    autoFill: DEFAULT_CONFIG.autoFill,
+/** 把运行时配置物化为当前版本的存储快照（configVersion 由本函数补，调用方不手写版本号） */
+export function toStored(config: PluginConfig): PluginConfigSnapshot {
+    return { configVersion: CONFIG_VERSION, allowUpdate: config.allowUpdate, autoFill: config.autoFill }
 }
+
+/** 全新用户的规范默认快照（与升级链对空输入的结果一致，由 test 守护） */
+export const DEFAULT_STORED: PluginConfigSnapshot = toStored(DEFAULT_CONFIG)
 
 /** 收集段内合法版本号（升序）；不按最低支持过滤，低于最低支持的版本交由 pruneOps Phase A 清理 */
 function collectVersions(section: VersionedSection | undefined): number[] {
@@ -176,7 +177,7 @@ export async function waitForSettingsReady(ctx: Context, isDisposed: () => boole
 
 /**
  * 启动时配置迁移：
- * - 有当前版本快照 → 直接使用，两阶段清理低版本旧快照：先清低于最低支持版本，再清低于当前版本且超出上限的 excess（高版本快照保留）
+ * - 有当前版本快照 → 直接使用（快照本身非法则按当前生效值重写自愈），两阶段清理低版本旧快照：先清低于最低支持版本，再清低于当前版本且超出上限的 excess（高版本快照保留）
  * - 无当前版本 → 依次尝试：段内最低支持以上的最高旧快照 → 旧命名空间用户段（v0），走升级链；
  *   两者皆无（全新用户）→ 直接写入规范默认快照（不经升级链），确保后续读取必有当前版本
  * - 旧命名空间段保留，供回滚旧版插件继续读取
@@ -187,7 +188,15 @@ export async function migrateConfig(ctx: Context): Promise<void> {
     const section = isPlainObject(mine.user) ? mine.user as VersionedSection : undefined
     const versions = collectVersions(section)
     if (versions.includes(CONFIG_VERSION)) {
-        const ops = pruneOps(versions)
+        const ops: SettingsPathOp[] = []
+        // 当前版本快照非法（如用户手改坏）时自愈：不修就会长期停在「文件里是坏值、运行期按
+        // 次高版本或默认执行」的不一致状态（浏览器半同样显示默认），且每次启动都无从纠正。
+        // 重写目标取当前生效值——有可用的旧快照则沿用其语义，否则落默认。
+        if (!parseSnapshot(section?.[versionKey(CONFIG_VERSION)])) {
+            ops.push({ op: 'set', path: [versionKey(CONFIG_VERSION)], value: toStored(resolveConfig(section)) })
+            ctx.logger.warn(`${PLUGIN_NAME}: ${versionKey(CONFIG_VERSION)} 快照非法，已按当前生效配置重写`)
+        }
+        ops.push(...pruneOps(versions))
         if (ops.length > 0) await ctx.settings.mutate(PLUGIN_NS, ops, mine.revision)
         return
     }

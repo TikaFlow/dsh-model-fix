@@ -1,5 +1,6 @@
-// migrate.ts 纯函数测试：upgradeConfig 升级链 / DEFAULT_STORED / pruneOps 清理规则
-import { upgradeConfig, DEFAULT_STORED, pruneOps } from '../src/migrate'
+// migrate.ts 纯函数测试：upgradeConfig 升级链 / DEFAULT_STORED / toStored / pruneOps 清理规则
+import { DEFAULT_STORED, pruneOps, toStored, upgradeConfig } from '../src/migrate'
+import { resolveConfig } from '../src/config'
 import { check, stable } from './helper'
 
 /** 执行本文件的全部用例 */
@@ -50,6 +51,35 @@ export function run(): void {
 
     // 默认快照与升级链的一致性（全新用户直写默认 vs 空配置走升级链，结果必须相同）
     check('DEFAULT_STORED 与升级链空输入一致', stable(DEFAULT_STORED) === stable(upgradeConfig({}, 0)), { DEFAULT_STORED, chain: upgradeConfig({}, 0) })
+
+    // toStored：运行时配置 -> 当前版本快照（自愈重写与全新用户直写的唯一构造口）
+    check('toStored 补 configVersion 且只含两组', stable(toStored({
+        autoFill: { reasoning: false, context: true, image: false },
+        allowUpdate: { reasoning: true, context: false, image: true },
+    })) === stable({
+        configVersion: 2,
+        autoFill: { reasoning: false, context: true, image: false },
+        allowUpdate: { reasoning: true, context: false, image: true },
+    }), toStored({ autoFill: { reasoning: false, context: true, image: false }, allowUpdate: { reasoning: true, context: false, image: true } }))
+    check('DEFAULT_STORED 即 toStored(默认配置)', stable(DEFAULT_STORED) === stable(toStored({
+        autoFill: { reasoning: true, context: true, image: true },
+        allowUpdate: { reasoning: false, context: false, image: false },
+    })), DEFAULT_STORED)
+
+    // 自愈重写（migrateConfig 中当前快照非法时的动作）：重写目标取「当前生效值」，故重写前后
+    // 行为必须一致；有可用旧快照时沿用其语义，绝不把用户的次高版本静默抹成默认
+    const brokenV2WithV1 = {
+        'version-2': { autoFill: 'garbage' },
+        'version-1': { configVersion: 1, autoFill: { reasoning: false, context: false }, allowUpdate: { reasoning: true, context: true } },
+    }
+    const healed = { 'version-2': toStored(resolveConfig(brokenV2WithV1)) }
+    check('自愈后生效配置不变', stable(resolveConfig(healed)) === stable(resolveConfig(brokenV2WithV1)), { healed, before: resolveConfig(brokenV2WithV1) })
+    check('自愈沿用次高版本语义（未落默认）', stable(resolveConfig(healed)) === stable({
+        autoFill: { reasoning: false, context: false, image: true },
+        allowUpdate: { reasoning: true, context: true, image: false },
+    }), resolveConfig(healed))
+    const allBroken = { 'version-2': 42, 'version-9': { future: true } }
+    check('无任何可用快照时自愈为默认', stable(resolveConfig({ 'version-2': toStored(resolveConfig(allBroken)) })) === stable(resolveConfig(allBroken)), resolveConfig(allBroken))
 
     // pruneOps：两阶段清理——先淘汰低于最低支持版本（Phase A），再淘汰低于当前版本且超出保留上限的 excess（Phase B）；
     // 等于/高于当前版本永不清理；v0 位于 LEGACY、不在 PLUGIN_NS 版本列表内，故不在此处理
