@@ -1,5 +1,5 @@
-// catalog.ts 纯函数测试：buildCatalog 拍平与剪裁（推理/容量/图片模态三源）与容量守卫
-import { buildCatalog } from '../src/catalog'
+// catalog.ts 纯函数测试：buildCatalog 拍平与剪裁（推理/容量/图片模态三源）、容量守卫与缓存条目结构校验
+import { buildCatalog, isCacheEntry } from '../src/catalog'
 import { CAPACITY_UNLIMITED } from '../src/constants'
 import type { CacheEntry } from '../src/types'
 import { isCapacity } from '../src/types'
@@ -33,4 +33,22 @@ export function run(): void {
     check('无任何信息被剪裁', one({ temperature: true }) === undefined)
     check('仅 none 档不算推理但图片支持可入库', stable(one({ reasoning: true, reasoning_options: [{ type: 'toggle' }], modalities: { input: ['text', 'image'] } })) === stable({ provider: 'p', id: 'm', efforts: [], image: true }), one({ reasoning: true, reasoning_options: [{ type: 'toggle' }], modalities: { input: ['text', 'image'] } }))
     check('推理+容量+图片共存全保留', stable(one({ reasoning: true, reasoning_options: [{ type: 'effort', values: ['off', 'high', 'bogus'] }], limit: { context: 200, output: 50 }, modalities: { input: ['text', 'image'] } })) === stable({ provider: 'p', id: 'm', efforts: ['none', 'high'], contextWindow: 200, maxTokens: 50, image: true }), one({ reasoning: true, reasoning_options: [{ type: 'effort', values: ['off', 'high', 'bogus'] }], limit: { context: 200, output: 50 }, modalities: { input: ['text', 'image'] } }))
+
+    // 缓存条目结构校验：磁盘 JSON 可能被手改或写坏，坏条目必须在入库前挡掉（否则填充迭代 efforts 时抛错）
+    check('合法条目通过', isCacheEntry({ provider: 'p', id: 'm', efforts: ['high', 'none'] }))
+    check('可选容量与图片省略也通过', isCacheEntry({ provider: 'p', id: 'm', efforts: [], contextWindow: 200, maxTokens: 50, image: true }))
+    check('缺 provider / id 或非字符串、空串一律拒绝', !isCacheEntry({ id: 'm', efforts: [] })
+        && !isCacheEntry({ provider: 1, id: 'm', efforts: [] })
+        && !isCacheEntry({ provider: '', id: 'm', efforts: [] })
+        && !isCacheEntry({ provider: 'p', efforts: [] }))
+    check('efforts 缺失、非数组、含非字符串一律拒绝', !isCacheEntry({ provider: 'p', id: 'm' })
+        && !isCacheEntry({ provider: 'p', id: 'm', efforts: 'high' })
+        && !isCacheEntry({ provider: 'p', id: 'm', efforts: ['high', 1] }))
+    check('容量非法（0/小数/字符串/哨兵）拒绝整条', !isCacheEntry({ provider: 'p', id: 'm', efforts: [], contextWindow: 0 })
+        && !isCacheEntry({ provider: 'p', id: 'm', efforts: [], contextWindow: 1.5 })
+        && !isCacheEntry({ provider: 'p', id: 'm', efforts: [], maxTokens: '200' })
+        && !isCacheEntry({ provider: 'p', id: 'm', efforts: [], maxTokens: CAPACITY_UNLIMITED }))
+    check('image 只认真值（false 属旧格式，拒绝）', !isCacheEntry({ provider: 'p', id: 'm', efforts: [], image: false }) && isCacheEntry({ provider: 'p', id: 'm', efforts: [], image: true }))
+    check('非对象条目拒绝', !isCacheEntry(null) && !isCacheEntry('x') && !isCacheEntry([{ provider: 'p', id: 'm', efforts: [] }]))
+    check('buildCatalog 产物必然通过校验', buildCatalog({ p: { models: { m: { limit: { context: 10 } } } } }).every((entry) => isCacheEntry(entry)))
 }

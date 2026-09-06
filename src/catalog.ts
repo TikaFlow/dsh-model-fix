@@ -105,12 +105,31 @@ function indexFromArray(catalog: Catalog): IndexedCatalog {
     return { catalog, groups }
 }
 
-/** 从缓存文件异步加载目录：解析结果非空数组才算可用 */
+/**
+ * 缓存条目结构校验：条目来自磁盘 JSON（用户可编辑、写入可能被截断），
+ * 而填充流程直接迭代 `entry.efforts` 并按 provider/id 建索引——一条坏条目会让整批填充抛错，
+ * 故在入库前逐条判定：必填字段类型正确、可选容量通过 isCapacity、image 只认真值。
+ */
+export function isCacheEntry(value: unknown): value is CacheEntry {
+    if (!isPlainObject(value)) return false
+    const { provider, id, efforts, contextWindow, maxTokens, image } = value as Partial<CacheEntry> & Record<string, unknown>
+    if (typeof provider !== 'string' || provider === '') return false
+    if (typeof id !== 'string' || id === '') return false
+    if (!Array.isArray(efforts) || !efforts.every((effort) => typeof effort === 'string')) return false
+    if (contextWindow !== undefined && !isCapacity(contextWindow)) return false
+    if (maxTokens !== undefined && !isCapacity(maxTokens)) return false
+    if (image !== undefined && image !== true) return false
+    return true
+}
+
+/** 从缓存文件异步加载目录：解析为非空数组后逐条校验，有效条目为空才算不可用（交由网络拉取自愈） */
 export async function readCache(): Promise<IndexedCatalog | undefined> {
     try {
         const parsed = JSON.parse(await readFile(CACHE_FILE, 'utf8')) as unknown
-        if (!Array.isArray(parsed) || parsed.length === 0) return
-        return indexFromArray(parsed as CacheEntry[])
+        if (!Array.isArray(parsed)) return
+        const usable = parsed.filter(isCacheEntry)
+        if (usable.length === 0) return
+        return indexFromArray(usable)
     } catch {
         return
     }
