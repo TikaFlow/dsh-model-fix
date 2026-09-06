@@ -2,10 +2,11 @@
  * 模型参数填充卡片（浏览器半）：可折叠卡片，1:1 复刻官方 Web-UI 插件卡（ui-settings-plugins）。
  * header 整块为 `aria-expanded` 按钮（名称 + 描述两行，dirty 时挂「未保存」胶囊；折叠文案只进
  * aria-label，官方同款——视觉只有 chevron，不是死代码），展开体为 4 行表格（表头为纵向总控，
- * 不落存储；列名下方常驻 hint 释义，官方设置面不用 Tooltip）+ footer（强制更新 左｜放弃修改 · 应用 右）。
- * 本地暂存（draft）：单格/总控点击只改草稿，点「应用」才经 settingsScope 原子写 version-2；
+ * 不落存储；列名下方常驻 hint 释义，官方设置面不用 Tooltip）+ footer（强制更新 左｜放弃修改 · 保存 右）；
+ * 全卡仅两条分隔线——摘要与配置内容之间、配置内容与按钮行之间，表格行之间不画线。
+ * 本地暂存（draft）：单格/总控点击只改草稿，点「保存」才经 settingsScope 原子写 version-2；
  * 草稿跨折叠存活（收起时靠 header 胶囊告知未落盘），「放弃修改」即草稿归 null 回随已存值；
- * 应用被宿主确认落地（dirty 归 false）后自动收起并留一行弱提示，写失败保持展开与草稿可重试。
+ * 保存被宿主确认落地（dirty 归 false）后自动收起并留一行弱提示，写失败保持展开与草稿可重试。
  * 结果反馈一律走卡片内联状态行（挂在 header 之后、条件展开体之外，故折叠不丢在途结果），
  * 不用宿主 Toast——官方设置面零 Toast 调用，成功走自动收起/绿字提示、失败走行内红字。
  * 「强制更新」（危险按钮，贴最左）弹宿主 Modal 二次确认（官方删除确认同款：outline 按钮 + 红色
@@ -70,7 +71,8 @@ const STYLE_TEXT = [
     '.dsh-mr-chevron{flex:none;color:var(--dsw-alias-label-tertiary,#81858c);transition:transform .16s}',
     '.dsh-mr-chevronOpen{transform:rotate(180deg)}',
     '.dsh-mr-pending{flex:none;border-radius:999px;corner-shape:round;padding:1px 8px;font-size:11px;line-height:17px;font-weight:500;white-space:nowrap;background:var(--dsw-alias-bg-module-platform,#f5f6f7);color:var(--dsw-alias-label-secondary,#61666b)}',
-    // 展开体：左右内缩与 rowCard 左缘对齐，顶部分隔线即与 header 的界线
+    // 展开体：左右内缩与 rowCard 左缘对齐；全卡只两条分隔线——本行一条（隔开摘要与配置内容）、
+    // footer 一条（隔开配置内容与按钮行），表格行之间不画线
     '.dsh-mr-body{margin:0 14px;padding-bottom:8px;border-top:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));display:flex;flex-direction:column;gap:12px}',
     // 状态行：内联承载一切结果反馈（官方设置面无 Toast）
     '.dsh-mr-notice{margin:0;padding:0 14px 12px;font-size:12px;line-height:18px}',
@@ -79,9 +81,7 @@ const STYLE_TEXT = [
     '.dsh-mr-line{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mr-warn{color:var(--dsw-alias-state-warn-label,#dd8629)}',
     '.dsh-mr-grid{display:flex;flex-direction:column}',
-    // 分隔线只在相邻行间画（表头行不画顶边，避免与展开体顶线叠成粗线）
     '.dsh-mr-row{display:grid;grid-template-columns:minmax(0,1fr) 140px 140px;align-items:center;gap:8px;padding:8px 0}',
-    '.dsh-mr-row+.dsh-mr-row{border-top:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1))}',
     // 表头取发布版说明条同规格（.modelCatalogTitle：12/18、500、label-secondary）
     '.dsh-mr-head{font-size:12px;font-weight:500;line-height:18px;color:var(--dsw-alias-label-secondary,#61666b)}',
     '.dsh-mr-label{font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,#0f1115)}',
@@ -100,14 +100,14 @@ const STYLE_TEXT = [
     '.dsh-mr-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 0 4px;border-top:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1))}',
     '.dsh-mr-actions{display:flex;align-items:center;gap:8px}',
     // footer 三把按钮共用官方 .discard/.save 基座；危险键按官方语义为红字透明底（无实心红先例）
-    '.dsh-mr-discard,.dsh-mr-apply,.dsh-mr-force{appearance:none;border:1px solid transparent;border-radius:8px;padding:5px 14px;font:inherit;font-size:13px;line-height:1.5;cursor:pointer}',
+    '.dsh-mr-discard,.dsh-mr-save,.dsh-mr-force{appearance:none;border:1px solid transparent;border-radius:8px;padding:5px 14px;font:inherit;font-size:13px;line-height:1.5;cursor:pointer}',
     '.dsh-mr-discard{border-color:var(--dsw-alias-border-l2,rgba(0,0,0,.1));background:none;color:var(--dsw-alias-label-secondary,#61666b)}',
     '.dsh-mr-discard:hover:not(:disabled){color:var(--dsw-alias-label-primary,#0f1115);border-color:var(--dsw-alias-label-dimmed,#e1e5ee)}',
-    '.dsh-mr-apply{background:var(--dsw-alias-label-primary,#0f1115);color:var(--dsw-alias-bg-layer-3,#fff)}',
+    '.dsh-mr-save{background:var(--dsw-alias-label-primary,#0f1115);color:var(--dsw-alias-bg-layer-3,#fff)}',
     '.dsh-mr-force{background:none;color:var(--dsw-alias-state-error-primary,#ec1313)}',
     '.dsh-mr-force:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger,rgba(236,19,19,.05))}',
-    '.dsh-mr-discard:disabled,.dsh-mr-apply:disabled,.dsh-mr-force:disabled{opacity:.4;cursor:default}',
-    '.dsh-mr-discard:focus-visible,.dsh-mr-apply:focus-visible,.dsh-mr-force:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#0f1115);outline-offset:1px}',
+    '.dsh-mr-discard:disabled,.dsh-mr-save:disabled,.dsh-mr-force:disabled{opacity:.4;cursor:default}',
+    '.dsh-mr-discard:focus-visible,.dsh-mr-save:focus-visible,.dsh-mr-force:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#0f1115);outline-offset:1px}',
     // 危险确认键：官方 .deleteConfirm 写法（outline 按钮 + 红描边红字 + danger hover）
     '.dsh-mr-confirmDanger:not(:disabled){border-color:var(--dsw-alias-state-error-primary,#ec1313);color:var(--dsw-alias-state-error-primary,#ec1313)}',
     '.dsh-mr-confirmDanger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger,rgba(236,19,19,.05))}',
@@ -217,7 +217,7 @@ export function Card(props: CardProps) {
         setNotice(null)
         setDraft(applyColumn(shown, column, !masterValue(shown, column)))
     }
-    const onApply = () => {
+    const onSave = () => {
         if (!canWrite || !dirty || submitting) return
         setNotice(null)
         setSubmitting(true)
@@ -381,11 +381,11 @@ export function Card(props: CardProps) {
                             </button>
                             <button
                                 type="button"
-                                className="dsh-mr-apply"
+                                className="dsh-mr-save"
                                 disabled={!canWrite || !dirty || submitting || forceBusy}
-                                onClick={onApply}
+                                onClick={onSave}
                             >
-                                {submitting ? t('saving') : t('apply')}
+                                {submitting ? t('saving') : t('save')}
                             </button>
                         </span>
                     </div>

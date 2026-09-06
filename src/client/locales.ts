@@ -20,7 +20,7 @@ export type CardKey =
     | 'rowReasoning'
     | 'rowContext'
     | 'rowImage'
-    | 'apply'
+    | 'save'
     | 'saving'
     | 'saveDone'
     | 'discard'
@@ -70,7 +70,7 @@ export const zh: Record<CardKey, string> = {
     rowReasoning: '推理级别',
     rowContext: '上下文与输出',
     rowImage: '图片输入',
-    apply: '应用',
+    save: '保存',
     saving: '保存中…',
     saveDone: '配置已保存。',
     discard: '放弃修改',
@@ -102,7 +102,7 @@ export const en: Record<CardKey, string> = {
     rowReasoning: 'Reasoning efforts',
     rowContext: 'Context & output',
     rowImage: 'Image input',
-    apply: 'Apply',
+    save: 'Save',
     saving: 'Saving…',
     saveDone: 'Settings saved.',
     discard: 'Discard',
