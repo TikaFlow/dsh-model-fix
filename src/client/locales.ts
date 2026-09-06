@@ -59,6 +59,12 @@ export const COLUMN_KEYS: Record<'autoFill' | 'allowUpdate', CardKey> = {
     allowUpdate: 'colAllowUpdate',
 }
 
+/** 配置组释义键映射（瓦片展开体首行） */
+export const HINT_KEYS: Record<'autoFill' | 'allowUpdate', CardKey> = {
+    autoFill: 'hintAutoFill',
+    allowUpdate: 'hintAllowUpdate',
+}
+
 export const zh: Record<CardKey, string> = {
     title: '模型参数填充',
     description: '控制自定义提供商模型的参数自动填充与按 models.dev 同步。',

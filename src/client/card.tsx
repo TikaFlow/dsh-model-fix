@@ -34,7 +34,10 @@ import {
     toggleCell,
 } from './model'
 import type { Column, Flags } from './model'
-import { COLUMN_KEYS, ROW_KEYS } from './locales'
+import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from './locales'
+
+/** 卡片行键（reasoning / context / image） */
+type FieldKey = (typeof FIELD_KEYS)[number]
 
 /** 卡片组件 props（t 由 slots.register 的 locale 席位合成注入；scope/forceUpdate 由入口闭包传入） */
 export interface CardProps {
@@ -181,57 +184,55 @@ function Switch(props: { checked: boolean; disabled: boolean; aria: string; onCh
  * 配置组瓦片（官方「插件列表」项卡同款）：summary 为组名 + 整组开关 + 折叠箭头，
  * 展开体为组释义 + 三行子开关。整行可点由 `.dsh-mr-itemToggle` 覆盖层承担，开关在其
  * 上层独占点击区（故不存在 button 嵌套）；可访问名用 aria-labelledby 指向可见标题。
+ * 文案与可访问名一律由 column + 词典键在此派生，两个瓦片因此只差 column/open/回调。
  */
 function GroupTile(props: {
     column: Column
-    tileKey: string
-    title: string
-    hint: string
+    t: CardProps['t']
+    flags: Flags
     open: boolean
     disabled: boolean
-    flags: Flags
-    masterAria: string
     onToggle: () => void
     onMaster: () => void
-    onCell: (key: (typeof FIELD_KEYS)[number]) => void
-    labelOf: (key: (typeof FIELD_KEYS)[number]) => string
-    cellAria: (key: (typeof FIELD_KEYS)[number]) => string
+    onCell: (key: FieldKey) => void
 }) {
-    const id = `dsh-mr-item-${props.tileKey}`
+    const { column, t, open } = props
+    const id = `dsh-mr-item-${column}`
+    const title = t(COLUMN_KEYS[column])
     return (
-        <div className="dsh-mr-item" role="group" data-open={props.open ? 'true' : undefined} aria-labelledby={`${id}-title`}>
+        <div className="dsh-mr-item" role="group" data-open={open ? 'true' : undefined} aria-labelledby={`${id}-title`}>
             <div className="dsh-mr-itemHead">
                 <button
                     type="button"
                     className="dsh-mr-itemToggle"
-                    aria-expanded={props.open}
+                    aria-expanded={open}
                     aria-controls={`${id}-body`}
                     aria-labelledby={`${id}-title`}
                     onClick={props.onToggle}
                 />
-                <strong className="dsh-mr-itemTitle" id={`${id}-title`}>{props.title}</strong>
+                <strong className="dsh-mr-itemTitle" id={`${id}-title`}>{title}</strong>
                 <span className="dsh-mr-itemTrailing">
                     <span className="dsh-mr-itemSwitch">
                         <Switch
-                            checked={masterValue(props.flags, props.column)}
+                            checked={masterValue(props.flags, column)}
                             disabled={props.disabled}
-                            aria={props.masterAria}
+                            aria={`${title} ${t('masterAll')}`}
                             onChange={props.onMaster}
                         />
                     </span>
                     <IconChevronDownOutline14 size={12} className="dsh-mr-itemChevron" />
                 </span>
             </div>
-            {props.open ? (
+            {open ? (
                 <div className="dsh-mr-itemBody" id={`${id}-body`}>
-                    <p className="dsh-mr-itemHint">{props.hint}</p>
+                    <p className="dsh-mr-itemHint">{t(HINT_KEYS[column])}</p>
                     {FIELD_KEYS.map((key) => (
                         <div key={key} className="dsh-mr-itemRow">
-                            <span>{props.labelOf(key)}</span>
+                            <span>{t(ROW_KEYS[key])}</span>
                             <Switch
-                                checked={props.flags[props.column][key]}
+                                checked={props.flags[column][key]}
                                 disabled={props.disabled}
-                                aria={props.cellAria(key)}
+                                aria={`${t(ROW_KEYS[key])} ${title}`}
                                 onChange={() => { props.onCell(key) }}
                             />
                         </div>
@@ -300,10 +301,7 @@ export function Card(props: CardProps) {
         )
     }
 
-    const cellAria = (column: Column, row: (typeof FIELD_KEYS)[number]) =>
-        `${t(ROW_KEYS[row])} ${t(COLUMN_KEYS[column])}`
-
-    const onCell = (column: Column, key: (typeof FIELD_KEYS)[number]) => {
+    const onCell = (column: Column, key: FieldKey) => {
         setNotice(null)
         setDraft(toggleCell(shown, column, key))
     }
@@ -409,37 +407,21 @@ export function Card(props: CardProps) {
                 <div className="dsh-mr-body">
                     {!ready ? <p className="dsh-mr-line" role="status">{t('loading')}</p> : null}
                     {ready && !snap.writable ? <p className="dsh-mr-line dsh-mr-warn" role="status">{t('readOnly')}</p> : null}
+                    {/* 两个配置组只差 column：由列名键表派生渲染，保证两瓦片形态始终一致 */}
                     <div className="dsh-mr-items">
-                        <GroupTile
-                            column="autoFill"
-                            tileKey="autoFill"
-                            title={t('colAutoFill')}
-                            hint={t('hintAutoFill')}
-                            open={tileOpen === 'autoFill'}
-                            disabled={!canWrite}
-                            flags={shown}
-                            masterAria={`${t('colAutoFill')} ${t('masterAll')}`}
-                            onToggle={() => { onTileToggle('autoFill') }}
-                            onMaster={() => { onMaster('autoFill') }}
-                            onCell={(key) => { onCell('autoFill', key) }}
-                            labelOf={(key) => t(ROW_KEYS[key])}
-                            cellAria={(key) => cellAria('autoFill', key)}
-                        />
-                        <GroupTile
-                            column="allowUpdate"
-                            tileKey="allowUpdate"
-                            title={t('colAllowUpdate')}
-                            hint={t('hintAllowUpdate')}
-                            open={tileOpen === 'allowUpdate'}
-                            disabled={!canWrite}
-                            flags={shown}
-                            masterAria={`${t('colAllowUpdate')} ${t('masterAll')}`}
-                            onToggle={() => { onTileToggle('allowUpdate') }}
-                            onMaster={() => { onMaster('allowUpdate') }}
-                            onCell={(key) => { onCell('allowUpdate', key) }}
-                            labelOf={(key) => t(ROW_KEYS[key])}
-                            cellAria={(key) => cellAria('allowUpdate', key)}
-                        />
+                        {(Object.keys(COLUMN_KEYS) as Column[]).map((column) => (
+                            <GroupTile
+                                key={column}
+                                column={column}
+                                t={t}
+                                flags={shown}
+                                open={tileOpen === column}
+                                disabled={!canWrite}
+                                onToggle={() => { onTileToggle(column) }}
+                                onMaster={() => { onMaster(column) }}
+                                onCell={(key) => { onCell(column, key) }}
+                            />
+                        ))}
                     </div>
                     <div className="dsh-mr-footer">
                         <button
