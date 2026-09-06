@@ -11,6 +11,7 @@ export const CARD_NS = 'settings.modelReasoning'
 /** 卡片文案键集合 */
 export type CardKey =
     | 'title'
+    | 'description'
     | 'colModelParams'
     | 'colAutoFill'
     | 'colAllowUpdate'
@@ -21,6 +22,10 @@ export type CardKey =
     | 'rowImage'
     | 'apply'
     | 'saving'
+    | 'discard'
+    | 'unsaved'
+    | 'expand'
+    | 'collapse'
     | 'force'
     | 'forceBusy'
     | 'forceConfirm'
@@ -55,6 +60,7 @@ export const COLUMN_KEYS: Record<'autoFill' | 'allowUpdate', CardKey> = {
 
 export const zh: Record<CardKey, string> = {
     title: '模型参数填充',
+    description: '控制自定义提供商模型的参数自动填充与按 models.dev 同步。',
     colModelParams: '模型参数',
     colAutoFill: '自动填充',
     colAllowUpdate: '允许更新',
@@ -65,6 +71,10 @@ export const zh: Record<CardKey, string> = {
     rowImage: '图片输入',
     apply: '应用',
     saving: '保存中…',
+    discard: '放弃修改',
+    unsaved: '未保存',
+    expand: '展开设置',
+    collapse: '收起设置',
     force: '强制更新',
     forceBusy: '更新中…',
     forceConfirm: '将按 models.dev 目录当前值强制覆盖模型参数（可能覆盖手动配置的参数）。',
@@ -81,6 +91,7 @@ export const zh: Record<CardKey, string> = {
 
 export const en: Record<CardKey, string> = {
     title: 'Model field auto-fill',
+    description: 'Controls auto-fill of custom provider model fields and syncing them with models.dev.',
     colModelParams: 'Model parameter',
     colAutoFill: 'Auto fill',
     colAllowUpdate: 'Allow update',
@@ -91,6 +102,10 @@ export const en: Record<CardKey, string> = {
     rowImage: 'Image input',
     apply: 'Apply',
     saving: 'Saving…',
+    discard: 'Discard',
+    unsaved: 'Unsaved',
+    expand: 'Show settings',
+    collapse: 'Hide settings',
     force: 'Force update',
     forceBusy: 'Updating…',
     forceConfirm: 'Overwrite model parameters with current models.dev catalog values (manual configuration may be overwritten).',
