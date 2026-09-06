@@ -336,10 +336,7 @@ export function Card(props: CardProps) {
                 setSubmitting(false)
             })
     }
-    // 放弃修改：草稿归 null 即回到「跟随已存值」形态，dirty 随之消失（不发任何写）。
-    // TODO(恢复默认)：官方 reset 语义＝scope.unset 清掉 user 层、回落组合层 base（见 harness
-    // card-form.ts 的 resetField/plan），与 discard（只丢草稿）正交；本插件的快照无 base 层，
-    // 若要「恢复默认」应显式写入 DEFAULT_FLAGS 规范快照，属独立需求，勿与本按钮混用。
+    // 放弃修改：草稿归 null 即回到「跟随已存值」形态，dirty 随之消失（不发任何写）
     const onDiscard = () => {
         if (submitting) return
         setNotice(null)
