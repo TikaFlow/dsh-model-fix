@@ -15,13 +15,14 @@ export type CardKey =
     | 'colModelParams'
     | 'colAutoFill'
     | 'colAllowUpdate'
-    | 'tipAutoFill'
-    | 'tipAllowUpdate'
+    | 'hintAutoFill'
+    | 'hintAllowUpdate'
     | 'rowReasoning'
     | 'rowContext'
     | 'rowImage'
     | 'apply'
     | 'saving'
+    | 'saveDone'
     | 'discard'
     | 'unsaved'
     | 'expand'
@@ -64,13 +65,14 @@ export const zh: Record<CardKey, string> = {
     colModelParams: '模型参数',
     colAutoFill: '自动填充',
     colAllowUpdate: '允许更新',
-    tipAutoFill: '该参数空缺时自动填充',
-    tipAllowUpdate: '按 models.dev 数据同步该参数：空缺时补填，不一致时覆盖',
+    hintAutoFill: '该参数空缺时自动填充',
+    hintAllowUpdate: '按 models.dev 数据同步该参数：空缺时补填，不一致时覆盖',
     rowReasoning: '推理级别',
     rowContext: '上下文与输出',
     rowImage: '图片输入',
     apply: '应用',
     saving: '保存中…',
+    saveDone: '配置已保存。',
     discard: '放弃修改',
     unsaved: '未保存',
     expand: '展开设置',
@@ -81,8 +83,8 @@ export const zh: Record<CardKey, string> = {
     forceCancel: '取消',
     forceGo: '确认更新',
     close: '关闭',
-    forceDone: '已强制更新 {count} 个模型',
-    forceNone: '目录值与现有配置一致，无需变更',
+    forceDone: '已强制更新 {count} 个模型。',
+    forceNone: '目录值与现有配置一致，无需变更。',
     forceFailed: '强制更新失败：{message}',
     loading: '正在读取配置…',
     unavailable: '配置不可用（未检测到插件的宿主服务）',
@@ -95,13 +97,14 @@ export const en: Record<CardKey, string> = {
     colModelParams: 'Model parameter',
     colAutoFill: 'Auto fill',
     colAllowUpdate: 'Allow update',
-    tipAutoFill: 'Auto-fills the parameter when it is missing',
-    tipAllowUpdate: 'Syncs the parameter with models.dev data: fills it when missing, overwrites when different',
+    hintAutoFill: 'Auto-fills the parameter when it is missing',
+    hintAllowUpdate: 'Syncs the parameter with models.dev data: fills it when missing, overwrites when different',
     rowReasoning: 'Reasoning efforts',
     rowContext: 'Context & output',
     rowImage: 'Image input',
     apply: 'Apply',
     saving: 'Saving…',
+    saveDone: 'Settings saved.',
     discard: 'Discard',
     unsaved: 'Unsaved',
     expand: 'Show settings',
@@ -112,8 +115,8 @@ export const en: Record<CardKey, string> = {
     forceCancel: 'Cancel',
     forceGo: 'Update',
     close: 'Close',
-    forceDone: 'Force-updated {count} model(s)',
-    forceNone: 'Catalog values match; nothing to update',
+    forceDone: 'Force-updated {count} model(s).',
+    forceNone: 'Catalog values match; nothing to update.',
     forceFailed: 'Force update failed: {message}',
     loading: 'Loading settings…',
     unavailable: 'Settings unavailable (host plugin service not found)',
