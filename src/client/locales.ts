@@ -12,9 +12,9 @@ export const CARD_NS = 'settings.modelReasoning'
 export type CardKey =
     | 'title'
     | 'description'
-    | 'colModelParams'
     | 'colAutoFill'
     | 'colAllowUpdate'
+    | 'masterAll'
     | 'hintAutoFill'
     | 'hintAllowUpdate'
     | 'rowReasoning'
@@ -62,9 +62,9 @@ export const COLUMN_KEYS: Record<'autoFill' | 'allowUpdate', CardKey> = {
 export const zh: Record<CardKey, string> = {
     title: '模型参数填充',
     description: '控制自定义提供商模型的参数自动填充与按 models.dev 同步。',
-    colModelParams: '模型参数',
     colAutoFill: '自动填充',
     colAllowUpdate: '允许更新',
+    masterAll: '全部',
     hintAutoFill: '该参数空缺时自动填充',
     hintAllowUpdate: '按 models.dev 数据同步该参数：空缺时补填，不一致时覆盖',
     rowReasoning: '推理级别',
@@ -94,9 +94,9 @@ export const zh: Record<CardKey, string> = {
 export const en: Record<CardKey, string> = {
     title: 'Model field auto-fill',
     description: 'Controls auto-fill of custom provider model fields and syncing them with models.dev.',
-    colModelParams: 'Model parameter',
     colAutoFill: 'Auto fill',
     colAllowUpdate: 'Allow update',
+    masterAll: 'all',
     hintAutoFill: 'Auto-fills the parameter when it is missing',
     hintAllowUpdate: 'Syncs the parameter with models.dev data: fills it when missing, overwrites when different',
     rowReasoning: 'Reasoning efforts',
