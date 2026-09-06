@@ -155,7 +155,7 @@ function ensureStyles(): void {
     stylesInjected = true
 }
 
-/** 失败信息截断（内联状态行为单行小字，防长消息撑爆布局） */
+/** 截断失败信息：RPC 与异常消息可能极长（含 URL、响应片段），截断以保持状态行可读 */
 function truncateMessage(value: string): string {
     return value.length > 120 ? `${value.slice(0, 119)}…` : value
 }
