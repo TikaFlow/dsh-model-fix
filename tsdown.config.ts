@@ -47,7 +47,8 @@ export default defineConfig([
         target: 'es2024',
         fixedExtension: false,
         dts: false,
-        sourcemap: true,
+        // 与 node 半一致：不开 sourcemap（浏览器半 map 会内嵌 sourcesContent 全源码，随包发布只增体积）
+        sourcemap: false,
         define: {
             // 被 inline 的依赖可能读取 node 惯用环境变量，CJS 产物中必须替换掉
             'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
