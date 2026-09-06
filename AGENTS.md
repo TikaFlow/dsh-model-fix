@@ -4,66 +4,120 @@
 
 DSH 插件：为所有非官方（自定义）提供商的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`），数据来自 models.dev。
 
-## 技术栈
+## 技术栈与目录
 
-- 运行时：Node.js（ESM），基于 `@deepseek-ai/cordis` 的插件
-- 构建：tsdown（rolldown）输出到 `lib/`
-- 类型：TypeScript 严格模式，类型检查命令 `pnpm run typecheck`
+Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置构建到 `lib/`（Node 半 `index.js` + 浏览器半 `client.js`，clean 只由 Node 半配置承担）；TypeScript 严格模式。产物不带 sourcemap。
 
-## 目录结构
-
-| 路径 | 说明 |
+| 路径 | 职责（只标非显而易见的部分） |
 | --- | --- |
-| `src/index.ts` | 插件本体（仅 `export` 与 `apply` 生命周期），其余逻辑拆分至下列模块 |
-| `src/types.ts` | 共享类型定义与类型守卫（`isPlainObject`/`isCapacity`、LEGACY(v0)/历史版本(v1) 冻结类型、`PluginConfig`/快照等、Connection RPC 契约结构复制） |
-| `src/constants.ts` | 命名空间（`API_NS`/`PLUGIN_NS`/`LEGACY_NS`）、配置版本与快照保留上限、重试参数、缓存路径、推理级别集合与提供商提示等常量 |
-| `src/config.ts` | 当前配置 schema、默认值、版本快照段的 `resolveConfig` 与配置源读写 |
-| `src/migrate.ts` | 配置版本迁移：LEGACY(v0)/历史版本(v1) 冻结 schema、链式升级台阶、启动就绪等待（`waitForSettingsReady`/`isNamespaceRegistered`）与 `migrateConfig` 编排 |
-| `src/catalog.ts` | 目录数据：内存索引、缓存读取、models.dev 拉取与拍平 |
-| `src/lookup.ts` | 模型 id 归一化/匹配与 `lookup`、`toReasoningEfforts` 转换 |
-| `src/fix.ts` | 填充/修复流程：遍历模型生成变更并写回 settings（`force` 参数供强制更新单次绕过 allowUpdate） |
-| `src/rpc.ts` | 强制更新 Connection RPC：注册 channel `/tikaflow-model-fix`（endpoint `forceUpdate` → `fix(ctx, true)`，结果回传浏览器半） |
-| `src/refresh.ts` | 异步刷新编排：拉取最新数据、更新索引后触发填充（含失败重试） |
-| `src/client/` | 浏览器半（web-ui，见「核心逻辑-浏览器半」）：`index.tsx` client 插件入口（词典/scope/强制更新 RPC 载体/槽注册）、`card.tsx` 设置卡片组件（可折叠）、`model.ts` 快照↔六布尔纯映射（单测对象）、`locales.ts` 中英词典 |
-| `test/` | 纯函数测试（见「测试规范」），入口 `test/index.ts`，产物打包到 `.test-dist/`（gitignore） |
-| `public/models-cache.json` | models.dev 处理后缓存（拍平数组），构建时复制到产物目录 |
-| `lib/` | 构建产物（gitignore），含 `lib/index.js`（Node 半）、`lib/client.js`（浏览器半 lazy-CJS 工厂产物）与 `lib/public/models-cache.json` |
+| `src/index.ts` | 仅 `export` + `apply` 生命周期编排，业务全部外拆 |
+| `src/types.ts` | 共享类型与守卫；**LEGACY(v0)/历史版本(v1) 是冻结形态**；Connection RPC 契约的结构本地复制也在这里 |
+| `src/constants.ts` | 命名空间、版本与保留上限、重试参数、`CAPACITY_UNLIMITED`、提供商提示表 `HINTS` |
+| `src/config.ts` / `src/migrate.ts` | 当前 schema 与 `resolveConfig` / 升级链与 `migrateConfig` 编排 |
+| `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
+| `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过） |
+| `src/rpc.ts` / `src/refresh.ts` | 强制更新 channel / 刷新编排（含重试） |
+| `src/client/` | 浏览器半：`index.tsx` 入口（词典/scope/RPC 载体/槽注册）、`card.tsx` 卡片、`model.ts` 快照↔六布尔纯映射（唯一可单测的浏览器半模块）、`locales.ts` 中英词典 |
+| `public/models-cache.json` | 构建期随 `lib/public/` 发布的 models.dev 拍平缓存（首启离线可用） |
 | `cordis.patch.yml` | DSH 补丁层对本插件的注册 |
-| `tsdown.config.ts` | 构建配置（`outDir: lib`、`copy: public`） |
 
-## 核心逻辑
+## 硬约束（违反即坏）
 
-- **自有配置（`tikaflow-model-fix` 命名空间，版本快照制）**：段为 `version-N` -> 配置快照的映射（dsh-settings 根写入要求纯对象，故不用列表）；`CONFIG_VERSION=2` 为当前代码版本，`MIN_SUPPORTED_VERSION=0`（旧 `model-reasoning` 命名空间的形态统一视为 v0），`MAX_OLD_SNAPSHOTS=3`；段 schema 为宽松 `z.dict(z.any())`（保证更新版本快照不阻塞注册），严格校验只针对当前版本快照值（`PluginConfigSchema`：`autoFill`/`allowUpdate` **仅对象写法** `{ reasoning, context, image }` 按字段控制，省略字段跟随整项默认 `autoFill`=`true`、`allowUpdate`=`false`；布尔写法是 v0 专属历史形态，仅由升级链展开为对象，当前 schema 不接受，杜绝语法二义性）；运行时 `resolveConfig` 优先当前版本快照，其次 ≤ 当前且 ≥ 最低支持的最高版本，均不可用回退默认
-- **配置迁移（`migrateConfig`，首轮填充之前执行）**：有当前版本快照 → 使用其值，但先用 `parseSnapshot` 复核该快照合法性：非法（如用户手改坏）则按 `toStored(resolveConfig(section))` 重写并告警——重写目标取当前生效值，故有可用旧快照时沿用其语义而非落默认；重写是必要的，否则运行期与浏览器半会长期停在"文件里是坏值、按次高版本/默认执行"的不一致态且无从纠正。随后两阶段清理旧快照：先清理低于 `MIN_SUPPORTED_VERSION` 的快照（已失效、不读取不处理，提升最低支持时随之淘汰），再清理低于当前版本且超出 `MAX_OLD_SNAPSHOTS` 上限的 excess（从最低版本起淘汰；等于/高于当前版本的快照永不清理，高版本供新版插件回退后无损读取，检测到仅告警不读取）；v0 位于 LEGACY 旧命名空间、不在当前 NS 的 `version-N` 键内，故不参与上述清理（旧 NS 段一律保留不删除，便于回滚 0.5.x 插件）；无当前版本 → 迁移源依次取段内最低支持以上的最高旧快照、旧 NS 用户段（存在实际对象段），走升级链写入；全新用户直接写 `DEFAULT_STORED` 规范默认快照（不经升级链），保证启动后必有当前版本快照；写入用定向路径 op（`set ['version-N']`），不触碰用户手写键与高版本快照
-- **升级链与历史形态隔离**：每个台阶 `upgradeNToN+1` 只做相邻一级升级、目标版本号固定字面量（不引用 `CONFIG_VERSION`），入口 `upgradeConfig` 指向最新台阶，`fromVersion` 低于台阶起点时递归前一级、否则跳过；新版本发布仅追加台阶函数；需固化的历史形态分两类，均不引用当前版本的可演进定义——一是 LEGACY（仅指 v0，旧 `model-reasoning` 命名空间，如 `LegacyConfig`），二是新命名空间（`tikaflow-model-fix`，0.6.0 起的版本快照体系）内的历史版本快照 schema（如 v1 的 `V1FieldRules`/`V1PluginConfigSnapshot`，它是快照体系的旧版本、不属 LEGACY）；某历史版本不再支持（提升 `MIN_SUPPORTED_VERSION`）时其冻结代码段与对应台阶整体移除（v0 还包括 `upgrade0To1` 与 index.ts 的旧 NS shim 注册）；`PluginConfig`（运行时配置）与 `PluginConfigSnapshot`（存储快照）独立定义、无继承拼接
-- 数据加载（`readCache` / `fetchLatest`）：缓存为 models.dev 处理后拍平数组（每条 provider/id/efforts/contextWindow/maxTokens/image，仅当具备【有效推理级别、contextWindow、maxTokens、支持图片】任一信息时入库；容量提取经 `isCapacity`——非正整数与 `CAPACITY_UNLIMITED=99999999`（models.dev 对"无限/未公布"的哨兵建模，另含媒体模型的 0）视为无该字段；`image` 只缓存正向信息——支持图片才写 `true`，纯文本模型省略该字段以控制体积）；`readCache`（异步读取）校验解析结果为数组后**逐条按 `isCacheEntry` 校验条目结构**（provider/id 为非空字符串、efforts 为字符串数组、可选容量须过 `isCapacity`、`image` 只认真值），有效条目为空即判定缓存不可用（交由网络拉取自愈；旧缓存缺 `image` 字段视为无数据，不填图片、刷新后自愈）；缓存可用则立即用缓存填充，再异步拉取 models.dev 原始 JSON（解析拍平后仅当数据非空才替换内存索引并覆盖缓存，内容无变化则跳过写入；拉取失败以固定 5s 间隔总尝试最多 3 次（含首次），仍失败仅记录日志、继续使用现有目录；覆盖缓存的写入失败同样以固定 5s 间隔总尝试最多 3 次（含首次），仍失败仅记录日志，不影响本次运行）；缓存不可用（理论上不会发生，构建已保留缓存）则直接拉取最新数据填充并更新缓存；目录以内存常驻形式供每次填充复用，首次由缓存或网络初始化，此后仅被异步刷新结果整体替换
-- 填充流程（`fix`）：读取 settings 命名空间 `llm-pi-ai` 的 `providers[*].models` 及描述符 revision，对缺少 `reasoningEfforts` / `contextWindow` / `maxTokens` / `input` 的模型查找目录（`lookup` 优先按 provider+modelId 匹配，失败再仅按 modelId 全局匹配），生成推理级别、容量值或图片模态（缓存 `image` 为 true 时填 `["text","image"]`；纯文本或无数据不填，harness 未声明本就按纯文本处理）并按 provider 整段写回 `providers[providerId].models` 数组（其余模型字段原样保留；路径 op 不支持数组下标中间段）；填充缺失字段受 `autoFill` 对应字段控制；`allowUpdate` 对应字段开启时按目录值同步——**含缺失补写（`autoFill` 关闭不拦截）**，对已有字段才是覆盖，且要求新值合法（`efforts` 经 `isPlainObject` 校验、容量经 `isCapacity`、模态由 `toInputValue` 生成），新旧值相同则跳过；写回携带 revision 做并发冲突校验，冲突时重读重算（限次）；`fix(ctx, force=false)` 位置参数返回本次变更模型数，写回失败（冲突重试用尽等）先告警再**抛出**——事件类调用点 catch 吞掉 rejection（日志已在 fix 内），RPC 调用方转 `ok:false` 结果回传前端；**强制更新**即 `fix(ctx, true)`：`force` 单次绕过 `allowUpdate` 门控（等价三项临时为 true，不落存储），且不重新拉取 models.dev（用当前内存目录，避免网络耗时）
-- **浏览器半（web-ui 设置卡片，`src/client/`）**：同一 npm 包同时携带 Node 半（`src/`）与浏览器半，由 package.json 的 `exports["./client"]` → `lib/client.js` 与 `dsh.client: { platform: "web", inject: [...] }` 声明（此处 `inject` 是**依赖包图边**、填槽位所有者包 `@deepseek-ai/dsh-client-ui-settings-models`，非 cordis 服务名；服务名只写在 `src/client/index.tsx` 的 `export const inject`）。宿主 client-modules 扫描已挂载的 Loader 条目并经 `/plugins` combo 路由下发，**插件被挂载即出现在页面，无需重建 web 应用**（参照 harness `docs/cookbook/adding-a-settings-card.md`）。产物必须复刻 harness `packages/client/tsdown.client.ts` `clientConfig()` 的闭包工厂契约（`window.__ModuleLoader__.load({ id: 包名, factory })`，banner/intro/footer 三段，见 `tsdown.config.ts`）：externals 仅宿主模块表基线 8 项（react、react/jsx-runtime、react-dom、react-dom/client、cordis、dsh-client-store、dsh-client-ui-slots、dsh-client-ui-primitives，宿主权威列表在 `packages/client/web/src/platform.ts`），其余一律 inline；跨插件值导入被禁（type-only 会被擦除，不受限），本项目在 `tsdown.config.ts` 自建 purity 门禁自守。声明 `dsh.client` 后 `lib/client.js` 缺失会导致宿主激活期聚合抛错，**build 必须先于安装/link**
-- **宿主版本兼容（对外纪律）**：一切前端可用面以 **npm 发布版**为准（`npm view @deepseek-ai/dsh dist-tags`），宿主 harness **源码仓的工作树只是参照、不得写入本项目文档作为依据**，其 HEAD 可能领先一切已发布版本。已实证事实：`settings.models.footer` 槽仅 **0.1.2-alpha.2+** 发布包中存在，npm `latest`（0.1.1-rc.2）**没有**该槽——在其上 `slots.inject` 会无限等待、静默无卡片无报错。本插件按**向前兼容**原则：web-ui 仅支持 ≥ 0.1.2-alpha.2（`peerDependencies` 声明），不为旧宿主做降级
-- **UI 无痕融合纪律（浏览器半一切样式与组件取舍的准绳）**：目标是 1:1 复刻官方 Web-UI，只有数据/文本/业务逻辑属于我们。据此三条——一是**能导出的宿主组件只在官方同一位置也用了它时才用**：官方卡片 footer 自绘 `.save`/`.discard`（不自用 `Button`）、徽章自绘 `.pending`（不自用 `Pill`）、设置面完全不用 `Tooltip`/`HoverCard`/`Toast`，故本卡一律自绘复刻，不为了"用了原语"而偏离官方观感；官方在 Modal footer 里用了 `Button`，本卡的 `Modal` 亦用 `Button`。二是**颜色只用 `--dsw-alias-*` 令牌**（宿主发布产物实际引用的那批），字面量仅作令牌缺失时的浅色守卫且必须取 `design-platform.css` 真值（`brand-primary` 浅色下解析为近黑 `#0f1115` 而非品牌蓝、`state-error-primary`=`#ec1313`、`state-success-primary`=`#22c55e`、`state-warn-label`=`#dd8629`），这样主题插件换色时我们与官方同步变化；官方源码里的 `--dsw-alias-label-error`、`--dsw-alias-bg-layer-4` 在主题里没有定义，禁止照抄（失效风险）。三是**几何与状态取值逐字对齐参照卡**（宿主源码 `packages/client/ui-settings-plugins` 的 `PluginCard`/`SubagentModelSelectionCard`/`fields` 与 `packages/client/ui-settings-plugin-inventory` 的 `PluginInventorySettingsTab`），但**取值基准是"同一类组件"而非"同一页面"**：外层卡照 `PluginCard`（`0.5px border-l4` + 16px 圆角 + `bg-layer-3`，hover/展开描边 `label-dimmed`、展开底 `bg-layer-2`），内层配置组瓦片照插件列表项卡；同页 provider 行 `.rowCard`（发布版 `1px border-l2` + 12px）是**不可展开的列表行**、与本卡非同类，故不作基准（早期曾按它折中，已纠正）。令牌存在性要**逐个证实**：官方「插件列表」项卡用 `--dsw-elevation-stroke`/`--dsw-elevation-panel` 画 0.5px 发丝描边与 open 态柔光，但该组令牌无法在本地可得的发布产物中找到引用（由宿主应用主题 `gradient-shadow-text.css` 定义、随宿主应用发布）⇒ 取**令牌优先 + 字面复刻其计算结果作兜底**的写法（`box-shadow: var(--dsw-elevation-panel, 0 0 0 0.5px var(--dsw-alias-border-l1,…), 0 3px 8px 0 rgba(0,0,0,.03), 0 0 16px 0 rgba(0,0,0,.02))`），宿主有令牌即与官方同源换色、没有（更旧宿主）也得到同一观感；注意该组派生变量声明在 `body *` 上（官方注释：逐元素声明才能吃到组件自己的重绑），所以我们在同一元素上重绑 `--dsw-elevation-stroke-color` 是有效手法。反之 `--dsw-alias-state-business-primary`（官方项卡焦点环）与 `--ds-ease-in-out` 经证实被发布版 primitives 引用，可直接使用。
-- **卡片内嵌位置与注册**：注册 `ctx.slots.inject('settings.models.footer', () => ctx.slots.register({ name, id: 'tikaflow-model-fix', order: 100, locale: CARD_NS }, 组件))`——footer 是宿主 `ModelsSection` 为仓库外插件预留的 list 席位（「模型」选项卡底部、provider 行与添加控件之后；选项卡头部任何版本都无席位），list 槽 id 取本插件新配置命名空间（而非包名/旧 NS）。**最低宿主 0.1.2-alpha.2**（footer 槽自该版发布包起存在，已对 rc.2/alpha.2/3/4 逐一验证），由 package.json 的 `peerDependencies` 声明下限；更旧宿主上 `slots.inject` 会无限等待（静默无卡片），不做兼容降级（向前看原则）。词典 `ctx.locale.register` 重复注册会抛错，须经 `ctx.effect` 挂 disposer 保 HMR；组件 `t` 由 register 的 `locale:` 席位合成注入。开关为自绘（宿主 primitives **无** Switch/Toggle/Checkbox 导出、`FoldToggle` 亦未导出，官方插件卡同样自绘 `role="switch"`，本卡逐字复刻其 `36×20`/`padding:2px`/圆点 16 流式位移/`border-l3`↔`brand-primary`/`label-primary-foreground` 与过渡），样式经模块级幂等 `<style>`（`data-plugin` 标记供宿主 HMR 认领），类名 `dsh-mr-` 前缀，卡片外壳逐字照官方 `PluginCard` 的 `.card`——`0.5px --dsw-alias-border-l4` + 16px 圆角 + 底 `bg-layer-3`，hover 与展开态边框 `label-dimmed`、展开态底换 `bg-layer-2`（官方即"正在编辑的那张"）；`bg-module-platform` 在宿主语义里是编辑器/添加卡与展开正文的内填色块，本卡用于「未保存」胶囊与瓦片展开体，**外层整卡不填它**（外层填它会与同页脱节；外层填 `bg-layer-3` 则与官方插件卡一致——浅色下 layer-3 即白、与页面同色看不出来，深色下是一块略亮的卡，官方在插件页也正是如此），颜色走 `--dsw-alias-*` 令牌 + 浅色真值字面兜底（`brand-primary` 宿主浅色下解析为近黑而非蓝，兜底照真值写、不得臆造），深浅色由宿主令牌自动切换（卡片内不写 `body[data-ds-dark-theme]` 镜像规则；开关圆点用 `label-primary-foreground` 前景令牌——浅色=白、深色=近黑，与开关状态无关）；client 模块须 `export const name`（与包名一致）
-- **卡片读写（配置写入后端零改动）**：`ctx.settingsScope.bind({ namespace, decode })` 得到响应式 scope（revision 并发围栏）；**必须自带 decode 且永不返回 undefined**（缺省路径走宿主 schema rehydrate，宽松 dict 失败会使 status 永挂 loading），解码只读当前版本快照 `version-2`（Node 半 `migrateConfig` 保证启动后段内必有；缺失/非法回退默认，不回退读旧快照——浏览器无法主动触发迁移，读到未迁移段时显示默认值是可接受兜底；纯函数在 `src/client/model.ts` 并有单测）；六布尔草稿仅暂存本地（draft 初值 null 跟随已存值，关页面即丢弃），点「保存」（键 `save`；文案取「保存」不取「应用」——写 settings 即前端职责终点，填充由后端 `fix` 触发且结果（填了几条）前端无法感知，叫「应用」会让人误以为按钮本身应用了目录值）`scope.set('version-2', 规范快照)` 单字段原子写（`configVersion` + 六布尔全显式，不触碰段内其他键），写入触发宿主 `onChange` → `fix`；**卡片可折叠且默认收起**（折叠为组件本地 `useState`，宿主 `SettingsScopeSnapshot` 不提供 dirty、脏判定只能卡片自比，故不进 `test/`）：header 整块是 `aria-expanded` 按钮（名称 + 描述两行，无 `aria-controls`——展开体是挂载/卸载而非隐藏；卡内分隔线：外层摘要↔正文 1 条 + 每个展开中的配置组瓦片（summary↔正文）各 1 条 + footer 1 条，全部 `0.5px --dsw-alias-border-l2`（官方 PluginCard `.body`/`.footer` 与插件列表 `.cardDetails` 同值）；外层展开体 `.dsh-mr-body` 用 `padding:12px 0 8px` 与首条分隔线撑出距离（官方由子项 `.permission{padding:12px 0}` 提供同等留白，我们无该子项故在容器上等效实现——只留 `padding-bottom` 会让分隔线紧贴瓦片）），`isDirty(draft, saved)` 为真时 header 挂「未保存」胶囊（草稿跨折叠存活，收起态也可见），控件与 footer（强制更新 左｜放弃修改 · 保存 右）全在展开体内，「放弃修改」＝ `draft` 归 null 回随已存值（不发任何写）；保存被宿主确认落地（`submitting` 结束且 `dirty` 归 false）后由 `saveStarted` ref + effect 自动收起，写失败保持展开与草稿可原地重试（不另设 `failed` 态：六布尔恒合法、写入为单字段原子写，失败时 `dirty` 保留已完整传达该信息）；成功提示走卡片内联状态行 `notice`（官方 `.savedNotice` 同规格：12/18 + `state-success-primary` + `role="status"` + `aria-live="polite"`，**常驻至下一次操作**、无定时器，因官方 `savedNotice` 亦不设自动消失），`loading` 行用 `label-tertiary`、`readOnly` 行用 `state-warn-label`（同页 `.notice` 的官方配色语义）；正文为**两个配置组瓦片**（自动填充 / 允许更新），排版逐项照官方「插件列表」项卡（`ui-settings-plugin-inventory` 的 `PluginInventorySettingsTab`）：容器 `.dsh-mr-items` = `grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:10px` + `@media (max-width:680px)` 回退单列；瓦片 summary 行 `min-height:52px`、`padding:12px 14px`、`gap:12px`、标题 `14px/20px/600` 带省略号、右侧 `gap:7px` 尾区放整组开关与 `IconChevronDownOutline14 size={12}`（hover 底 `interactive-bg-hover`、焦点环 `state-business-primary` offset -2px、箭头 `rotate(180deg)` 过渡 `140ms var(--ds-ease-in-out)` 且在 `prefers-reduced-motion:reduce` 下关闭）；展开体 = 组释义（12px `label-tertiary`，官方设置面不用 `Tooltip`/`HoverCard`，范式是 `fields.tsx` 的 `.hint`）+ 三行子开关（`13px/1.5 label-primary` + 开关，照官方 `.toggleRow` 左文右钮）。**瓦片默认收起、同时只展开一个**（照官方手风琴语义 `expanded: string | null` + 点已开者即收起；官方如此设计是因为各瓦片展开后高度不同，同时展开会让两列底部参差），**展开体填官方 `.cardDetails` 的 `bg-module-platform`**（深色主题下官方瓦片本体 `bg-layer-3` 与该填充同值、看不出差异，我们本体透明故可见——与同页 `.editor`/`.setupCard` 用同一令牌，读作内层面板）；展开态**完全照官方**：`.dsh-mr-item[data-open='true']` 重绑 `--dsw-elevation-stroke-color` 为最浅的 `border-l1` 并把 `box-shadow` 升级为 `--dsw-elevation-panel`（描边 + 两层柔光）、summary 行保留 `interactive-bg-hover` 淡底、箭头 `rotate(180deg)`（官方即靠 `data-open` 属性驱动这三处）。整组开关语义不变（组内任一为开即显示开，点击整组同置），子开关单格取反。**总开关与"整行可点"共存的合法写法**：`.dsh-mr-itemToggle` 是 `position:absolute;inset:0` 的**透明**空 `<button aria-expanded aria-controls aria-labelledby>`（可访问名指向可见标题、不与文字重复；透明故不遮文字，点击落在它上），hover 底色画在行容器 `.dsh-mr-itemHead:hover`（不用负 `z-index` 手法，免得依赖"祖先无底色"这一脆弱前提）；尾区抬 `z-index:1` 且自身 `pointer-events:none`、仅开关本体 `pointer-events:auto`，故整行（含箭头与间隙）可点、开关独占自己的点击区、无死区。**禁止**把 `role="switch"` 嵌进 `<button>`（非法 HTML）；宿主 `DisclosureRow` 原语在五个设置包全域**零使用**且无右侧控件槽（chevron 在行左端、`.row{overflow:hidden}`、`collapsedContent` 展开即卸载、发布版无焦点环），故瓦片行一律自绘，不得改用该原语。**浏览器半不得值导入 Node 半模块**（`src/constants.ts` 会拖入 `node:path`）：NS 与版本号在 `src/client/model.ts` 以字面量维护，与 `src/constants.ts` 同步修改
-- **强制更新（卡片危险按钮 → Node 半，Connection RPC）**：卡片 footer（位于展开区内）左侧「强制更新」按钮取官方危险语义（宿主 `Button` **无 danger variant**、官方体系里亦无实心红按钮；照 `ModelsSection` 的 `.dangerButton`：透明底 + `color: state-error-primary` + hover `interactive-bg-hover-danger`，几何随本卡 footer 三键同规格），点击先弹宿主原语 `Modal`+`Button`（来自基线模块 `@deepseek-ai/dsh-client-ui-primitives`，值导入合法、产物走 `require` 模块表；官方同页删除 provider 即用 `Modal`+`Button outline` 组合，危险确认键按 `.deleteConfirm` 上红描边红字、取消键 `autoFocus`，confirm 二次确认，不用浏览器原生弹窗），确认后调用注入的 `forceUpdate` 回调（connection 断言与 `rpc.call('/tikaflow-model-fix', 'forceUpdate', {})` 在 client 入口 `src/client/index.tsx` 完成，卡片仅消费结果）触发 Node 半 `fix(ctx, true)`（语义见「填充流程」段）；`call` 返回 `Promise<RpcResult>`（`{ok,value}|{ok:false,error}`，仅传输层失败才 reject），卡片按变更数/失败原因写入卡片内联 `notice` 行（成功绿 `state-success-primary` + `role="status"`、失败红 `state-error-primary` + `role="alert"`，message 截断 120 字符，常驻至下一次操作），**不用宿主 `Toast`**：官方设置面零 `Toast` 调用（该原语在官方只用于聊天/输入面无法就地呈现的失败横幅），且它没有成功/失败 tone 之分。`notice` 与 `Modal` 都渲染在卡片根层、条件展开体**之外**，故折叠不会吞掉在途结果或卸载弹层。channel 两端配对：Node 半 `/${PLUGIN_NS}`、浏览器半 `/${MODEL_FIX_NS}` 字面量（禁跨半值导入，改动须同步）；RPC 契约（`RpcResult`/`HostRpcHandle`/`ClientRpcCall`）是宿主 `@deepseek-ai/dsh-client-connection` 的**结构本地复制**，置于 `src/types.ts`——宿主包在 npm 上依赖链不可满足（transitive 范围仅存在于其 monorepo）故不装依赖、仅 type-only 使用（`ctx.get` 断言范式与宿主内置插件 ui-settings-general 一致）；RPC 服务注册与调用走宿主 connection 插件的自定义 channel 能力（≥0.1.0-rc.7 已存在，peer 下限 0.1.2-alpha.2 上实证），信任围栏（loopback/浏览器会话 cookie）由宿主施加，浏览器半 `inject` 含 `connection`
-- 生命周期（`apply`）：`inject: ['settings', 'connection']` 保证服务已就绪（connection 供强制更新 RPC channel 注册，见「强制更新」段）；注册 `PLUGIN_NS`（快照容器 + `resolveConfig` 源）与 `LEGACY_NS` 只读 shim（冻结 v0 schema）；`settings/updated` 事件监听 `API_NS` 变更后再次填充；首轮由 effect 统一编排：等待 `PLUGIN_NS` 注册完成（`waitForSettingsReady`）→ 配置迁移 → 缓存读取 → 填充 → 异步刷新。关键时序：`installSettingsSection` 经 `ctx.inject` 子 fiber 注册，注册回调（含 `register`、以及注册冲突/存储段非法的抛错）都被推迟到微任务，而 apply 内的 effect 体同步执行、`describe()` 此刻读空——故迁移前必须先有界等待注册完成（否则旧配置读不到且 `version-N` 快照不写入；`waitForSettingsReady` 用 `setTimeout(0)` 让出宏任务排空微任务，超 `REGISTER_WAIT_MAX` 次未就绪则跳过迁移）；LEGACY 的注册结果同样只能在就绪后观察：用 `isNamespaceRegistered(ctx, LEGACY_NS)` 检测，缺席即注册失败（被占用或段非法），迁移按无旧配置处理并告警；迁移必先于填充，否则旧格式会被按新 schema 误解析；卸载时置位，在途结果不触碰已卸载的上下文；迁移失败仅告警、按当前生效配置继续
+### 跨半与宿主契约
+
+- **浏览器半禁止值导入 Node 半模块**（`src/constants.ts` 会拖入 `node:path`）。因此配置命名空间、`CONFIG_VERSION`、RPC channel 名在 `src/client/model.ts` 以**字面量**另存一份，与 `src/constants.ts` / `src/rpc.ts` **改动必须两侧同步**；`tsdown.config.ts` 的 purity 门禁会拦住越界值导入（type-only 被擦除，不受限）。
+- 浏览器半 externals 只允许宿主模块表基线那几项，其余一律打进包；基线权威列表在宿主 `packages/client/web/src/platform.ts`，漂移的后果是运行期 `require` 未命中。
+- `package.json` 的 `dsh.client.inject` 是**依赖包图边**（填槽位所有者包），不是 cordis 服务名；服务名只写在 `src/client/index.tsx` 的 `export const inject`。
+- 浏览器半产物必须复刻宿主 client 的闭包工厂契约（`window.__ModuleLoader__.load` + banner/intro/footer 三段）。声明了 `dsh.client` 后，缺 `lib/client.js` 会让宿主**激活期聚合抛错** ⇒ **build 必须先于 link/安装到宿主**。
+- 卡片挂在宿主 `ModelsSection` 为仓库外插件预留的 list 席位 `settings.models.footer`（「模型」选项卡页面底部）；**选项卡头部在任何宿主版本都没有席位**，别往那儿挂。
+- client 模块必须 `export const name`，且与包名一致。
+- **对外纪律：前端可用面一律以 npm 发布版为准**（`npm view @deepseek-ai/dsh dist-tags`）；宿主源码仓 HEAD 领先一切已发布版本，只作参照，**其工作树路径不得写进本项目文档**（未被版本追踪）。已实证：`settings.models.footer` 槽只在 ≥ 0.1.2-alpha.2 的发布包中存在，npm `latest`（0.1.1-rc.2）没有该槽——在其上 `slots.inject` 会无限等待、静默无卡片。本插件取**向前兼容**：web-ui 只支持 ≥ 0.1.2-alpha.2（`peerDependencies` 声明下限），不为旧宿主做降级。
+- Connection RPC 契约（`RpcResult`/`HostRpcHandle`/`ClientRpcCall`）是宿主 `@deepseek-ai/dsh-client-connection` 的**结构复制**而非依赖：该包的 transitive 依赖范围只存在于宿主 monorepo、npm 上装不起来，故仅 type-only 使用；`ctx.get` 断言范式与宿主内置插件一致。信任围栏（loopback / 浏览器会话 cookie）由宿主施加。
+- 词典 `ctx.locale.register` 重复注册会抛错，必须经 `ctx.effect` 挂 disposer 保 HMR；卡片样式经模块级幂等 `<style>` 注入，带 `data-plugin` 标记供宿主 HMR 认领。
+
+### 宿主 settings 的脾气
+
+- **根写入要求纯对象**，故自有配置用 `version-N -> 快照` 的**映射**而非列表。
+- 段 schema 必须宽松（`z.dict(z.any())`）：否则"比当前代码更新的版本快照"会让命名空间注册直接失败。严格校验只针对当前版本快照值。
+- `settingsScope.bind` **必须自带 decode 且永不返回 undefined**：缺省路径走宿主 schema rehydrate，宽松 dict 校验失败会使 scope status 永挂 loading。
+- **路径 op 不支持数组下标中间段**（且各段必须是字符串），要改数组元素只能整段 `set` 覆盖 ⇒ `fix` 按 provider 整段写回 `providers[id].models`，未变更元素原样保留。
+- 命名空间注册（含冲突/存储段非法的抛错）被推迟到**微任务**，而 `apply` 内的 effect 体同步执行、此刻 `describe()` 读空 ⇒ 迁移前必须有界等待注册完成（`waitForSettingsReady` 用 `setTimeout(0)` 让出宏任务；超 `REGISTER_WAIT_MAX` 次未就绪则跳过迁移，不阻塞填充）。同理，LEGACY 是否注册成功只能在就绪后用 `isNamespaceRegistered` 观察，缺席即按"无旧配置"处理并告警。
+- **迁移必先于填充**，否则旧格式会被按新 schema 误解析。
+
+### 历史形态冻结
+
+- LEGACY(v0) = 旧 `model-reasoning` 命名空间的形态；v1 = 新命名空间版本快照体系的旧快照，**不属 LEGACY**。两者的类型与 schema 一律不引用当前版本的可演进定义。
+- 升级台阶 `upgradeNToN+1` 只做相邻一级、**目标版本号写固定字面量**（不引用 `CONFIG_VERSION`）；发新版只追加台阶函数，链上既有函数不改。
+- 提升 `MIN_SUPPORTED_VERSION` 时：该版本的冻结段与对应台阶整体移除（v0 还包括 `upgrade0To1` 与 `index.ts` 的旧 NS shim 注册）。
+- 布尔写法（`autoFill: true`）是 v0 专属历史形态，当前 schema 只接受对象写法——为杜绝语法二义性，不做兼容读。
+
+### 工具链陷阱
+
+- `pnpm test` **必须带 `--no-config`**：否则 CLI 参数会合并进数组配置的每一项，浏览器半的工厂 banner 会污染测试产物（无配置时产物扩展名为 `.mjs`）。
+- `pnpm install` 的 `prepare` 会跑 build ⇒ `lib/` 装完即存在。
+- 浏览器半类型依赖 `@deepseek-ai/dsh-client-*` devDeps，**版本须与宿主 harness 对齐**，否则类型面与发布版实际能力脱节。
+
+## UI 无痕融合纪律（浏览器半一切样式与交互取舍的准绳）
+
+目标是 1:1 复刻官方 Web-UI：只有数据、文本与业务逻辑属于我们。三条判据：
+
+- **能导出的宿主组件，只在官方同一位置也用了它时才用。** 官方卡片 footer 自绘 `.save`/`.discard`（不自用 `Button`）、未保存徽章自绘 `.pending`（不自用 `Pill`）、设置面完全不用 `Tooltip`/`HoverCard`/`Toast` ⇒ 本卡一律自绘复刻，不为了"用了原语"而偏离官方观感。官方在 Modal footer 里用了 `Button`，本卡的 `Modal` 亦用 `Button`。
+- **颜色只用宿主 `--dsw-alias-*` 令牌，且令牌存在性要逐个证实。** 字面量仅作令牌缺失时的浅色守卫，且必须取宿主主题 `design-platform.css` 的真值——例如 `brand-primary` 在浅色主题下解析为**近黑而非品牌蓝**。这样主题插件换色时我们与官方同步变化。官方源码里引用了但主题中**未定义**的令牌（`label-error`、`bg-layer-4`）禁止照抄（任何主题下都会失效）。
+- **取值基准是"同一类组件"而非"同一页面"。** 外层卡照 `PluginCard`，内层配置组瓦片照插件列表项卡（`ui-settings-plugin-inventory`）；同页 provider 行 `.rowCard` 是不可展开的列表行、与本卡非同类，不作基准（早期曾按它折中，已纠正）。具体数值一律以 `src/client/card.tsx` 的 `STYLE_TEXT` 为准，本文档不复述。
+
+两条需要知道"为什么"的手法：
+
+- 官方项卡的发丝描边与展开态柔光用 `--dsw-elevation-stroke`/`--dsw-elevation-panel`，该组令牌无法在本地可得的发布产物中证实存在（由宿主应用主题定义、随宿主应用发布）⇒ 采取**令牌优先 + 字面复刻其计算结果作兜底**：宿主有令牌即与官方同源换色，没有也得到同一观感。该组派生变量声明在 `body *` 上（官方注释：逐元素声明才吃得到组件自己的重绑），所以在同一元素重绑 `--dsw-elevation-stroke-color` 是有效手法。
+- 瓦片 summary 行要同时容纳「整组开关」和「整行可点」：宿主 `DisclosureRow` 在五个设置包全域**零使用**、chevron 在行左端、无右侧控件槽、发布版 CSS 无焦点环 ⇒ 自绘。写法是透明空 `<button>` 绝对覆盖整行 + `aria-labelledby` 指向可见标题，hover 底色画在行容器上，开关所在尾区抬层并用 `pointer-events` 分配点击权。**禁止把 `role="switch"` 嵌进 `<button>`**（非法 HTML）。
+
+## 设计裁决（代码里看不出动机）
+
+- **配置解析优先级**：当前版本快照 → ≤ 当前且 ≥ 最低支持的最高版本 → 内置默认。更高版本快照本代码不读取（仅告警保留），供新版插件回退后无损读取 ⇒ 等于/高于当前版本的快照**永不清理**。
+- **旧 NS 段迁移后保留不删**：便于回滚 ≤ 0.5.x 插件继续读取；除迁移外不再读它。v0 位于旧 NS、不在当前 NS 的 `version-N` 键内，故不参与快照清理。
+- **当前版本快照非法时自愈重写**：不修就会长期停在"文件里是坏值、运行期按次高版本或默认执行"的不一致态且无从纠正。重写目标取**当前生效值**（有可用旧快照则沿用其语义），而非强行落默认。
+- **全新用户直接写规范默认快照**（不经升级链），保证启动后段内必有当前版本快照；写入用定向路径 op，不触碰用户手写键与高版本快照。
+- **`allowUpdate` 含缺失补写**，且 `autoFill` 关闭也拦不住它——语义是"以目录为准同步该字段"；对已有字段才是覆盖，且要求新值合法（档位/容量/模态各自校验），新旧相同则跳过。**数据无档位不删除已有配置**。
+- **`force` 是单次绕过**：`fix(ctx, true)` 等价三项临时为真但不落存储，且不重新拉取 models.dev（用当前内存目录，避免把网络耗时算进按钮反馈）。官方允许覆盖用户手动配置，Modal 文案已就此明示。
+- **写失败先告警再抛出**：事件类调用点 catch 吞掉 rejection（日志已在 `fix` 内），RPC 调用方转 `ok:false` 回传前端——同一个错误不能既静默又弹窗。
+- **`fix` 读 `descriptor.user`（原始用户段）而非解析值**：写回值与读回值同源，避免 schema 规范化后的形态与写入形态不一致而反复触发重写。写回携带 revision 做并发围栏，冲突时重读重算（限次）。
+- **空 `input` / 空 `compat` 一律删除**：harness 语义上与"未声明"等同，删除无损且操作幂等。
+- **图片模态只缓存正向信息**（支持图片才写 `true`，纯文本省略字段）：缓存体积是发布包大小主因；纯文本模型本就不声明，行为与未声明一致。数据源里的 `pdf`/`video`/`audio` 忽略不写（宿主 `input` 只接受 `text`/`image`）。
+- **容量哨兵**：`CAPACITY_UNLIMITED = 99999999` 是 models.dev 对"无限/未公布"的建模，媒体模型还会给 0——两者一律视为"无该字段"（写 0 会被宿主 schema 拒绝并连累整批）。
+- **id 匹配宁可漏不错配**：精确 → 词干 → 前缀三级，词干/前缀**多命中即判无命中**；无分隔符的短 id 只走精确。跨提供商同源模型靠 `HINTS`（模型名前缀 → 官方提供商）优先命中。
+- **卡片按钮文案取「保存」不取「应用」**：写 settings 即前端职责终点，填充由后端 `onChange → fix` 触发，其结果（填了几条）前端无法感知——叫「应用」会让人误以为按钮本身应用了目录值。
+- **瓦片默认收起、同时只展开一个**（手风琴）：各瓦片展开后高度不同，同时展开会让两列底部参差，官方即如此设计。
+- **展开体填 `bg-module-platform`、外层整卡不填**：前者在宿主语义里是"展开出来的内层面板"（同页 `.editor`/`.setupCard` 同令牌），后者填了会在页面上显成灰块。深色主题下官方瓦片本体与该填充同值、看不出差异，我们本体透明故可见——与同页一致，属预期。
+- **不引入 `failed` 态、不做「恢复默认」**：六布尔恒合法、写入为单字段原子写，失败时 `dirty` 保留已完整传达该信息；官方 reset 依赖字段级 user/base 分层与"未填回落"语义，本插件是整体显式快照，二者不成立。
+- **`expand`/`collapse` 文案只用于 `aria-label`**（视觉只有箭头），官方同款——**不要当成死代码删除**。
+- **有意的布局偏离**：表头/瓦片里开关在文字左（矩阵列对齐需要，官方 `.toggleRow` 是左文右钮）、卡片内不写 `body[data-ds-dark-theme]` 镜像规则（宿主令牌自动切换）。
+
+## 数据流骨架
+
+启动一条链：**等待注册 → 迁移 → 读缓存 → 填充 → 异步刷新（拉取成功则覆盖索引与缓存后再填充）**，全程由一个 effect 管理，卸载置位后在途结果不触碰已销毁上下文；刷新与缓存写入失败都是"固定间隔、含首次共最多 3 次、最终仅告警"，不影响本次运行。缓存内容与新拉数据无变化时跳过写盘。
+
+```mermaid
+graph LR
+    R[等待命名空间注册] --> M[migrateConfig]
+    M --> C[readCache 逐条校验]
+    C --> F[fix 填充]
+    F --> X[fetchLatest 拉取]
+    X -->|数据非空| I[替换索引 + 覆盖缓存]
+    I --> F
+```
 
 ## 配置说明
 
-- 自有配置命名空间为 `tikaflow-model-fix`（由本插件通过 `installSettingsSection` 注册），配置写在版本快照键下且仅用对象写法，如 `tikaflow-model-fix: { version-2: { autoFill: { reasoning: true, context: false, image: true } } }`；插件首次启动（或版本升级）时自动写入当前版本快照（无旧配置时为默认值）
-- 配置亦可经 Web 设置界面的可视化卡片修改（见「核心逻辑-浏览器半」，要求宿主 ≥ 0.1.2-alpha.2）：卡片内嵌于「模型」选项卡底部；卡片点「保存」写入的即上述对象写法的当前版本快照，两种途径行为一致
-- 旧命名空间 `model-reasoning` 仅在配置迁移时读取（v0 形态，冻结 schema）；迁移后该段保留在文件中，仅供回滚旧版插件（≤ 0.5.x）读取，本插件除迁移外不读取它
-- settings 命名空间为 `llm-pi-ai`（由 harness 的 llm-pi-ai 插件注册），模型列表即该命名空间下的 `providers` 配置
-- 推理级别取值与 harness 的 `ModelThinkingLevel` 一致：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`
-- 图片模态写回字段为 `input`，取值仅 `text` / `image`（harness `MODALITIES` 限定）；空数组或未声明均视为未声明（继承 route 默认、按纯文本处理），数据源中的 `pdf`/`video`/`audio` 等值忽略不写；本插件仅为支持图片的模型填 `["text","image"]`，纯文本模型不写（不缓存 false）
+- 自有命名空间 `tikaflow-model-fix`（由本插件注册），仅对象写法，如 `tikaflow-model-fix: { version-2: { autoFill: { reasoning: true, context: false, image: true } } }`；首次启动或版本升级时自动写入当前版本快照。
+- 也可经 Web 设置的卡片修改（需宿主 ≥ 0.1.2-alpha.2），两种途径写的是同一个东西。
+- 推理级别取值与 harness `ModelThinkingLevel` 一致：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`；模型列表在 `llm-pi-ai` 命名空间的 `providers` 下。
 
-## 开发命令
+## 命令
 
-- `pnpm build`：构建到 `lib/`（`tsdown.config.ts` 数组双配置：Node 半 `lib/index.js` + 浏览器半 `lib/client.js`，clean 由 Node 半配置承担）
-- `pnpm run typecheck`：tsc 类型检查（含 `test/` 与 `src/client/`；浏览器半类型依赖 `@deepseek-ai/dsh-client-*` devDeps，版本须与宿主 harness 对齐）
-- `pnpm test`：执行纯函数测试（tsdown 打包 `test/index.ts` 到 `.test-dist/` 后由 node 运行，失败时非零退出码）；**必须 `--no-config`**——否则 CLI 参数会合并进数组的每个配置，client 的工厂 banner 污染测试产物（无配置时产物扩展名为 `.mjs`）
-- `pnpm install`：安装依赖（`prepare` 钩子自动执行 `pnpm build`，故 `lib/` 在安装后即存在；声明了 `dsh.client` 后 **build 必须先于 link/安装到宿主**，否则宿主激活期因缺 `lib/client.js` 聚合抛错）
+- `pnpm build` / `pnpm run typecheck` / `pnpm test`（**必须 `--no-config`**，见上）
+- `pnpm install` 触发 `prepare` → build
 
 ## 测试规范
 
-- `test/` 仅收录**不依赖 DSH 运行时的纯函数**测试；当前范围为配置版本迁移与解析（`src/config.ts`、`src/migrate.ts` 的纯函数部分）、目录拍平剪裁与缓存条目校验（`src/catalog.ts` 的 `buildCatalog`、`isCacheEntry`）、模型 id 匹配（`src/lookup.ts` 的 `lookup`/`toReasoningEfforts`）与浏览器半纯映射层（`src/client/model.ts`，零外部值依赖故可直接单测）；涉及时序或框架的编排逻辑（`migrateConfig`、`fix`、`readCache`/`fetchLatest`、`refresh`、浏览器半 `apply`/组件）不进 `test/`，开发时可用 stub ctx 临时脚本验证，验证后删除
-- 文件组织：按被测模块命名 `test/<module>.test.ts`，导出 `run()` 执行本文件全部用例，并在 `test/index.ts` 中注册调用；断言与汇总使用 `test/helper.ts`（`check` 记录结果、`stable` 键序无关序列化比较、`summary` 汇总并设置退出码）
-- 新增或修改纯函数时必须同步补充/更新用例并执行 `pnpm test` 通过；测试断言优先覆盖边界与兼容性语义（非法输入兜底、幂等、版本回退等），不追求逐行覆盖
+- `test/` 只收**不依赖 DSH 运行时的纯函数**：配置解析与迁移、拍平与条目校验、id 匹配、浏览器半纯映射层（`src/client/model.ts` 零外部值依赖故可直接单测）。涉及时序/框架的编排（`migrateConfig`、`fix`、`readCache`/`fetchLatest`、`refresh`、浏览器半组件）不进 `test/`，需要时用 stub ctx 临时脚本验证后删除。
+- 文件按被测模块命名 `test/<module>.test.ts`，导出 `run()`，在 `test/index.ts` 注册；断言与汇总用 `test/helper.ts`（`check` / 键序无关的 `stable` / `summary` 设退出码）。
+- 新增或修改纯函数必须同步补用例并 `pnpm test` 通过；断言优先覆盖边界与兼容性语义（非法输入兜底、幂等、版本回退），不追求逐行覆盖。
