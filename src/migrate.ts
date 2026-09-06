@@ -14,14 +14,14 @@ const legacyFieldRules = (dflt: boolean): z<LegacyFieldRules> => z.object({
     context: z.boolean().default(dflt),
 })
 
+/** LEGACY(v0)：默认配置——旧 NS 注册的 base 层、schema 整项缺省与解析失败兜底的唯一来源 */
+export const LEGACY_BASE: LegacyConfig = { allowUpdate: false, autoFill: true }
+
 /** LEGACY(v0)：配置 schema（布尔统一开关或对象按字段控制） */
 export const LegacyConfigSchema: z<LegacyConfig> = z.object({
-    allowUpdate: z.union([z.boolean(), legacyFieldRules(false)]).default(false),
-    autoFill: z.union([z.boolean(), legacyFieldRules(true)]).default(true),
+    allowUpdate: z.union([z.boolean(), legacyFieldRules(false)]).default(LEGACY_BASE.allowUpdate),
+    autoFill: z.union([z.boolean(), legacyFieldRules(true)]).default(LEGACY_BASE.autoFill),
 })
-
-/** LEGACY(v0)：默认配置，旧 NS 注册的 base 层与解析失败兜底 */
-export const LEGACY_BASE: LegacyConfig = { allowUpdate: false, autoFill: true }
 
 /** LEGACY(v0)：布尔统一开关展开为规范对象形态（schema 解析后对象内字段已补齐） */
 function legacyExpand(value: LegacyFieldSwitch): LegacyFieldRules {
@@ -37,14 +37,14 @@ const v1FieldRules = (dflt: boolean): z<V1FieldRules> => z.object({
     context: z.boolean().default(dflt),
 })
 
-/** 历史版本(v1)：配置 schema（仅对象写法，configVersion 等多余键被 schema 忽略） */
-const V1ConfigSchema: z<Omit<V1PluginConfigSnapshot, 'configVersion'>> = z.object({
-    allowUpdate: v1FieldRules(false).default({ reasoning: false, context: false }),
-    autoFill: v1FieldRules(true).default({ reasoning: true, context: true }),
-})
-
-/** 历史版本(v1)：默认配置，解析失败兜底 */
+/** 历史版本(v1)：默认配置——解析失败兜底与 schema 整项缺省的唯一来源 */
 const V1_BASE: Omit<V1PluginConfigSnapshot, 'configVersion'> = { allowUpdate: { reasoning: false, context: false }, autoFill: { reasoning: true, context: true } }
+
+/** 历史版本(v1)：配置 schema（仅对象写法，configVersion 等多余键被 schema 忽略；默认取 V1_BASE 的展开副本） */
+const V1ConfigSchema: z<Omit<V1PluginConfigSnapshot, 'configVersion'>> = z.object({
+    allowUpdate: v1FieldRules(false).default({ ...V1_BASE.allowUpdate }),
+    autoFill: v1FieldRules(true).default({ ...V1_BASE.autoFill }),
+})
 
 /** v0 → v1：输入按 v0 schema 解析（非法整体回退 v0 默认），布尔统一开关展开为对象并补齐省略字段，添加版本号 */
 function upgrade0To1(config: unknown, fromVersion: number): V1PluginConfigSnapshot {
