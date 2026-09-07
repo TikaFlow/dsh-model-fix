@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 
 /** 插件名，同时用作日志前缀 */
-export const PLUGIN_NAME = 'dsh-model-reasoning'
+export const PLUGIN_NAME = 'dsh-model-fix'
 
 /** 模型配置读写目标命名空间（harness 的 llm-pi-ai） */
 export const API_NS = settingsNamespace('llm-pi-ai')

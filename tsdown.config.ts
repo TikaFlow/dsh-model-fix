@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsdown'
 
 /** 浏览器半模块 id：必须用包名（client-modules 以 package.json name 注册 __ModuleLoader__ 行） */
-const CLIENT_ID = 'dsh-model-reasoning'
+const CLIENT_ID = 'dsh-model-fix'
 
 /**
  * 宿主浏览器共享模块表基线（外部包只能 require 这些 specifier，其余一律 inline）。

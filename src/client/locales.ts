@@ -6,7 +6,7 @@
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 
 /** 卡片词典命名空间 */
-export const CARD_NS = 'settings.modelReasoning'
+export const CARD_NS = 'settings.modelFix'
 
 /** 卡片文案键集合 */
 export type CardKey =
@@ -42,7 +42,7 @@ export type CardKey =
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
     interface LocaleNamespaceMap {
-        'settings.modelReasoning': CardKey
+        'settings.modelFix': CardKey
     }
 }
 

@@ -24,7 +24,7 @@ import { CARD_NS, en, zh } from './locales'
 import { MODEL_FIX_NS, decodeSection } from './model'
 import type { Flags } from './model'
 
-export const name = 'dsh-model-reasoning'
+export const name = 'dsh-model-fix'
 export const inject = ['slots', 'locale', 'settingsScope', 'connection']
 
 export function apply(ctx: ClientContext): void {

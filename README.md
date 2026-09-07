@@ -1,4 +1,4 @@
-# dsh-model-reasoning
+# dsh-model-fix
 
 [DSH](https://github.com/deepseek-ai/deepseek-harness)（DeepSeek Harness）插件：为所有非官方（自定义）提供商的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`），数据来自 [models.dev](https://models.dev)。
 
@@ -30,7 +30,7 @@
 -  通过命令行安装
 
 ```bash
-dsh plugin --profile web add github:TikaFlow/dsh-model-reasoning
+dsh plugin --profile web add github:TikaFlow/dsh-model-fix
 
 # 重启 DSH 
 dsh web
