@@ -1,35 +1,12 @@
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsNamespace, SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import { CONFIG_VERSION, LEGACY_NS, MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION, PLUGIN_NAME, PLUGIN_NS, REGISTER_WAIT_MAX } from './constants'
+import { CONFIG_VERSION, MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION, PLUGIN_NAME, PLUGIN_NS, REGISTER_WAIT_MAX } from './constants'
 import { DEFAULT_CONFIG, parseSnapshot, parseVersion, resolveConfig, versionKey } from './config'
-import type { LegacyConfig, LegacyFieldRules, LegacyFieldSwitch, PluginConfig, PluginConfigSnapshot, V1FieldRules, V1PluginConfigSnapshot, VersionedSection } from './types'
+import type { PluginConfig, PluginConfigSnapshot, V1FieldRules, V1PluginConfigSnapshot, VersionedSection } from './types'
 import { isPlainObject } from './types'
 
-// ---------- LEGACY（v0）迁移源代码：形态冻结（见 types.ts LEGACY 段说明），不引用当前版本的可演进定义。 ----------
-
-/** LEGACY(v0)：字段规则 schema，dflt 为省略字段的默认值 */
-const legacyFieldRules = (dflt: boolean): z<LegacyFieldRules> => z.object({
-    reasoning: z.boolean().default(dflt),
-    context: z.boolean().default(dflt),
-})
-
-/** LEGACY(v0)：默认配置——旧 NS 注册的 base 层、schema 整项缺省与解析失败兜底的唯一来源 */
-export const LEGACY_BASE: LegacyConfig = { allowUpdate: false, autoFill: true }
-
-/** LEGACY(v0)：配置 schema（布尔统一开关或对象按字段控制） */
-export const LegacyConfigSchema: z<LegacyConfig> = z.object({
-    allowUpdate: z.union([z.boolean(), legacyFieldRules(false)]).default(LEGACY_BASE.allowUpdate),
-    autoFill: z.union([z.boolean(), legacyFieldRules(true)]).default(LEGACY_BASE.autoFill),
-})
-
-/** LEGACY(v0)：布尔统一开关展开为规范对象形态（schema 解析后对象内字段已补齐） */
-function legacyExpand(value: LegacyFieldSwitch): LegacyFieldRules {
-    if (typeof value === 'boolean') return { reasoning: value, context: value }
-    return value
-}
-
-// ---------- 历史版本（v1）迁移源代码：新命名空间版本快照体系内 v1 快照的冻结形态（见 types.ts 历史版本(v1) 段说明，非 LEGACY 旧命名空间），不引用当前版本的可演进定义。 ----------
+// ---------- 历史版本（v1）迁移源代码：新命名空间版本快照体系内 v1 快照的冻结形态（见 types.ts 历史版本(v1) 段说明），不引用当前版本的可演进定义。 ----------
 
 /** 历史版本(v1)：字段规则 schema（无 image 字段），dflt 为省略字段的默认值 */
 const v1FieldRules = (dflt: boolean): z<V1FieldRules> => z.object({
@@ -46,34 +23,19 @@ const V1ConfigSchema: z<Omit<V1PluginConfigSnapshot, 'configVersion'>> = z.objec
     autoFill: v1FieldRules(true).default({ ...V1_BASE.autoFill }),
 })
 
-/** v0 → v1：输入按 v0 schema 解析（非法整体回退 v0 默认），布尔统一开关展开为对象并补齐省略字段，添加版本号 */
-function upgrade0To1(config: unknown, fromVersion: number): V1PluginConfigSnapshot {
-    if (fromVersion < MIN_SUPPORTED_VERSION) {
-        throw new Error(`无法从 v${fromVersion} 升级：低于最低支持版本 v${MIN_SUPPORTED_VERSION}`)
-    }
-    let legacy: LegacyConfig
-    try {
-        legacy = LegacyConfigSchema((isPlainObject(config) ? config : {}) as unknown as LegacyConfig)
-    } catch {
-        legacy = LEGACY_BASE
-    }
-    // 台阶目标版本固定为 1（本函数产物形态恒定），更高版本由后续台阶接力，故不引用 CONFIG_VERSION
-    return { configVersion: 1, allowUpdate: legacyExpand(legacy.allowUpdate), autoFill: legacyExpand(legacy.autoFill) }
-}
-
-// ---------- 升级链（每级只做相邻版本升级） ----------
+// ---------- 升级链（每级只做相邻版本升级；最新台阶的守卫拒绝低于最低支持版本的输入） ----------
 
 /** v1 → v2：输入按 v1 冻结 schema 解析（非法整体回退 v1 默认），新增 image 字段并落各自默认（autoFill=true、allowUpdate=false） */
 function upgrade1To2(config: unknown, fromVersion: number): PluginConfigSnapshot {
-    const v1 = fromVersion < 1
-        ? upgrade0To1(config, fromVersion)
-        : (() => {
-            try {
-                return V1ConfigSchema((isPlainObject(config) ? config : {}) as unknown as Omit<V1PluginConfigSnapshot, 'configVersion'>)
-            } catch {
-                return V1_BASE
-            }
-        })()
+    if (fromVersion < MIN_SUPPORTED_VERSION) {
+        throw new Error(`无法从 v${fromVersion} 升级：低于最低支持版本 v${MIN_SUPPORTED_VERSION}`)
+    }
+    let v1: Omit<V1PluginConfigSnapshot, 'configVersion'>
+    try {
+        v1 = V1ConfigSchema((isPlainObject(config) ? config : {}) as unknown as Omit<V1PluginConfigSnapshot, 'configVersion'>)
+    } catch {
+        v1 = V1_BASE
+    }
     // 台阶目标版本固定为 2（本函数产物形态恒定），更高版本由后续台阶接力，故不引用 CONFIG_VERSION
     return {
         configVersion: 2,
@@ -83,8 +45,7 @@ function upgrade1To2(config: unknown, fromVersion: number): PluginConfigSnapshot
 }
 
 /**
- * 配置版本迁移入口：把 fromVersion（段内旧快照版本；旧 NS 配置传最低支持版本 0）
- * 逐级升级到当前 CONFIG_VERSION 快照形态。
+ * 配置版本迁移入口：把 fromVersion（段内旧快照版本）逐级升级到当前 CONFIG_VERSION 快照形态。
  * 新版本发布时：新增「只做相邻一级升级」的 upgradeNToN+1 函数，并把本函数指向最新台阶，
  * 链上既有函数一律不改。例如未来当前版本=3：
  *   upgradeConfig = (c, v) => upgrade2To3(c, v)
@@ -119,7 +80,6 @@ function collectVersions(section: VersionedSection | undefined): number[] {
  * - Phase A：清理低于 MIN_SUPPORTED_VERSION 的快照（已失效，不读取不处理）
  * - Phase B：清理低于当前版本且超出 MAX_OLD_SNAPSHOTS 上限的 excess（从最低版本起淘汰）
  * 等于或高于当前版本的快照始终保留（当前在使用，高版本供回退后无损读取）。
- * v0 位于 LEGACY 旧命名空间、不在当前 NS 的 version-N 键内，故不在此处理。
  * configVersion/minSupported/maxOld 默认取当前常量，测试可覆写以覆盖更高版本台阶。
  */
 export function pruneOps(
@@ -178,9 +138,8 @@ export async function waitForSettingsReady(ctx: Context, isDisposed: () => boole
 /**
  * 启动时配置迁移：
  * - 有当前版本快照 → 直接使用（快照本身非法则按当前生效值重写自愈），两阶段清理低版本旧快照：先清低于最低支持版本，再清低于当前版本且超出上限的 excess（高版本快照保留）
- * - 无当前版本 → 依次尝试：段内最低支持以上的最高旧快照 → 旧命名空间用户段（v0），走升级链；
- *   两者皆无（全新用户）→ 直接写入规范默认快照（不经升级链），确保后续读取必有当前版本
- * - 旧命名空间段保留，供回滚旧版插件继续读取
+ * - 无当前版本 → 段内有最低支持以上的最高旧快照则走升级链；否则视为全新用户，
+ *   直接写入规范默认快照（不经升级链），确保后续读取必有当前版本
  */
 export async function migrateConfig(ctx: Context): Promise<void> {
     const mine = readSection(ctx, PLUGIN_NS)
@@ -203,18 +162,14 @@ export async function migrateConfig(ctx: Context): Promise<void> {
     if (versions.some((v) => v > CONFIG_VERSION)) {
         ctx.logger.warn(`${PLUGIN_NAME}: 检测到更高版本的配置快照（可能有新版插件在管配置），本版本仅保留不读取其内容`)
     }
-    // 迁移源：段内不低于最低支持的最高旧快照；其次存在用户段的旧 NS；均无则视为全新用户，直接落默认
+    // 迁移源：段内不低于最低支持的最高旧快照；无则视为全新用户，直接落默认
     const olds = versions.filter((v) => v >= MIN_SUPPORTED_VERSION && v < CONFIG_VERSION)
     const sourceVersion = olds[olds.length - 1]
-    const legacyUser = readSection(ctx, LEGACY_NS)?.user
     let stored: PluginConfigSnapshot
     let action: string
     if (sourceVersion !== undefined) {
         stored = upgradeConfig(section?.[versionKey(sourceVersion)], sourceVersion)
         action = `从段内 ${versionKey(sourceVersion)} 快照升级`
-    } else if (isPlainObject(legacyUser)) {
-        stored = upgradeConfig(legacyUser, MIN_SUPPORTED_VERSION)
-        action = `从旧命名空间配置（v${MIN_SUPPORTED_VERSION}）升级`
     } else {
         stored = DEFAULT_STORED
         action = '写入默认配置'

@@ -58,5 +58,3 @@ tikaflow-model-fix:
       context: false    # 不更新已有模型的 contextWindow/maxTokens；默认 false
       image: false      # 不更新已有模型的 input 图片模态声明；默认 false
 ```
-
-> 旧版本 `model-reasoning` 命名空间下的配置会自动迁移为上述对象形态，无需手动处理；旧配置段会留在文件中，确认无误后可自行删除。

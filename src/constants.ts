@@ -9,13 +9,11 @@ export const PLUGIN_NAME = 'dsh-model-fix'
 export const API_NS = settingsNamespace('llm-pi-ai')
 /** 自有配置命名空间（带发布者前缀，避免与其他插件抢占通用名字；fix 即填充/修复），由 installSettingsSection 注册 */
 export const PLUGIN_NS = settingsNamespace('tikaflow-model-fix')
-/** 旧版自有配置命名空间：启动时读取并升级；迁移后其配置段保留，供回滚旧版插件继续读取 */
-export const LEGACY_NS = settingsNamespace('model-reasoning')
 
 /** 当前代码支持的配置版本（新 NS 内的快照版本）；配置 schema 变化时递增，并在 migrate.ts 中追加升级步骤 */
 export const CONFIG_VERSION = 2
-/** 最低支持（可升级读取）的版本，0 为旧命名空间的统一形态（无版本号字段）；低于此值的版本快照视为已失效（运行时不读取、迁移时清理） */
-export const MIN_SUPPORTED_VERSION = 0
+/** 最低支持（可升级读取）的版本（v1 起；v0 旧命名空间形态已移除支持）；低于此值的版本快照视为已失效（运行时不读取、迁移时清理） */
+export const MIN_SUPPORTED_VERSION = 1
 /** 低于当前版本的旧快照保留上限，超出在启动时从最低版本清理（等于或高于当前版本的快照始终保留，供无损回退） */
 export const MAX_OLD_SNAPSHOTS = 3
 /** 版本快照键前缀，段内键形如 version-N */

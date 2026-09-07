@@ -56,30 +56,8 @@ export function isCapacity(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0 && value !== CAPACITY_UNLIMITED
 }
 
-// ---------- LEGACY（v0）：旧命名空间（model-reasoning）配置的冻结形态（对应插件 0.5.6 的 schema）。 ----------
-// ---------- 定义不随代码演进；MIN_SUPPORTED_VERSION 超过 0 时本段与 migrate.ts、index.ts 中的 LEGACY 代码一并移除 ----------
-
-/** LEGACY(v0)：按字段分别控制的规则（对象写法） */
-export interface LegacyFieldRules {
-    /** 推理级别字段 */
-    reasoning: boolean
-    /** 上下文窗口与输出上限 */
-    context: boolean
-}
-
-/** LEGACY(v0)：bool 统一开关或对象按字段控制 */
-export type LegacyFieldSwitch = boolean | LegacyFieldRules
-
-/** LEGACY(v0)：旧命名空间（model-reasoning）下的完整配置形态 */
-export interface LegacyConfig {
-    /** 以 models.dev 最新数据为准更新已有配置 */
-    allowUpdate: LegacyFieldSwitch
-    /** 自动填充缺失的推理级别/容量字段 */
-    autoFill: LegacyFieldSwitch
-}
-
 // ---------- 历史版本（v1）：新命名空间（tikaflow-model-fix）版本快照体系内 v1 快照的冻结形态（引入 image 前的配置）。 ----------
-// ---------- 属版本快照体系（0.6.0 起，非 LEGACY 旧命名空间）；定义不随代码演进，MIN_SUPPORTED_VERSION 超过 1 时本段与 migrate.ts 的 upgrade1To2 一并移除 ----------
+// ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 1 时本段与 migrate.ts 的 upgrade1To2 一并移除 ----------
 
 /** 历史版本(v1)：按字段分别控制的规则（无 image 字段） */
 export interface V1FieldRules {

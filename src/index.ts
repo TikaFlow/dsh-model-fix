@@ -1,9 +1,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { installSettingsSection } from '@deepseek-ai/dsh-settings'
 import { readCache, setCatalog } from './catalog'
-import { LEGACY_NS, PLUGIN_NS, API_NS, PLUGIN_NAME } from './constants'
+import { PLUGIN_NS, API_NS, PLUGIN_NAME } from './constants'
 import { DEFAULT_SECTION, SectionSchema, resolveConfig, setConfigSource } from './config'
-import { LegacyConfigSchema, LEGACY_BASE, isNamespaceRegistered, migrateConfig, waitForSettingsReady } from './migrate'
+import { migrateConfig, waitForSettingsReady } from './migrate'
 import { refresh } from './refresh'
 import { installRpc } from './rpc'
 import { fix } from './fix'
@@ -20,12 +20,6 @@ export function apply(ctx: Context) {
         setSource: (current) => { setConfigSource(() => resolveConfig(current())) },
         // 插件配置变化时重新填充（fix 内部对无变更字段自然跳过）
         onChange: () => { fix(ctx).catch(swallowFixError) },
-    })
-    // 注册旧命名空间 shim（冻结 v0 schema，仅供迁移读取）。注册及其失败（冲突/存储段非法）都在
-    // 子 fiber 微任务内发生，故其结果在下方启动 effect 就绪后用 isNamespaceRegistered 检测
-    installSettingsSection(ctx, LEGACY_NS, LegacyConfigSchema, LEGACY_BASE, {
-        setSource: () => {},
-        onChange: () => {},
     })
     // llm-pi-ai 模型配置变更后重新填充
     ctx.on('settings/updated', (ns) => {
@@ -46,11 +40,6 @@ export function apply(ctx: Context) {
                 if (!ready) {
                     ctx.logger.warn(`${PLUGIN_NAME}: 未检测到自有配置命名空间注册，跳过配置迁移`)
                     return
-                }
-                // 此刻 PLUGIN_NS/LEGACY_NS 的注册回调均已执行：旧 NS 缺席说明其注册失败
-                // （被占用或存储段非法），迁移将按无旧配置处理
-                if (!isNamespaceRegistered(ctx, LEGACY_NS)) {
-                    ctx.logger.warn(`${PLUGIN_NAME}: 旧配置命名空间未成功注册（可能已被其他插件占用或存有非法配置），迁移按无旧配置处理`)
                 }
                 return migrateConfig(ctx)
             })

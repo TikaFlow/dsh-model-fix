@@ -35,7 +35,7 @@ export function run(): void {
         allowUpdate: { reasoning: false, context: false, image: false },
         autoFill: { reasoning: false, context: false, image: true },
     }), resolveConfig({ 'version-1': { configVersion: 1, autoFill: { reasoning: false, context: false } } }))
-    check('低版本快照含布尔写法（v0 形态）无法按当前 schema 解析，回退默认', stable(resolveConfig({ 'version-0': { allowUpdate: true } })) === DEFAULT_STABLE, resolveConfig({ 'version-0': { allowUpdate: true } }))
+    check('低于最低支持版本的快照（如残留 v0 键）被忽略回默认', stable(resolveConfig({ 'version-0': { allowUpdate: true } })) === DEFAULT_STABLE, resolveConfig({ 'version-0': { allowUpdate: true } }))
     check('仅更高版本回默认', stable(resolveConfig({ 'version-9': { whatever: true } })) === DEFAULT_STABLE, resolveConfig({ 'version-9': { whatever: true } }))
     check('非法快照回默认', stable(resolveConfig({ 'version-2': 'garbage' })) === DEFAULT_STABLE, resolveConfig({ 'version-2': 'garbage' }))
     check('段为数组/非对象回默认', stable(resolveConfig([])) === DEFAULT_STABLE, resolveConfig([]))

@@ -20,7 +20,7 @@ const fieldRules = (dflt: boolean): z<FieldRules> => z.object({
 })
 
 /**
- * 当前版本配置 schema：仅对象写法（布尔写法只存在于 v0，经升级链展开为对象后进入存储，
+ * 当前版本配置 schema：仅对象写法（布尔写法只存在于已停止支持的 v0 旧数据，
  * 运行时只接受对象写法，杜绝语法二义性）；字段整体缺失时落该项默认（取 DEFAULT_CONFIG，
  * 展开为新对象以免 schema 默认与运行时常量共享引用）。
  */

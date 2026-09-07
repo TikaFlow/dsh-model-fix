@@ -11,7 +11,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | 路径 | 职责（只标非显而易见的部分） |
 | --- | --- |
 | `src/index.ts` | 仅 `export` + `apply` 生命周期编排，业务全部外拆 |
-| `src/types.ts` | 共享类型与守卫；**LEGACY(v0)/历史版本(v1) 是冻结形态**；Connection RPC 契约的结构本地复制也在这里 |
+| `src/types.ts` | 共享类型与守卫；**历史版本(v1) 是冻结形态**；Connection RPC 契约的结构本地复制也在这里 |
 | `src/constants.ts` | 命名空间、版本与保留上限、重试参数、`CAPACITY_UNLIMITED`、提供商提示表 `HINTS` |
 | `src/config.ts` / `src/migrate.ts` | 当前 schema 与 `resolveConfig` / 升级链与 `migrateConfig` 编排 |
 | `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
@@ -41,15 +41,15 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - 段 schema 必须宽松（`z.dict(z.any())`）：否则"比当前代码更新的版本快照"会让命名空间注册直接失败。严格校验只针对当前版本快照值。
 - `settingsScope.bind` **必须自带 decode 且永不返回 undefined**：缺省路径走宿主 schema rehydrate，宽松 dict 校验失败会使 scope status 永挂 loading。
 - **路径 op 不支持数组下标中间段**（且各段必须是字符串），要改数组元素只能整段 `set` 覆盖 ⇒ `fix` 按 provider 整段写回 `providers[id].models`，未变更元素原样保留。
-- 命名空间注册（含冲突/存储段非法的抛错）被推迟到**微任务**，而 `apply` 内的 effect 体同步执行、此刻 `describe()` 读空 ⇒ 迁移前必须有界等待注册完成（`waitForSettingsReady` 用 `setTimeout(0)` 让出宏任务；超 `REGISTER_WAIT_MAX` 次未就绪则跳过迁移，不阻塞填充）。同理，LEGACY 是否注册成功只能在就绪后用 `isNamespaceRegistered` 观察，缺席即按"无旧配置"处理并告警。
+- 命名空间注册（含冲突/存储段非法的抛错）被推迟到**微任务**，而 `apply` 内的 effect 体同步执行、此刻 `describe()` 读空 ⇒ 迁移前必须有界等待注册完成（`waitForSettingsReady` 用 `setTimeout(0)` 让出宏任务；超 `REGISTER_WAIT_MAX` 次未就绪则跳过迁移，不阻塞填充）。
 - **迁移必先于填充**，否则旧格式会被按新 schema 误解析。
 
 ### 历史形态冻结
 
-- LEGACY(v0) = 旧 `model-reasoning` 命名空间的形态；v1 = 新命名空间版本快照体系的旧快照，**不属 LEGACY**。两者的类型与 schema 一律不引用当前版本的可演进定义。
+- v1 = `tikaflow-model-fix` 版本快照体系的旧快照（引入 image 前的配置），其类型与 schema 一律不引用当前版本的可演进定义。
+- v0（旧 `model-reasoning` 命名空间形态，含布尔写法）**已整体移除支持**：配置面小、默认值安全、卡片 UI 可重建，历史包袱不再背。旧命名空间段如残留在 settings 中，本插件不读不写。
 - 升级台阶 `upgradeNToN+1` 只做相邻一级、**目标版本号写固定字面量**（不引用 `CONFIG_VERSION`）；发新版只追加台阶函数，链上既有函数不改。
-- 提升 `MIN_SUPPORTED_VERSION` 时：该版本的冻结段与对应台阶整体移除（v0 还包括 `upgrade0To1` 与 `index.ts` 的旧 NS shim 注册）。
-- 布尔写法（`autoFill: true`）是 v0 专属历史形态，当前 schema 只接受对象写法——为杜绝语法二义性，不做兼容读。
+- 提升 `MIN_SUPPORTED_VERSION` 时：该版本的冻结段与对应台阶整体移除。
 
 ### 工具链陷阱
 
@@ -73,7 +73,6 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 ## 设计裁决（代码里看不出动机）
 
 - **配置解析优先级**：当前版本快照 → ≤ 当前且 ≥ 最低支持的最高版本 → 内置默认。更高版本快照本代码不读取（仅告警保留），供新版插件回退后无损读取 ⇒ 等于/高于当前版本的快照**永不清理**。
-- **旧 NS 段迁移后保留不删**：便于回滚 ≤ 0.5.x 插件继续读取；除迁移外不再读它。v0 位于旧 NS、不在当前 NS 的 `version-N` 键内，故不参与快照清理。
 - **当前版本快照非法时自愈重写**：不修就会长期停在"文件里是坏值、运行期按次高版本或默认执行"的不一致态且无从纠正。重写目标取**当前生效值**（有可用旧快照则沿用其语义），而非强行落默认。
 - **全新用户直接写规范默认快照**（不经升级链），保证启动后段内必有当前版本快照；写入用定向路径 op，不触碰用户手写键与高版本快照。
 - **`allowUpdate` 含缺失补写**，且 `autoFill` 关闭也拦不住它——语义是"以目录为准同步该字段"；对已有字段才是覆盖，且要求新值合法（档位/容量/模态各自校验），新旧相同则跳过。**数据无档位不删除已有配置**。
