@@ -21,6 +21,12 @@
 
 ## 安装
 
+> 若此前已安装旧（<0.8.0）版本 `dsh-model-reasoning` 需要先卸载，否则将会冲突：
+>
+> ```bash
+> dsh plugin --profile web remove dsh-model-reasoning
+> ```
+
 > 设置界面的可视化卡片需要 DSH ≥ 0.1.2-alpha.2（alpha 通道：`npm i -g @deepseek-ai/dsh@alpha` 或按官方渠道升级）；更旧的 DSH 上插件自动填充功能一切正常，仅无设置卡片。
 
 -  通过插件市场安装（推荐）

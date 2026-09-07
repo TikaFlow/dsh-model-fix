@@ -40,7 +40,7 @@ export function run(): void {
         }),
         decodeSection({ 'version-2': { autoFill: { reasoning: false } } }),
     )
-    // ---------- v2 非对象（布尔旧形态）视为非法，走回落 ----------
+    // ---------- v2 非对象视为非法，走回落 ----------
     check('decode v2 布尔形态非法回退默认', stable(decodeSection({ 'version-2': true })) === stable(DEFAULT_FLAGS))
     // ---------- v2 字段类型非法 => 整段快照非法，回退默认（不读旧版本快照） ----------
     check(
@@ -51,12 +51,11 @@ export function run(): void {
         })) === stable(DEFAULT_FLAGS),
         decodeSection({ 'version-1': { autoFill: { reasoning: false, context: false }, allowUpdate: { reasoning: true, context: true } }, 'version-2': { autoFill: { reasoning: 'yes' } } }),
     )
-    // ---------- 只读 version-2：段内仅有旧版本快照（迁移未完成/失败）不读取，回默认 ----------
+    // ---------- 只读 version-2：段内仅有低版本快照（迁移未完成/失败）不读取，回默认 ----------
     check(
-        'decode 段内仅有 v1/v0 回默认',
+        'decode 段内仅有 v1 回默认',
         stable(decodeSection({
             'version-1': { configVersion: 1, autoFill: { reasoning: true, context: false }, allowUpdate: { reasoning: false, context: true } },
-            'version-0': { allowUpdate: true, autoFill: true },
         })) === stable(DEFAULT_FLAGS),
         decodeSection({ 'version-1': { autoFill: { reasoning: true, context: false }, allowUpdate: { reasoning: false, context: true } } }),
     )

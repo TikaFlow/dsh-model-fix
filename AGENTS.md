@@ -47,7 +47,6 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 ### 历史形态冻结
 
 - v1 = `tikaflow-model-fix` 版本快照体系的旧快照（引入 image 前的配置），其类型与 schema 一律不引用当前版本的可演进定义。
-- v0（旧 `model-reasoning` 命名空间形态，含布尔写法）**已整体移除支持**：配置面小、默认值安全、卡片 UI 可重建，历史包袱不再背。旧命名空间段如残留在 settings 中，本插件不读不写。
 - 升级台阶 `upgradeNToN+1` 只做相邻一级、**目标版本号写固定字面量**（不引用 `CONFIG_VERSION`）；发新版只追加台阶函数，链上既有函数不改。
 - 提升 `MIN_SUPPORTED_VERSION` 时：该版本的冻结段与对应台阶整体移除。
 
