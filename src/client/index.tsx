@@ -3,8 +3,8 @@
  * 职责：注册卡片词典（effect disposer 化，词典重复注册会抛错，HMR 安全）
  * → 绑定 tikaflow-model-fix 命名空间 scope（自带 decode，杜绝宿主 schema rehydrate 挂死）
  * → 取宿主 connection 服务的 RPC 载体（「强制更新」按钮触发 Node 半 force 填充，通道 /tikaflow-model-fix）
- * → 向「模型」选项卡底部槽 settings.models.footer 注册卡片（槽自宿主 0.1.2-alpha.2 起存在，
- *   由 package.json peerDependencies 声明下限；更旧宿主无此槽、卡片不出现，属预期不支持）。
+ * → 向「模型」选项卡底部槽 settings.models.footer 注册卡片（宿主依赖跟随宿主 latest，
+ *   该槽在 peerDependencies 声明的下限版本上已存在；更旧宿主无此槽、卡片不出现，属预期不支持）。
  * 类型边全部 type-only（构建期擦除，不违反跨插件纯度纪律）。
  */
 

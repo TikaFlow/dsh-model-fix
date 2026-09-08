@@ -4,6 +4,7 @@
  */
 
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
+import type { Group, RowKey } from './model'
 
 /** 卡片词典命名空间 */
 export const CARD_NS = 'settings.modelFix'
@@ -14,12 +15,15 @@ export type CardKey =
     | 'description'
     | 'colAutoFill'
     | 'colAllowUpdate'
+    | 'colCompat'
     | 'masterAll'
     | 'hintAutoFill'
     | 'hintAllowUpdate'
+    | 'hintCompat'
     | 'rowReasoning'
     | 'rowContext'
     | 'rowImage'
+    | 'rowDisableDeveloper'
     | 'save'
     | 'saving'
     | 'saveDone'
@@ -46,36 +50,42 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     }
 }
 
-/** 行/列键的展示文案映射（组件按 FIELD_KEYS / 列枚举取键） */
-export const ROW_KEYS: Record<'reasoning' | 'context' | 'image', CardKey> = {
+/** 组内行键的展示文案映射（组件按 GROUP_KEYS 取键） */
+export const ROW_KEYS: Record<RowKey, CardKey> = {
     reasoning: 'rowReasoning',
     context: 'rowContext',
     image: 'rowImage',
+    disableDeveloper: 'rowDisableDeveloper',
 }
 
-/** 列名键映射 */
-export const COLUMN_KEYS: Record<'autoFill' | 'allowUpdate', CardKey> = {
+/** 配置组（瓦片）标题键映射 */
+export const COLUMN_KEYS: Record<Group, CardKey> = {
     autoFill: 'colAutoFill',
     allowUpdate: 'colAllowUpdate',
+    compat: 'colCompat',
 }
 
 /** 配置组释义键映射（瓦片展开体首行） */
-export const HINT_KEYS: Record<'autoFill' | 'allowUpdate', CardKey> = {
+export const HINT_KEYS: Record<Group, CardKey> = {
     autoFill: 'hintAutoFill',
     allowUpdate: 'hintAllowUpdate',
+    compat: 'hintCompat',
 }
 
 export const zh: Record<CardKey, string> = {
     title: '模型参数填充',
-    description: '控制自定义提供商模型的参数自动填充与按 models.dev 同步。',
+    description: '控制自定义提供商模型的参数自动填充与按 models.dev 同步，以及提供商的 API 兼容性。',
     colAutoFill: '自动填充',
     colAllowUpdate: '允许更新',
+    colCompat: '兼容性',
     masterAll: '全部',
     hintAutoFill: '该参数空缺时自动填充',
     hintAllowUpdate: '按 models.dev 数据同步该参数：空缺时补填，不一致时覆盖',
+    hintCompat: '按下方开关调整与旧版 API 的兼容行为，作用于所有 openai-completions 提供商',
     rowReasoning: '推理级别',
     rowContext: '上下文与输出',
     rowImage: '图片输入',
+    rowDisableDeveloper: '不使用 developer 角色',
     save: '保存',
     saving: '保存中…',
     saveDone: '配置已保存。',
@@ -99,15 +109,18 @@ export const zh: Record<CardKey, string> = {
 
 export const en: Record<CardKey, string> = {
     title: 'Model field auto-fill',
-    description: 'Controls auto-fill of custom provider model fields and syncing them with models.dev.',
+    description: 'Controls auto-fill of custom provider model fields, syncing them with models.dev, and provider API compatibility.',
     colAutoFill: 'Auto fill',
     colAllowUpdate: 'Allow update',
+    colCompat: 'Compatibility',
     masterAll: 'all',
     hintAutoFill: 'Auto-fills the parameter when it is missing',
     hintAllowUpdate: 'Syncs the parameter with models.dev data: fills it when missing, overwrites when different',
+    hintCompat: 'Adjusts compatibility with older APIs; applies to every openai-completions provider',
     rowReasoning: 'Reasoning efforts',
     rowContext: 'Context & output',
     rowImage: 'Image input',
+    rowDisableDeveloper: 'Never use the developer role',
     save: 'Save',
     saving: 'Saving…',
     saveDone: 'Settings saved.',

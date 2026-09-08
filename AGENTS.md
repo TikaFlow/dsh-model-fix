@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-DSH 插件：为所有非官方（自定义）提供商的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`），数据来自 models.dev。
+DSH 插件：为所有非官方（自定义）提供商的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`），数据来自 models.dev；并按兼容性规则为 openai-completions 提供商维护路由级 `compat`（当前一条：不使用 `developer` 角色）。
 
 ## 技术栈与目录
 
@@ -11,13 +11,14 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | 路径 | 职责（只标非显而易见的部分） |
 | --- | --- |
 | `src/index.ts` | 仅 `export` + `apply` 生命周期编排，业务全部外拆 |
-| `src/types.ts` | 共享类型与守卫；**历史版本(v1) 是冻结形态**；Connection RPC 契约的结构本地复制也在这里 |
-| `src/constants.ts` | 命名空间、版本与保留上限、重试参数、`CAPACITY_UNLIMITED`、提供商提示表 `HINTS` |
+| `src/types.ts` | 共享类型与守卫；**历史版本(v1/v2) 是冻结形态**；Connection RPC 契约的结构本地复制也在这里 |
+| `src/constants.ts` | 命名空间、版本与保留上限、重试参数、`CAPACITY_UNLIMITED`、提供商提示表 `HINTS`、兼容性落点 `DEVELOPER_COMPAT_APIS` / `DEVELOPER_COMPAT_FIELD` |
 | `src/config.ts` / `src/migrate.ts` | 当前 schema 与 `resolveConfig` / 升级链与 `migrateConfig` 编排 |
 | `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
-| `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过） |
+| `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 两类 op 同批提交 |
+| `src/compat.ts` | 兼容性规则 → provider 路由 `compat` 的纯写入计划（添加 / 移除 / 删空整段 unset），零 ctx 依赖故可单测 |
 | `src/rpc.ts` / `src/refresh.ts` | 强制更新 channel / 刷新编排（含重试） |
-| `src/client/` | 浏览器半：`index.tsx` 入口（词典/scope/RPC 载体/槽注册）、`card.tsx` 卡片、`model.ts` 快照↔六布尔纯映射（唯一可单测的浏览器半模块）、`locales.ts` 中英词典 |
+| `src/client/` | 浏览器半：`index.tsx` 入口（词典/scope/RPC 载体/槽注册）、`card.tsx` 卡片、`model.ts` 快照↔三组配置布尔纯映射（唯一可单测的浏览器半模块）、`locales.ts` 中英词典 |
 | `public/models-cache.json` | 构建期随 `lib/public/` 发布的 models.dev 拍平缓存（首启离线可用） |
 | `cordis.patch.yml` | DSH 补丁层对本插件的注册 |
 
@@ -31,7 +32,8 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - 浏览器半产物必须复刻宿主 client 的闭包工厂契约（`window.__ModuleLoader__.load` + banner/intro/footer 三段）。声明了 `dsh.client` 后，缺 `lib/client.js` 会让宿主**激活期聚合抛错** ⇒ **build 必须先于 link/安装到宿主**。
 - 卡片挂在宿主 `ModelsSection` 为仓库外插件预留的 list 席位 `settings.models.footer`（「模型」选项卡页面底部）；**选项卡头部在任何宿主版本都没有席位**，别往那儿挂。
 - client 模块必须 `export const name`，且与包名一致。
-- **对外纪律：前端可用面一律以 npm 发布版为准**（`npm view @deepseek-ai/dsh dist-tags`）；宿主源码仓 HEAD 领先一切已发布版本，只作参照，**其工作树路径不得写进本项目文档**（未被版本追踪）。已实证：`settings.models.footer` 槽只在 ≥ 0.1.2-alpha.2 的发布包中存在，npm `latest`（0.1.1-rc.2）没有该槽——在其上 `slots.inject` 会无限等待、静默无卡片。本插件取**向前兼容**：web-ui 只支持 ≥ 0.1.2-alpha.2（`peerDependencies` 声明下限），不为旧宿主做降级。
+- **对外纪律：前端可用面一律以 npm 发布版为准**（`npm view @deepseek-ai/dsh dist-tags`）；宿主源码仓 HEAD 领先一切已发布版本，只作参照，**其工作树路径不得写进本项目文档**（未被版本追踪）。本插件的宿主依赖**总是跟随宿主 latest**：`@deepseek-ai/dsh-*`（`dsh-settings` 与 6 个 `dsh-client-*`）取宿主 latest 的那个版本号（当前 `0.1.2-rc.1`），`peerDependencies` 同版作下限；`@deepseek-ai/cordis` / `schemastery` 不随宿主版本号，取宿主本体自己声明的那条线（`^4.0.2` / `^3.18.2`）。**坑**：这些子包各自的 `latest` tag 是陈旧的（如 `dsh-client-ui-slots` latest = `0.0.1-rc.1`），与宿主同号的线在它们的 `next` ⇒ 升级要写具体版本号，别用 `pkg@latest`。功能未生效即提示用户升级宿主（README「版本说明」）。
+- 宿主 0.1.2 起 settings 面的两处搬迁：`deepEqualJson` 从 `@deepseek-ai/dsh-settings` 迁到 **`@deepseek-ai/dsh-util-values`**（运行时依赖，且是宿主唯一的变更检测判据 ⇒ `fix` / `compat` 复用它，勿自写比较）；`installSettingsSection()` 变为 provider 方法 **`ctx.settings.installSection(owner, ns, schema, entry, hooks)`**（第 4 参同时是 composition base 与服务缺席时的回退值）。
 - Connection RPC 契约（`RpcResult`/`HostRpcHandle`/`ClientRpcCall`）是宿主 `@deepseek-ai/dsh-client-connection` 的**结构复制**而非依赖：该包的 transitive 依赖范围只存在于宿主 monorepo、npm 上装不起来，故仅 type-only 使用；`ctx.get` 断言范式与宿主内置插件一致。信任围栏（loopback / 浏览器会话 cookie）由宿主施加。
 - 词典 `ctx.locale.register` 重复注册会抛错，必须经 `ctx.effect` 挂 disposer 保 HMR；卡片样式经模块级幂等 `<style>` 注入，带 `data-plugin` 标记供宿主 HMR 认领。
 
@@ -41,20 +43,25 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - 段 schema 必须宽松（`z.dict(z.any())`）：否则"比当前代码更新的版本快照"会让命名空间注册直接失败。严格校验只针对当前版本快照值。
 - `settingsScope.bind` **必须自带 decode 且永不返回 undefined**：缺省路径走宿主 schema rehydrate，宽松 dict 校验失败会使 scope status 永挂 loading。
 - **路径 op 不支持数组下标中间段**（且各段必须是字符串），要改数组元素只能整段 `set` 覆盖 ⇒ `fix` 按 provider 整段写回 `providers[id].models`，未变更元素原样保留。
-- 命名空间注册（含冲突/存储段非法的抛错）被推迟到**微任务**，而 `apply` 内的 effect 体同步执行、此刻 `describe()` 读空 ⇒ 迁移前必须有界等待注册完成（`waitForSettingsReady` 用 `setTimeout(0)` 让出宏任务；超 `REGISTER_WAIT_MAX` 次未就绪则跳过迁移，不阻塞填充）。
+- `unset` 的嵌套路径生效，但**不会折叠被清空的父对象** ⇒ 删掉路由 `compat` 里唯一的键要整段 `unset`，否则留下 `compat: {}` 这种脏壳（宿主语义等同未声明，但会反复触发写入判定）。
+- **注册与文档装载都先于本插件 `apply`**：provider 在 become injectable 前 `publish(await load())`，`installSection` 内的注册 effect 体同步落库 ⇒ `installSection` 之后 `describe()` 即含本命名空间，**迁移前不需要等待就绪**（旧 `waitForSettingsReady` 有界等待随旧 API 一并移除）。命名空间就是小写连字符串字面量（宿主 0.1.2 起无 `settingsNamespace()` 包装）。
+- 存储段非法会让 `ctx.settings.installSection` **同步抛出**（注册即解析校验存储段）⇒ 段 schema 必须宽松这一条更关键；`migrateConfig` 读不到命名空间则早退、不写任何东西。
 - **迁移必先于填充**，否则旧格式会被按新 schema 误解析。
 
 ### 历史形态冻结
 
 - v1 = `tikaflow-model-fix` 版本快照体系的旧快照（引入 image 前的配置），其类型与 schema 一律不引用当前版本的可演进定义。
-- 升级台阶 `upgradeNToN+1` 只做相邻一级、**目标版本号写固定字面量**（不引用 `CONFIG_VERSION`）；发新版只追加台阶函数，链上既有函数不改。
-- 提升 `MIN_SUPPORTED_VERSION` 时：该版本的冻结段与对应台阶整体移除。
+- v2 = 引入 `compat` 前的快照（两组六布尔），冻结形态同上；台阶 `upgradeTo2` 的产物即该形态，故返回类型用冻结的 `V2PluginConfigSnapshot`。
+- **只往 `compat` 对象里加键不算形态变化**：不递增 `CONFIG_VERSION`、不加台阶，前提是每个新键都有 schema 默认（旧快照解析后即获得默认）。
+- 升级台阶按**目标版本**命名 `upgradeToN`（名字只说明"我产出 vN"，如何从更低版本接力上来是其内部事务）：每级先 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力，再按 `vN-1` 冻结 schema 解析、补新增字段落默认；**产物版本号写固定字面量**（不引用 `CONFIG_VERSION`）。`upgradeConfig` 只调最新一级，链上既有函数不改；最低一级 `upgradeTo2` 独占全链唯一的 `fromVersion < MIN_SUPPORTED_VERSION` 守卫（该常量等于这一级的输入下限，自维护，实际不会触发，仅挡误用）。
+- 提升 `MIN_SUPPORTED_VERSION` 时：该版本的冻结段与消费它的台阶（`upgradeTo该版本`）一并移除。
 
 ### 工具链陷阱
 
 - `pnpm test` **必须带 `--no-config`**：否则 CLI 参数会合并进数组配置的每一项，浏览器半的工厂 banner 会污染测试产物（无配置时产物扩展名为 `.mjs`）。
 - `pnpm install` 的 `prepare` 会跑 build ⇒ `lib/` 装完即存在。
-- 浏览器半类型依赖 `@deepseek-ai/dsh-client-*` devDeps，**版本须与宿主 harness 对齐**，否则类型面与发布版实际能力脱节。
+- 浏览器半类型依赖 `@deepseek-ai/dsh-client-*` devDeps，**版本须与宿主 latest 同号**（见「对外纪律」），否则类型面与发布版实际能力脱节；升级只能写具体版本号，`pkg@latest` 会装到陈旧 tag。
+- 宿主依赖一律用 `pnpm add` 变更（`-E` 保精确、`--save-peer` 写 peer），不要手改 `package.json` 的依赖字段；`peerDependencies` 只声明下限范围时 pnpm 会归一成品版本号，需按项目惯例保留 `>=` 写法。
 
 ## UI 无痕融合纪律（浏览器半一切样式与交互取舍的准绳）
 
@@ -79,24 +86,27 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **写失败先告警再抛出**：事件类调用点 catch 吞掉 rejection（日志已在 `fix` 内），RPC 调用方转 `ok:false` 回传前端——同一个错误不能既静默又弹窗。
 - **`fix` 读 `descriptor.user`（原始用户段）而非解析值**：写回值与读回值同源，避免 schema 规范化后的形态与写入形态不一致而反复触发重写。写回携带 revision 做并发围栏，冲突时重读重算（限次）。
 - **空 `input` / 空 `compat` 一律删除**：harness 语义上与"未声明"等同，删除无损且操作幂等。
+- **兼容性规则「开启即添加、关闭即移除」，与模型参数的取向相反**：模型参数关闭只是不写、存量原地保留；`compat` 是本插件接管的路由字段，关掉开关若还留着旧值就等于开关没生效。因此默认 `disableDeveloper: true` 一升级就会给所有 openai-completions 路由写 `supportsDeveloperRole: false`，并覆盖用户手写的同字段——要自行管理 provider 的 compat 就把这一项关掉。
+- **compat 只写路由级、不写模型级**：宿主里模型级字段优先于路由级，写模型级会与用户逐模型的取值打架；且 `fix` 的模型整段写回已负责清理空 `compat`，两类 op 各管各的路径。
+- **compat 只发给 `api === 'openai-completions'` 的路由**：宿主按协议 gate 消费 compat，其他协议写了被静默跳过 ⇒ 主动过滤避免无意义写入与脏段；路由没有 `api`（协议靠内置目录推断）一律不碰。
+- **`force` 与 compat 无关**：兼容性规则不来自 models.dev，强制更新只绕过 `allowUpdate` 覆盖模型参数；`fix` 的返回值也仍只计模型变更数，保持 RPC 与「强制更新」反馈的契约。
 - **图片模态只缓存正向信息**（支持图片才写 `true`，纯文本省略字段）：缓存体积是发布包大小主因；纯文本模型本就不声明，行为与未声明一致。数据源里的 `pdf`/`video`/`audio` 忽略不写（宿主 `input` 只接受 `text`/`image`）。
 - **容量哨兵**：`CAPACITY_UNLIMITED = 99999999` 是 models.dev 对"无限/未公布"的建模，媒体模型还会给 0——两者一律视为"无该字段"（写 0 会被宿主 schema 拒绝并连累整批）。
 - **id 匹配宁可漏不错配**：精确 → 词干 → 前缀三级，词干/前缀**多命中即判无命中**；无分隔符的短 id 只走精确。跨提供商同源模型靠 `HINTS`（模型名前缀 → 官方提供商）优先命中。
 - **卡片按钮文案取「保存」不取「应用」**：写 settings 即前端职责终点，填充由后端 `onChange → fix` 触发，其结果（填了几条）前端无法感知——叫「应用」会让人误以为按钮本身应用了目录值。
 - **瓦片默认收起、同时只展开一个**（手风琴）：各瓦片展开后高度不同，同时展开会让两列底部参差，官方即如此设计。
 - **展开体填 `bg-module-platform`、外层整卡不填**：前者在宿主语义里是"展开出来的内层面板"（同页 `.editor`/`.setupCard` 同令牌），后者填了会在页面上显成灰块。深色主题下官方瓦片本体与该填充同值、看不出差异，我们本体透明故可见——与同页一致，属预期。
-- **不引入 `failed` 态、不做「恢复默认」**：六布尔恒合法、写入为单字段原子写，失败时 `dirty` 保留已完整传达该信息；官方 reset 依赖字段级 user/base 分层与"未填回落"语义，本插件是整体显式快照，二者不成立。
+- **不引入 `failed` 态、不做「恢复默认」**：三组布尔恒合法、写入为单字段原子写，失败时 `dirty` 保留已完整传达该信息；官方 reset 依赖字段级 user/base 分层与"未填回落"语义，本插件是整体显式快照，二者不成立。
 - **`expand`/`collapse` 文案只用于 `aria-label`**（视觉只有箭头），官方同款——**不要当成死代码删除**。
 - **有意的布局偏离**：表头/瓦片里开关在文字左（矩阵列对齐需要，官方 `.toggleRow` 是左文右钮）、卡片内不写 `body[data-ds-dark-theme]` 镜像规则（宿主令牌自动切换）。
 
 ## 数据流骨架
 
-启动一条链：**等待注册 → 迁移 → 读缓存 → 填充 → 异步刷新（拉取成功则覆盖索引与缓存后再填充）**，全程由一个 effect 管理，卸载置位后在途结果不触碰已销毁上下文；刷新与缓存写入失败都是"固定间隔、含首次共最多 3 次、最终仅告警"，不影响本次运行。缓存内容与新拉数据无变化时跳过写盘。
+启动一条链：**迁移 → 读缓存 → 填充 → 异步刷新（拉取成功则覆盖索引与缓存后再填充）**，全程由一个 effect 管理，卸载置位后在途结果不触碰已销毁上下文；刷新与缓存写入失败都是"固定间隔、含首次共最多 3 次、最终仅告警"，不影响本次运行。缓存内容与新拉数据无变化时跳过写盘。
 
 ```mermaid
 graph LR
-    R[等待命名空间注册] --> M[migrateConfig]
-    M --> C[readCache 逐条校验]
+    M[migrateConfig] --> C[readCache 逐条校验]
     C --> F[fix 填充]
     F --> X[fetchLatest 拉取]
     X -->|数据非空| I[替换索引 + 覆盖缓存]
@@ -105,8 +115,9 @@ graph LR
 
 ## 配置说明
 
-- 自有命名空间 `tikaflow-model-fix`（由本插件注册），仅对象写法，如 `tikaflow-model-fix: { version-2: { autoFill: { reasoning: true, context: false, image: true } } }`；首次启动或版本升级时自动写入当前版本快照。
-- 也可经 Web 设置的卡片修改（需宿主 ≥ 0.1.2-alpha.2），两种途径写的是同一个东西。
+- 自有命名空间 `tikaflow-model-fix`（由本插件注册），仅对象写法，如 `tikaflow-model-fix: { version-3: { autoFill: { reasoning: true, context: false, image: true }, compat: { disableDeveloper: true } } }`；首次启动或版本升级时自动写入当前版本快照。
+- `compat` 与两组填充规则平行，键按「规则 → provider 路由 compat 字段」映射（当前仅 `disableDeveloper` → `supportsDeveloperRole: false`）；往该对象加新键不需要递增配置版本。
+- 也可经 Web 设置的卡片修改（宿主跟随 latest，见「对外纪律」），两种途径写的是同一个东西。
 - 推理级别取值与 harness `ModelThinkingLevel` 一致：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`；模型列表在 `llm-pi-ai` 命名空间的 `providers` 下。
 
 ## 命令
@@ -116,6 +127,6 @@ graph LR
 
 ## 测试规范
 
-- `test/` 只收**不依赖 DSH 运行时的纯函数**：配置解析与迁移、拍平与条目校验、id 匹配、浏览器半纯映射层（`src/client/model.ts` 零外部值依赖故可直接单测）。涉及时序/框架的编排（`migrateConfig`、`fix`、`readCache`/`fetchLatest`、`refresh`、浏览器半组件）不进 `test/`，需要时用 stub ctx 临时脚本验证后删除。
+- `test/` 只收**不依赖 DSH 运行时的纯函数**：配置解析与迁移、路由 compat 写入计划（`src/compat.ts`）、拍平与条目校验、id 匹配、浏览器半纯映射层（`src/client/model.ts` 零外部值依赖故可直接单测）。涉及时序/框架的编排（`migrateConfig`、`fix`、`readCache`/`fetchLatest`、`refresh`、浏览器半组件）不进 `test/`，需要时用 stub ctx 临时脚本验证后删除。
 - 文件按被测模块命名 `test/<module>.test.ts`，导出 `run()`，在 `test/index.ts` 注册；断言与汇总用 `test/helper.ts`（`check` / 键序无关的 `stable` / `summary` 设退出码）。
 - 新增或修改纯函数必须同步补用例并 `pnpm test` 通过；断言优先覆盖边界与兼容性语义（非法输入兜底、幂等、版本回退），不追求逐行覆盖。

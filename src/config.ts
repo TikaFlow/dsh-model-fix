@@ -1,12 +1,13 @@
 import z from '@deepseek-ai/schemastery'
 import { CONFIG_VERSION, MIN_SUPPORTED_VERSION, VERSION_PREFIX } from './constants'
-import type { FieldRules, PluginConfig, VersionedSection } from './types'
+import type { CompatRules, FieldRules, PluginConfig, VersionedSection } from './types'
 import { isPlainObject } from './types'
 
-/** 默认配置：填充缺失开启，覆盖更新关闭 */
+/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理 */
 export const DEFAULT_CONFIG: PluginConfig = {
     allowUpdate: { reasoning: false, context: false, image: false },
     autoFill: { reasoning: true, context: true, image: true },
+    compat: { disableDeveloper: true },
 }
 
 /** 命名空间下的默认段值（版本快照容器） */
@@ -20,12 +21,21 @@ const fieldRules = (dflt: boolean): z<FieldRules> => z.object({
 })
 
 /**
+ * 兼容性规则 schema：每个键对应 provider 路由 compat 下的一个字段。
+ * 后续新增兼容性配置在此追加布尔键即可（缺省落 DEFAULT_CONFIG.compat），不需要递增 CONFIG_VERSION。
+ */
+const compatRules: z<CompatRules> = z.object({
+    disableDeveloper: z.boolean().default(true),
+})
+
+/**
  * 当前版本配置 schema：仅对象写法（不接受布尔简写，杜绝语法二义性）；字段整体缺失时落该项默认（取 DEFAULT_CONFIG，
  * 展开为新对象以免 schema 默认与运行时常量共享引用）。
  */
 const PluginConfigSchema: z<PluginConfig> = z.object({
     allowUpdate: fieldRules(false).default({ ...DEFAULT_CONFIG.allowUpdate }),
     autoFill: fieldRules(true).default({ ...DEFAULT_CONFIG.autoFill }),
+    compat: compatRules.default({ ...DEFAULT_CONFIG.compat }),
 })
 
 /** 命名空间整段的 schema：宽松字典，保证比当前代码更新的版本快照也能通过注册校验 */
@@ -50,7 +60,7 @@ export function parseSnapshot(value: unknown): PluginConfig | undefined {
     if (!isPlainObject(value)) return
     try {
         const parsed = PluginConfigSchema(value as unknown as PluginConfig)
-        return { allowUpdate: parsed.allowUpdate, autoFill: parsed.autoFill }
+        return { allowUpdate: parsed.allowUpdate, autoFill: parsed.autoFill, compat: parsed.compat }
     } catch {
         return
     }
@@ -74,10 +84,10 @@ export function resolveConfig(section: unknown): PluginConfig {
     return best?.config ?? DEFAULT_CONFIG
 }
 
-// 生效配置源：installSettingsSection 挂载后指向 settings scope，否则回退默认
+// 生效配置源：ctx.settings.installSection 的 setSource 挂上 scope 后指向命名空间，否则回退默认
 let configSource: () => PluginConfig = () => DEFAULT_CONFIG
 
-/** 挂载配置读取来源（由 installSettingsSection 的 setSource 调用） */
+/** 挂载配置读取来源（由 index.ts 的 installSection setSource 调用） */
 export function setConfigSource(current: () => PluginConfig): void {
     configSource = current
 }

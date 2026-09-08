@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-fix",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "type": "module",
   "description": "DSH 插件：给所有非官方（自定义）提供商的模型自动填充模型信息，包括：推理级别、最大上下文、输出上限与图片模态，数据来自 models.dev。",
   "main": "lib/index.js",
@@ -20,37 +20,53 @@
     "prepare": "pnpm build"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-client-locale": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-renderer": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-settings": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-settings-models": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-slots": "0.1.2-alpha.2",
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-client-locale": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-settings-models": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.2-rc.1",
     "@types/node": "^26.2.0",
     "@types/react": "~18.3.0",
     "tsdown": "^0.22.2",
     "typescript": "^7.0.2"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": ">=4.0.1",
-    "@deepseek-ai/dsh-client-locale": ">=0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-renderer": ">=0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-settings-models": ">=0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.2-alpha.2",
+    "@deepseek-ai/cordis": ">=4.0.2",
+    "@deepseek-ai/dsh-client-locale": ">=0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-renderer": ">=0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-settings-models": ">=0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.2-rc.1",
     "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/cordis": { "optional": true },
-    "@deepseek-ai/dsh-client-locale": { "optional": true },
-    "@deepseek-ai/dsh-client-ui-renderer": { "optional": true },
-    "@deepseek-ai/dsh-client-ui-settings": { "optional": true },
-    "@deepseek-ai/dsh-client-ui-settings-models": { "optional": true },
-    "@deepseek-ai/dsh-client-ui-primitives": { "optional": true },
-    "@deepseek-ai/dsh-client-ui-slots": { "optional": true },
-    "react": { "optional": true }
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-locale": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-renderer": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings-models": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-primitives": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-slots": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
   },
   "dsh": {
     "bundle": {
@@ -65,7 +81,8 @@
     }
   },
   "dependencies": {
-    "@deepseek-ai/dsh-settings": "0.1.0-rc.8",
-    "@deepseek-ai/schemastery": "^3.18.1"
+    "@deepseek-ai/dsh-settings": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-util-values": "0.1.2-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.2"
   }
 }

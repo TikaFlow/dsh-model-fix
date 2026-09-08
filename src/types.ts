@@ -57,7 +57,7 @@ export function isCapacity(value: unknown): value is number {
 }
 
 // ---------- 历史版本（v1）：新命名空间（tikaflow-model-fix）版本快照体系内 v1 快照的冻结形态（引入 image 前的配置）。 ----------
-// ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 1 时本段与 migrate.ts 的 upgrade1To2 一并移除 ----------
+// ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 1 时本段与 upgradeTo2 的 v1 解析一并移除 ----------
 
 /** 历史版本(v1)：按字段分别控制的规则（无 image 字段） */
 export interface V1FieldRules {
@@ -74,6 +74,26 @@ export interface V1PluginConfigSnapshot {
     autoFill: V1FieldRules
 }
 
+// ---------- 历史版本（v2）：版本快照体系内 v2 快照的冻结形态（引入 compat 前的配置）。 ----------
+// ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 2 时本段与 upgradeTo3 的 v2 接力一并移除 ----------
+
+/** 历史版本(v2)：按字段分别控制的规则开关（与 v1 相比多出 image 字段） */
+export interface V2FieldRules {
+    /** 推理级别字段 */
+    reasoning: boolean
+    /** 上下文窗口与输出上限，二者一体受此开关控制 */
+    context: boolean
+    /** 图片/多模态（input 模态声明） */
+    image: boolean
+}
+
+/** 历史版本(v2)：version-2 快照的完整形态（无 compat 对象） */
+export interface V2PluginConfigSnapshot {
+    configVersion: number
+    allowUpdate: V2FieldRules
+    autoFill: V2FieldRules
+}
+
 // ---------- 当前版本随升级链持续演进 ----------
 
 /** 按字段分别控制的规则开关 */
@@ -86,12 +106,27 @@ export interface FieldRules {
     image: boolean
 }
 
+/**
+ * 兼容性规则：每条对应宿主 provider 路由 compat 下的一个字段（当前仅 supportsDeveloperRole）。
+ * 同组新增键对既有形态只是「多一个可选字段」，向后兼容，因此不需要递增 CONFIG_VERSION。
+ */
+export interface CompatRules {
+    /**
+     * 为 true 时给该 provider 的路由写入 `compat.supportsDeveloperRole: false`（不使用 developer 角色，
+     * 退回旧版 API 兼容的 system 角色）；为 false 时**移除**该字段（而非保留不管）。
+     * 仅作用于 `api === 'openai-completions'` 的路由，且只写路由级、不写模型级。
+     */
+    disableDeveloper: boolean
+}
+
 /** 当前运行时配置（仅对象写法） */
 export interface PluginConfig {
     /** 开启后以 models.dev 最新数据为准更新已有配置 */
     allowUpdate: FieldRules
     /** 开启后自动填充缺失的推理级别/容量/图片字段 */
     autoFill: FieldRules
+    /** 兼容性规则，作用于 provider 路由的 compat（与模型参数填充无关，不受 allowUpdate/autoFill 影响） */
+    compat: CompatRules
 }
 
 /** 当前版本的存储快照：运行时配置字段 + 显式版本号 */
@@ -99,6 +134,7 @@ export interface PluginConfigSnapshot {
     configVersion: number
     allowUpdate: FieldRules
     autoFill: FieldRules
+    compat: CompatRules
 }
 
 /** 命名空间下的整段配置：version-N -> 对应版本的配置快照（保留低版本历史与更高新版本，便于无损回退） */

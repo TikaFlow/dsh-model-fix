@@ -1,9 +1,10 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { deepEqualJson } from '@deepseek-ai/dsh-settings'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
+import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { getCatalog } from './catalog'
+import { planProviderCompat } from './compat'
 import { lookup, toReasoningEfforts } from './lookup'
-import { API_NS, MAX_ATTEMPTS, PLUGIN_NAME } from './constants'
+import { API_NS, DEVELOPER_COMPAT_APIS, MAX_ATTEMPTS, PLUGIN_NAME } from './constants'
 import { getConfig } from './config'
 import { isCapacity, isPlainObject } from './types'
 
@@ -34,11 +35,15 @@ function isSettingsConflict(error: unknown): boolean {
 }
 
 /**
- * 遍历配置的模型写回变更：缺失推理级别/容量/图片模态且有目录数据则填充（受 autoFill 对应字段控制），
- * allowUpdate（force 时单次绕过，不落存储）开启则按目录最新值同步——含缺失补写与已有覆盖
- * （旧值缺失经 deepEqualJson 判为不一致，属设计裁决，见 AGENTS.md 填充流程），并剔除空 input/compat。
- * 读 descriptor.user（原始字段），按 provider 整数组写回 models（路径 op 不支持数组下标，故 value 为全量重建的数组，
- * 未变更元素原样保留）；数据无档位不删除已有配置。返回变更模型数；写回失败（冲突重试用尽等）
+ * 遍历提供商写回变更，一次 mutate 内提交两类 op（模型参数与路由兼容性，二者互不影响）：
+ * - 模型参数：缺失推理级别/容量/图片模态且有目录数据则填充（受 autoFill 对应字段控制），
+ *   allowUpdate（force 时单次绕过，不落存储）开启则按目录最新值同步——含缺失补写与已有覆盖
+ *   （旧值缺失经 deepEqualJson 判为不一致，属设计裁决，见 AGENTS.md 填充流程），并剔除空 input/compat。
+ *   读 descriptor.user（原始字段），按 provider 整数组写回 models（路径 op 不支持数组下标，故 value 为全量重建的数组，
+ *   未变更元素原样保留）；数据无档位不删除已有配置。
+ * - 路由 compat：按 compat 规则组为 openai-completions 路由添加或**移除**字段（与模型填充不同，关闭即移除，
+ *   见 src/compat.ts），只写路由级、不写模型级。
+ * 返回变更模型数（不含路由 compat 计数，保持 RPC 契约）；写回失败（冲突重试用尽等）
  * 先告警再抛出，由调用方决定后续处理（RPC 转失败结果回传，事件侧吞掉 rejection）。
  */
 export async function fix(ctx: Context, force = false): Promise<number> {
@@ -51,75 +56,87 @@ export async function fix(ctx: Context, force = false): Promise<number> {
         const cfg = getConfig()
         const allowRules = cfg.allowUpdate
         const autoRules = cfg.autoFill
+        const compatRules = cfg.compat
         const indexed = getCatalog()
         const ops: SettingsPathOp[] = []
         let changes = 0
+        let compatChanges = 0
         for (const [providerId, provider] of Object.entries(providers)) {
             if (!isPlainObject(provider)) continue
-            const models = (provider as { models?: unknown }).models
-            if (!Array.isArray(models)) continue
-            let next: Record<string, unknown>[] | undefined
-            for (let i = 0; i < models.length; i++) {
-                const model = models[i]
-                if (!isPlainObject(model)) continue
-                const record = model as Record<string, unknown>
-                const { id, reasoningEfforts, contextWindow, maxTokens } = record as {
-                    id?: unknown
-                    reasoningEfforts?: unknown
-                    contextWindow?: unknown
-                    maxTokens?: unknown
+            const { api, models, compat: currentCompat } = provider as { api?: unknown; models?: unknown; compat?: unknown }
+            if (Array.isArray(models)) {
+                let next: Record<string, unknown>[] | undefined
+                for (let i = 0; i < models.length; i++) {
+                    const model = models[i]
+                    if (!isPlainObject(model) || model.id === undefined || model.id === null) continue
+                    const record = model
+                    const { reasoningEfforts, contextWindow, maxTokens } = record as {
+                        reasoningEfforts?: unknown
+                        contextWindow?: unknown
+                        maxTokens?: unknown
+                    }
+                    const cleaned = stripEmptyArtifacts(record)
+                    const entry = lookup(indexed, providerId, String(record.id))
+                    const efforts = toReasoningEfforts(entry)
+                    // 图片模态以剔除空数组后的值为准（harness 语义：空数组 = 未声明）
+                    const input = cleaned.input
+                    const inputValue = toInputValue(entry?.image)
+                    // 推理级别
+                    const reasoningFillable = autoRules.reasoning
+                        && reasoningEfforts === undefined && !!efforts
+                    const reasoningUpdatable = (force || allowRules.reasoning)
+                        && !deepEqualJson(reasoningEfforts, efforts)
+                        && isPlainObject(efforts)
+                    // 容量新值须为正整数且非哨兵（存量旧缓存可能仍带 0/99999999，写 0 会被 schema 拒绝并连累整批）
+                    const ctxW = entry?.contextWindow
+                    const maxT = entry?.maxTokens
+                    const contextFillable = autoRules.context
+                        && contextWindow === undefined && isCapacity(ctxW)
+                    const contextUpdatable = (force || allowRules.context)
+                        && ctxW !== contextWindow
+                        && isCapacity(ctxW)
+                    const maxTokensFillable = autoRules.context
+                        && maxTokens === undefined && isCapacity(maxT)
+                    const maxTokensUpdatable = (force || allowRules.context)
+                        && maxT !== maxTokens
+                        && isCapacity(maxT)
+                    const imageFillable = autoRules.image
+                        && input === undefined && !!inputValue
+                    const imageUpdatable = (force || allowRules.image)
+                        && !!inputValue
+                        && !deepEqualJson(input, inputValue)
+                    if (cleaned === record && !reasoningFillable && !reasoningUpdatable
+                        && !contextFillable && !contextUpdatable && !maxTokensFillable && !maxTokensUpdatable
+                        && !imageFillable && !imageUpdatable) continue
+                    changes++
+                    next ??= models.slice()
+                    const patched = { ...cleaned }
+                    if (reasoningFillable || reasoningUpdatable) patched.reasoningEfforts = efforts
+                    if (contextFillable || contextUpdatable) patched.contextWindow = ctxW
+                    if (maxTokensFillable || maxTokensUpdatable) patched.maxTokens = maxT
+                    if (imageFillable || imageUpdatable) patched.input = inputValue
+                    next[i] = patched
                 }
-                if (id === undefined || id === null) continue
-                const cleaned = stripEmptyArtifacts(record)
-                const entry = lookup(indexed, providerId, String(id))
-                const efforts = toReasoningEfforts(entry)
-                // 图片模态以剔除空数组后的值为准（harness 语义：空数组 = 未声明）
-                const input = cleaned.input
-                const inputValue = toInputValue(entry?.image)
-                // 推理级别
-                const reasoningFillable = autoRules.reasoning
-                    && reasoningEfforts === undefined && !!efforts
-                const reasoningUpdatable = (force || allowRules.reasoning)
-                    && !deepEqualJson(reasoningEfforts, efforts)
-                    && isPlainObject(efforts)
-                // 容量新值须为正整数且非哨兵（存量旧缓存可能仍带 0/99999999，写 0 会被 schema 拒绝并连累整批）
-                const ctxW = entry?.contextWindow
-                const maxT = entry?.maxTokens
-                const contextFillable = autoRules.context
-                    && contextWindow === undefined && isCapacity(ctxW)
-                const contextUpdatable = (force || allowRules.context)
-                    && ctxW !== contextWindow
-                    && isCapacity(ctxW)
-                const maxTokensFillable = autoRules.context
-                    && maxTokens === undefined && isCapacity(maxT)
-                const maxTokensUpdatable = (force || allowRules.context)
-                    && maxT !== maxTokens
-                    && isCapacity(maxT)
-                const imageFillable = autoRules.image
-                    && input === undefined && !!inputValue
-                const imageUpdatable = (force || allowRules.image)
-                    && !!inputValue
-                    && !deepEqualJson(input, inputValue)
-                if (cleaned === record && !reasoningFillable && !reasoningUpdatable
-                    && !contextFillable && !contextUpdatable && !maxTokensFillable && !maxTokensUpdatable
-                    && !imageFillable && !imageUpdatable) continue
-                changes++
-                next ??= models.slice()
-                const patched = { ...cleaned }
-                if (reasoningFillable || reasoningUpdatable) patched.reasoningEfforts = efforts
-                if (contextFillable || contextUpdatable) patched.contextWindow = ctxW
-                if (maxTokensFillable || maxTokensUpdatable) patched.maxTokens = maxT
-                if (imageFillable || imageUpdatable) patched.input = inputValue
-                next[i] = patched
+                if (next) {
+                    ops.push({ op: 'set', path: ['providers', providerId, 'models'], value: next })
+                }
             }
-            if (next) {
-                ops.push({ op: 'set', path: ['providers', providerId, 'models'], value: next })
+            // 路由级兼容性（与模型参数无关，故 models 缺失也要处理）：仅 openai-completions 风格的路由消费该字段，
+            // 其他协议写入无意义（宿主按协议 gate 静默跳过），故不碰。
+            if (typeof api === 'string' && DEVELOPER_COMPAT_APIS.has(api)) {
+                const plan = planProviderCompat(compatRules, currentCompat)
+                if (plan) {
+                    compatChanges++
+                    ops.push(plan.op === 'set'
+                        ? { op: 'set', path: ['providers', providerId, 'compat'], value: plan.value }
+                        : { op: 'unset', path: ['providers', providerId, 'compat'] })
+                }
             }
         }
         if (ops.length === 0) return 0
         try {
             await ctx.settings.mutate(API_NS, ops, descriptor.revision)
-            ctx.logger.info(`${PLUGIN_NAME}: 已变更 ${changes} 个模型（补充/同步推理级别、容量字段、图片模态、清理空字段）`)
+            ctx.logger.info(`${PLUGIN_NAME}: 已变更 ${changes} 个模型（补充/同步推理级别、容量字段、图片模态、清理空字段）、${compatChanges} 个提供商的路由 compat（developer 角色兼容）`)
             return changes
         } catch (error) {
             if (isSettingsConflict(error) && attempt < MAX_ATTEMPTS) continue

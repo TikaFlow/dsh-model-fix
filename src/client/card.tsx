@@ -1,15 +1,15 @@
 /**
  * 模型参数填充卡片（浏览器半）：可折叠卡片，1:1 复刻官方 Web-UI 插件卡（ui-settings-plugins）。
  * header 整块为 `aria-expanded` 按钮（名称 + 描述两行，dirty 时挂「未保存」胶囊；折叠文案只进
- * aria-label，官方同款——视觉只有 chevron，不是死代码）。展开体是两个配置组瓦片（自动填充 /
- * 允许更新），排版照官方「插件列表」项卡：一行两个的栅格、summary 行（组名 + 整组开关 + 箭头，
- * min-height 52px）、展开体（组释义 + 三行子开关，填官方 .cardDetails 的模块底色）。展开态样式
+ * aria-label，官方同款——视觉只有 chevron，不是死代码）。展开体是三个配置组瓦片（自动填充 /
+ * 允许更新 / 兼容性），排版照官方「插件列表」项卡：一行两个的栅格、summary 行（组名 + 整组开关 + 箭头，
+ * min-height 52px）、展开体（组释义 + 该组的子开关行，填官方 .cardDetails 的模块底色）。展开态样式
  * 完全跟随官方（`data-open` 驱动）：描边由 l4 换最浅的 l1 并叠两层柔光、summary 行保留淡底、
  * 箭头 180° 旋转。瓦片默认收起、同时只展开一个（官方手风琴语义——各瓦片展开高度不同，
  * 同时展开两列底部会参差）。
  * 正文下方为 footer（强制更新 左｜放弃修改 · 保存 右）。
  * 全卡分隔线：外层摘要↔正文 1 条 + 每个展开中的瓦片 1 条 + footer 1 条，均官方同值 0.5px --dsw-alias-border-l2。
- * 本地暂存（draft）：单格/总控点击只改草稿，点「保存」才经 settingsScope 原子写 version-2；
+ * 本地暂存（draft）：单格/总控点击只改草稿，点「保存」才经 settingsScope 原子写当前版本快照键；
  * 草稿跨折叠存活（收起时靠 header 胶囊告知未落盘），「放弃修改」即草稿归 null 回随已存值；
  * 保存被宿主确认落地（dirty 归 false）后自动收起并留一行弱提示，写失败保持展开与草稿可重试。
  * 结果反馈一律走卡片内联状态行（挂在 header 之后、条件展开体之外，故折叠不丢在途结果），
@@ -25,19 +25,18 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RpcResult } from '../types'
 import {
     DEFAULT_FLAGS,
-    FIELD_KEYS,
+    GROUPS,
+    GROUP_KEYS,
     VERSION_KEY,
-    applyColumn,
+    applyGroup,
+    groupValue,
     isDirty,
     masterValue,
     snapshotFromFlags,
     toggleCell,
 } from './model'
-import type { Column, Flags } from './model'
+import type { Flags, Group, RowKey } from './model'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from './locales'
-
-/** 卡片行键（reasoning / context / image） */
-type FieldKey = (typeof FIELD_KEYS)[number]
 
 /** 卡片组件 props（t 由 slots.register 的 locale 席位合成注入；scope/forceUpdate 由入口闭包传入） */
 export interface CardProps {
@@ -182,23 +181,23 @@ function Switch(props: { checked: boolean; disabled: boolean; aria: string; onCh
 
 /**
  * 配置组瓦片（官方「插件列表」项卡同款）：summary 为组名 + 整组开关 + 折叠箭头，
- * 展开体为组释义 + 三行子开关。整行可点由 `.dsh-mf-itemToggle` 覆盖层承担，开关在其
- * 上层独占点击区（故不存在 button 嵌套）；可访问名用 aria-labelledby 指向可见标题。
- * 文案与可访问名一律由 column + 词典键在此派生，两个瓦片因此只差 column/open/回调。
+ * 展开体为组释义 + 该组的子开关行（行键取 GROUP_KEYS，故新增组只是多一张同形瓦片）。
+ * 整行可点由 `.dsh-mf-itemToggle` 覆盖层承担，开关在其上层独占点击区（故不存在 button 嵌套）；
+ * 可访问名用 aria-labelledby 指向可见标题。文案与可访问名一律由 group + 词典键在此派生。
  */
 function GroupTile(props: {
-    column: Column
+    group: Group
     t: CardProps['t']
     flags: Flags
     open: boolean
     disabled: boolean
     onToggle: () => void
     onMaster: () => void
-    onCell: (key: FieldKey) => void
+    onCell: (key: RowKey) => void
 }) {
-    const { column, t, open } = props
-    const id = `dsh-mf-item-${column}`
-    const title = t(COLUMN_KEYS[column])
+    const { group, t, open } = props
+    const id = `dsh-mf-item-${group}`
+    const title = t(COLUMN_KEYS[group])
     return (
         <div className="dsh-mf-item" role="group" data-open={open ? 'true' : undefined} aria-labelledby={`${id}-title`}>
             <div className="dsh-mf-itemHead">
@@ -214,7 +213,7 @@ function GroupTile(props: {
                 <span className="dsh-mf-itemTrailing">
                     <span className="dsh-mf-itemSwitch">
                         <Switch
-                            checked={masterValue(props.flags, column)}
+                            checked={masterValue(props.flags, group)}
                             disabled={props.disabled}
                             aria={`${title} ${t('masterAll')}`}
                             onChange={props.onMaster}
@@ -225,12 +224,12 @@ function GroupTile(props: {
             </div>
             {open ? (
                 <div className="dsh-mf-itemBody" id={`${id}-body`}>
-                    <p className="dsh-mf-itemHint">{t(HINT_KEYS[column])}</p>
-                    {FIELD_KEYS.map((key) => (
+                    <p className="dsh-mf-itemHint">{t(HINT_KEYS[group])}</p>
+                    {GROUP_KEYS[group].map((key) => (
                         <div key={key} className="dsh-mf-itemRow">
                             <span>{t(ROW_KEYS[key])}</span>
                             <Switch
-                                checked={props.flags[column][key]}
+                                checked={groupValue(props.flags, group, key)}
                                 disabled={props.disabled}
                                 aria={`${t(ROW_KEYS[key])} ${title}`}
                                 onChange={() => { props.onCell(key) }}
@@ -258,7 +257,7 @@ export function Card(props: CardProps) {
     const [submitting, setSubmitting] = useState(false)
     // 折叠态为卡片本地状态（读姿而非配置），默认收起，与官方插件卡一致；草稿跨折叠存活
     const [open, setOpen] = useState(false)
-    // 两个配置组瓦片的折叠态：沿用官方「插件列表」的手风琴语义（同时只开一个、默认全收起，
+    // 三个配置组瓦片的折叠态：沿用官方「插件列表」的手风琴语义（同时只开一个、默认全收起，
     // 状态按行键 string 而非列名存，与官方 expanded: string | null 同形）——各瓦片展开后高度
     // 不同，同时展开会让两列底部参差，官方因此单选
     const [tileOpen, setTileOpen] = useState<string | null>(null)
@@ -301,14 +300,14 @@ export function Card(props: CardProps) {
         )
     }
 
-    const onCell = (column: Column, key: FieldKey) => {
+    const onCell = (group: Group, key: RowKey) => {
         setNotice(null)
-        setDraft(toggleCell(shown, column, key))
+        setDraft(toggleCell(shown, group, key))
     }
-    // 整组总控：组内任一为开则显示开；点击取反并把该组三格全部设为同一值
-    const onMaster = (column: Column) => {
+    // 整组总控：组内任一为开则显示开；点击取反并把该组全部行设为同一值（总开关无对应存储，只是批量操作）
+    const onMaster = (group: Group) => {
         setNotice(null)
-        setDraft(applyColumn(shown, column, !masterValue(shown, column)))
+        setDraft(applyGroup(shown, group, !masterValue(shown, group)))
     }
     // 瓦片折叠：官方 toggleRow 同语义——点已开者即收起，否则切到该瓦片
     const onTileToggle = (key: string) => {
@@ -404,19 +403,19 @@ export function Card(props: CardProps) {
                 <div className="dsh-mf-body">
                     {!ready ? <p className="dsh-mf-line" role="status">{t('loading')}</p> : null}
                     {ready && !snap.writable ? <p className="dsh-mf-line dsh-mf-warn" role="status">{t('readOnly')}</p> : null}
-                    {/* 两个配置组只差 column：由列名键表派生渲染，保证两瓦片形态始终一致 */}
+                    {/* 三个配置组只差 group：由组枚举与键表派生渲染，保证各瓦片形态始终一致 */}
                     <div className="dsh-mf-items">
-                        {(Object.keys(COLUMN_KEYS) as Column[]).map((column) => (
+                        {GROUPS.map((group) => (
                             <GroupTile
-                                key={column}
-                                column={column}
+                                key={group}
+                                group={group}
                                 t={t}
                                 flags={shown}
-                                open={tileOpen === column}
+                                open={tileOpen === group}
                                 disabled={!canWrite}
-                                onToggle={() => { onTileToggle(column) }}
-                                onMaster={() => { onMaster(column) }}
-                                onCell={(key) => { onCell(column, key) }}
+                                onToggle={() => { onTileToggle(group) }}
+                                onMaster={() => { onMaster(group) }}
+                                onCell={(key) => { onCell(group, key) }}
                             />
                         ))}
                     </div>

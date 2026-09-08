@@ -1,9 +1,9 @@
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
-import type { SettingsNamespace, SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import { CONFIG_VERSION, MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION, PLUGIN_NAME, PLUGIN_NS, REGISTER_WAIT_MAX } from './constants'
+import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
+import { CONFIG_VERSION, MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION, PLUGIN_NAME, PLUGIN_NS } from './constants'
 import { DEFAULT_CONFIG, parseSnapshot, parseVersion, resolveConfig, versionKey } from './config'
-import type { PluginConfig, PluginConfigSnapshot, V1FieldRules, V1PluginConfigSnapshot, VersionedSection } from './types'
+import type { CompatRules, PluginConfig, PluginConfigSnapshot, V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, VersionedSection } from './types'
 import { isPlainObject } from './types'
 
 // ---------- 历史版本（v1）迁移源代码：新命名空间版本快照体系内 v1 快照的冻结形态（见 types.ts 历史版本(v1) 段说明），不引用当前版本的可演进定义。 ----------
@@ -23,10 +23,30 @@ const V1ConfigSchema: z<Omit<V1PluginConfigSnapshot, 'configVersion'>> = z.objec
     autoFill: v1FieldRules(true).default({ ...V1_BASE.autoFill }),
 })
 
-// ---------- 升级链（每级只做相邻版本升级；最新台阶的守卫拒绝低于最低支持版本的输入） ----------
+// ---------- 历史版本（v2）迁移源代码：版本快照体系内 v2 快照的冻结形态（见 types.ts 历史版本(v2) 段说明），不引用当前版本的可演进定义。 ----------
 
-/** v1 → v2：输入按 v1 冻结 schema 解析（非法整体回退 v1 默认），新增 image 字段并落各自默认（autoFill=true、allowUpdate=false） */
-function upgrade1To2(config: unknown, fromVersion: number): PluginConfigSnapshot {
+/** 历史版本(v2)：字段规则 schema（含 image，无 compat 对象），dflt 为省略字段的默认值 */
+const v2FieldRules = (dflt: boolean): z<V2FieldRules> => z.object({
+    reasoning: z.boolean().default(dflt),
+    context: z.boolean().default(dflt),
+    image: z.boolean().default(dflt),
+})
+
+/** 历史版本(v2)：默认配置——解析失败兜底与 schema 整项缺省的唯一来源 */
+const V2_BASE: Omit<V2PluginConfigSnapshot, 'configVersion'> = { allowUpdate: { reasoning: false, context: false, image: false }, autoFill: { reasoning: true, context: true, image: true } }
+
+/** 历史版本(v2)：配置 schema（仅对象写法，configVersion 等多余键被 schema 忽略；默认取 V2_BASE 的展开副本） */
+const V2ConfigSchema: z<Omit<V2PluginConfigSnapshot, 'configVersion'>> = z.object({
+    allowUpdate: v2FieldRules(false).default({ ...V2_BASE.allowUpdate }),
+    autoFill: v2FieldRules(true).default({ ...V2_BASE.autoFill }),
+})
+
+// ---------- 升级链（upgradeToN 的产物即 vN 快照；调用它即「升到 N」，更低版本由它在内部逐级回推） ----------
+
+/** 升到 v2（最低一级）：输入按 v1 冻结 schema 解析（非法整体回退 v1 默认），新增 image 字段并落各自默认（autoFill=true、allowUpdate=false） */
+function upgradeTo2(config: unknown, fromVersion: number): V2PluginConfigSnapshot {
+    // 全链唯一的最低版本守卫：本函数是最低一级，其输入版本下限恰为 MIN_SUPPORTED_VERSION（自维护常量），
+    // 调用方已按该下限筛过迁移源，故此判断实际不会触发，只用于挡住误用。
     if (fromVersion < MIN_SUPPORTED_VERSION) {
         throw new Error(`无法从 v${fromVersion} 升级：低于最低支持版本 v${MIN_SUPPORTED_VERSION}`)
     }
@@ -36,7 +56,7 @@ function upgrade1To2(config: unknown, fromVersion: number): PluginConfigSnapshot
     } catch {
         v1 = V1_BASE
     }
-    // 台阶目标版本固定为 2（本函数产物形态恒定），更高版本由后续台阶接力，故不引用 CONFIG_VERSION
+    // 产物版本固定为 2（本函数形态恒定），更高版本由后续台阶接力，故不引用 CONFIG_VERSION
     return {
         configVersion: 2,
         allowUpdate: { ...v1.allowUpdate, image: false },
@@ -45,20 +65,43 @@ function upgrade1To2(config: unknown, fromVersion: number): PluginConfigSnapshot
 }
 
 /**
- * 配置版本迁移入口：把 fromVersion（段内旧快照版本）逐级升级到当前 CONFIG_VERSION 快照形态。
- * 新版本发布时：新增「只做相邻一级升级」的 upgradeNToN+1 函数，并把本函数指向最新台阶，
- * 链上既有函数一律不改。例如未来当前版本=3：
- *   upgradeConfig = (c, v) => upgrade2To3(c, v)
- *   upgrade2To3 = (c, v) => { const v2 = v < 2 ? upgrade1To2(c, v) : c; return /* 2→3 的升级 *\/ }
+ * 兼容性规则的台阶默认值：v2 无该对象，升级到 v3 时落默认。
+ * 写字面量而不引用 config.ts 的 DEFAULT_CONFIG.compat——后者会随当前版本演进，台阶产物形态必须恒定。
+ */
+const V3_COMPAT_DEFAULT: CompatRules = { disableDeveloper: true }
+
+/** 升到 v3：低于 v3 的输入先由 upgradeTo2 逐级接力到 v2，再按 v2 冻结 schema 解析（非法整体回退 v2 默认），新增 compat 对象并落默认 */
+function upgradeTo3(config: unknown, fromVersion: number): PluginConfigSnapshot {
+    const v2 = fromVersion < 2 ? upgradeTo2(config, fromVersion) : config
+    let parsed: Omit<V2PluginConfigSnapshot, 'configVersion'>
+    try {
+        parsed = V2ConfigSchema((isPlainObject(v2) ? v2 : {}) as unknown as Omit<V2PluginConfigSnapshot, 'configVersion'>)
+    } catch {
+        parsed = V2_BASE
+    }
+    // 产物版本固定为 3（本函数形态恒定），更高版本由后续台阶接力，故不引用 CONFIG_VERSION
+    return {
+        configVersion: 3,
+        allowUpdate: parsed.allowUpdate,
+        autoFill: parsed.autoFill,
+        compat: { ...V3_COMPAT_DEFAULT },
+    }
+}
+
+/**
+ * 配置版本迁移入口：只调用最新一级台阶，产物即当前 CONFIG_VERSION 的快照形态。
+ * 新版本发布时：新增 `upgradeToN`（它负责把更低版本经 `upgradeToN-1` 接力上来），把本函数改指它，
+ * 链上既有函数一律不改。例如当前版本=4：
+ *   upgradeConfig = (c, v) => upgradeTo4(c, v)
+ *   upgradeTo4 = (c, v) => { const v3 = v < 3 ? upgradeTo3(c, v) : c; return /* 升到 4 的字段 *\/ }
  */
 export function upgradeConfig(config: unknown, fromVersion: number): PluginConfigSnapshot {
-    // 当前版本 = 2：升级链最新台阶为 v1 → v2
-    return upgrade1To2(config, fromVersion)
+    return upgradeTo3(config, fromVersion)
 }
 
 /** 把运行时配置物化为当前版本的存储快照（configVersion 由本函数补，调用方不手写版本号） */
 export function toStored(config: PluginConfig): PluginConfigSnapshot {
-    return { configVersion: CONFIG_VERSION, allowUpdate: config.allowUpdate, autoFill: config.autoFill }
+    return { configVersion: CONFIG_VERSION, allowUpdate: config.allowUpdate, autoFill: config.autoFill, compat: config.compat }
 }
 
 /** 全新用户的规范默认快照（与升级链对空输入的结果一致，由 test 守护） */
@@ -103,38 +146,6 @@ export function pruneOps(
     return ops
 }
 
-/** 读取指定命名空间当前的用户段与 revision */
-function readSection(ctx: Context, ns: SettingsNamespace) {
-    const descriptor = ctx.settings.describe().find((d) => d.ns === ns)
-    if (!descriptor) return
-    return { user: descriptor.user, revision: descriptor.revision }
-}
-
-/**
- * 某命名空间当前是否已成功注册。
- * 注册在 installSettingsSection 的子 fiber 微任务内完成，重复注册或存储段非法会在该时点抛出，
- * 故注册成功与否只能在异步就绪点用本函数观察。
- */
-export function isNamespaceRegistered(ctx: Context, ns: SettingsNamespace): boolean {
-    return ctx.settings.describe().some((descriptor) => descriptor.ns === ns)
-}
-
-/**
- * 有界等待自有配置命名空间完成注册。
- * 背景：installSettingsSection 经 ctx.inject 子 fiber 注册命名空间，注册回调被推迟到微任务；
- * 而插件 apply 内的启动 effect 同步执行，此刻 describe() 尚不含 PLUGIN_NS，直接迁移会读空、写空。
- * 让出一个宏任务即可排空这些微任务（含注册）；设次数上限以在服务缺席时不阻塞，尊重卸载。
- */
-export async function waitForSettingsReady(ctx: Context, isDisposed: () => boolean): Promise<boolean> {
-    for (let attempt = 0; attempt < REGISTER_WAIT_MAX; attempt++) {
-        if (isDisposed()) return false
-        if (isNamespaceRegistered(ctx, PLUGIN_NS)) return true
-        // 让出一个宏任务：当前所有微任务（含注册回调）排空后再检查
-        await new Promise((resolve) => setTimeout(resolve, 0))
-    }
-    return isNamespaceRegistered(ctx, PLUGIN_NS)
-}
-
 /**
  * 启动时配置迁移：
  * - 有当前版本快照 → 直接使用（快照本身非法则按当前生效值重写自愈），两阶段清理低版本旧快照：先清低于最低支持版本，再清低于当前版本且超出上限的 excess（高版本快照保留）
@@ -142,9 +153,11 @@ export async function waitForSettingsReady(ctx: Context, isDisposed: () => boole
  *   直接写入规范默认快照（不经升级链），确保后续读取必有当前版本
  */
 export async function migrateConfig(ctx: Context): Promise<void> {
-    const mine = readSection(ctx, PLUGIN_NS)
-    if (!mine) return
-    const section = isPlainObject(mine.user) ? mine.user as VersionedSection : undefined
+    // 可直接读到本命名空间：provider 在 become injectable 前已 publish(load())，且 installSection 的注册
+    // effect 体同步执行；读不到即服务缺席/被禁用，无从迁移，按当前生效配置继续。
+    const descriptor = ctx.settings.describe().find((d) => d.ns === PLUGIN_NS)
+    if (!descriptor) return
+    const section = isPlainObject(descriptor.user) ? descriptor.user as VersionedSection : undefined
     const versions = collectVersions(section)
     if (versions.includes(CONFIG_VERSION)) {
         const ops: SettingsPathOp[] = []
@@ -156,7 +169,7 @@ export async function migrateConfig(ctx: Context): Promise<void> {
             ctx.logger.warn(`${PLUGIN_NAME}: ${versionKey(CONFIG_VERSION)} 快照非法，已按当前生效配置重写`)
         }
         ops.push(...pruneOps(versions))
-        if (ops.length > 0) await ctx.settings.mutate(PLUGIN_NS, ops, mine.revision)
+        if (ops.length > 0) await ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision)
         return
     }
     if (versions.some((v) => v > CONFIG_VERSION)) {
@@ -178,6 +191,6 @@ export async function migrateConfig(ctx: Context): Promise<void> {
         { op: 'set', path: [versionKey(CONFIG_VERSION)], value: stored },
         ...pruneOps(versions),
     ]
-    await ctx.settings.mutate(PLUGIN_NS, ops, mine.revision)
+    await ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision)
     ctx.logger.info(`${PLUGIN_NAME}: ${action}，已写入 ${versionKey(CONFIG_VERSION)} 快照`)
 }
