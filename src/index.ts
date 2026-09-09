@@ -3,7 +3,7 @@ import { readCache, setCatalog } from './catalog'
 import { PLUGIN_NS, API_NS, PLUGIN_NAME } from './constants'
 import { DEFAULT_SECTION, SectionSchema, resolveConfig, setConfigSource } from './config'
 import { migrateConfig, selfHealConfig } from './migrate'
-import { refresh } from './refresh'
+import { refreshIfStale } from './refresh'
 import { installRpc } from './rpc'
 import { fix } from './fix'
 
@@ -14,6 +14,8 @@ export const inject = ['settings', 'connection']
 const swallowFixError = (): void => {}
 
 export function apply(ctx: Context) {
+    // 插件级卸载标记：启动链与事件驱动的异步续体都据此中止，卸载后不触碰已销毁上下文
+    let disposed = false
     // 注册自有配置命名空间：段为版本快照容器，setSource 解析出运行时配置，onChange 响应配置变更
     ctx.settings.installSection(ctx, PLUGIN_NS, SectionSchema, DEFAULT_SECTION, {
         setSource: (current) => { setConfigSource(() => resolveConfig(current())) },
@@ -30,18 +32,24 @@ export function apply(ctx: Context) {
                 .catch(swallowFixError)
         },
     })
-    // llm-pi-ai 模型配置变更后重新填充
+    // llm-pi-ai 模型配置变更后重新填充；距上次成功拉取超过保鲜窗口（如长期不重启）时
+    // 拉取最新数据（结算后再填充一次）——事件驱动刷新，无常驻定时器
     ctx.on('settings/updated', (ns) => {
         if (ns !== API_NS) return
-        fix(ctx).catch(swallowFixError)
+        fix(ctx)
+            .finally(() => {
+                if (disposed) return
+                refreshIfStale(ctx, () => disposed)
+            })
+            .catch(swallowFixError)
     })
     // 浏览器半「强制更新」RPC channel（结果经 RpcResult 回传卡片）
     installRpc(ctx)
     // 首轮：配置迁移 → 缓存读取 → 填充 → 异步刷新，统一由 effect 管理
     // （命名空间注册与文档装载都在本插件可注入 settings 之前完成，故可直接迁移，无需等待就绪）
-    // 卸载时置位，在途结果不触碰已卸载的上下文；迁移失败仅告警、按当前生效配置继续
+    // 卸载时置位，在途结果不触碰已卸载的上下文；迁移失败仅告警、按当前生效配置继续。
+    // 刷新统一走 refreshIfStale（ts 初始 0 必过期 ⇒ 启动必拉取），与事件路径共用同一入口与守卫
     ctx.effect(() => {
-        let disposed = false
         void migrateConfig(ctx)
             .catch((error) => {
                 if (disposed) return
@@ -54,22 +62,18 @@ export function apply(ctx: Context) {
             })
             .then((cached) => {
                 if (disposed) return
-                if (cached) {
-                    setCatalog(cached)
-                    // 首轮填充完成后才拉取最新数据，避免两次写入并发冲突
-                    fix(ctx)
-                        .finally(() => {
-                            if (disposed) return
-                            refresh(ctx, () => disposed)
-                        })
-                        .catch((error) => {
-                            if (disposed) return
-                            ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${error instanceof Error ? error.message : String(error)}`)
-                        })
-                } else {
-                    // 缓存不可用，直接拉取最新数据
-                    refresh(ctx, () => disposed)
-                }
+                if (cached) setCatalog(cached)
+                // 先用缓存（若有）填充，让配置即刻生效；完成后再拉取最新数据，避免两次写入并发冲突。
+                // 与事件路径同构：fix → refreshIfStale →（拉取结算后）fix
+                fix(ctx)
+                    .finally(() => {
+                        if (disposed) return
+                        refreshIfStale(ctx, () => disposed)
+                    })
+                    .catch((error) => {
+                        if (disposed) return
+                        ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${error instanceof Error ? error.message : String(error)}`)
+                    })
             })
         return () => {
             disposed = true
