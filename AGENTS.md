@@ -32,8 +32,8 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - 浏览器半产物必须复刻宿主 client 的闭包工厂契约（`window.__ModuleLoader__.load` + banner/intro/footer 三段）。声明了 `dsh.client` 后，缺 `lib/client.js` 会让宿主**激活期聚合抛错** ⇒ **build 必须先于 link/安装到宿主**。
 - 卡片挂在宿主 `ModelsSection` 为仓库外插件预留的 list 席位 `settings.models.footer`（「模型」选项卡页面底部）；**选项卡头部在任何宿主版本都没有席位**，别往那儿挂。
 - client 模块必须 `export const name`，且与包名一致。
-- **对外纪律：前端可用面一律以 npm 发布版为准**（`npm view @deepseek-ai/dsh dist-tags`）；宿主源码仓 HEAD 领先一切已发布版本，只作参照，**其工作树路径不得写进本项目文档**（未被版本追踪）。本插件的宿主依赖**总是跟随宿主 latest**：`@deepseek-ai/dsh-*`（`dsh-settings` 与 6 个 `dsh-client-*`）取宿主 latest 的那个版本号（当前 `0.1.2-rc.1`），`peerDependencies` 同版作下限；`@deepseek-ai/cordis` / `schemastery` 不随宿主版本号，取宿主本体自己声明的那条线（`^4.0.2` / `^3.18.2`）。**坑**：这些子包各自的 `latest` tag 是陈旧的（如 `dsh-client-ui-slots` latest = `0.0.1-rc.1`），与宿主同号的线在它们的 `next` ⇒ 升级要写具体版本号，别用 `pkg@latest`。功能未生效即提示用户升级宿主（README「版本说明」）。
-- 宿主 0.1.2 起 settings 面的两处搬迁：`deepEqualJson` 从 `@deepseek-ai/dsh-settings` 迁到 **`@deepseek-ai/dsh-util-values`**（运行时依赖，且是宿主唯一的变更检测判据 ⇒ `fix` / `compat` 复用它，勿自写比较）；`installSettingsSection()` 变为 provider 方法 **`ctx.settings.installSection(owner, ns, schema, entry, hooks)`**（第 4 参同时是 composition base 与服务缺席时的回退值）。
+- **对外纪律：前端可用面一律以 npm 发布版为准**（`npm view @deepseek-ai/dsh dist-tags`）；宿主源码仓 HEAD 领先一切已发布版本，只作参照，**其工作树路径不得写进本项目文档**（未被版本追踪）。本插件的宿主依赖**总是跟随宿主 latest**：`@deepseek-ai/dsh-*`（`dsh-settings`、`dsh-util-values` 与 6 个 `dsh-client-*`）取宿主 latest 的那个版本号（当前 `0.1.2-rc.1`），`peerDependencies` 同版作下限；`@deepseek-ai/cordis` / `schemastery` 不随宿主版本号，取宿主本体自己声明的那条线（`^4.0.2` / `^3.18.2`）。**官方包一律 optional peer + devDep 同版兜底，`dependencies` 恒为空**（生态惯例：awesome-dsh-plugin 贡献指南）：运行期裸导入经宿主安装闭包投影路由到宿主实例——`~/.dsh/profiles/node_modules` 为安装闭包逐包 junction（`dsh-util-values` / `dsh-settings` 是宿主 settings 栈的嵌套依赖、不在宿主 manifest 公开承诺里，宿主重构 settings 栈时须复核）；profile 的 pnpm `autoInstallPeers: false`，不会自动补装 peer。**peer 范围的 semver 坑**：`>=0.1.2-rc.1` 只匹配 `0.1.2-*` rc 与其后正式版，不匹配 `0.1.3-rc.1`（node-semver 元组规则，`<0.2.0-0` 上界同样躲不开）⇒ 宿主出新 rc 元组时下限必须显式 bump，必要时用 `||` 分支带预发布标签。**坑**：这些子包各自的 `latest` tag 是陈旧的（如 `dsh-client-ui-slots` latest = `0.0.1-rc.1`），与宿主同号的线在它们的 `next` ⇒ 升级要写具体版本号，别用 `pkg@latest`。功能未生效即提示用户升级宿主（README「版本说明」）。
+- 宿主 0.1.2 起 settings 面的两处搬迁：`deepEqualJson` 从 `@deepseek-ai/dsh-settings` 迁到 **`@deepseek-ai/dsh-util-values`**（宿主运行时依赖，且是宿主唯一的变更检测判据 ⇒ `fix` / `compat` 复用它，勿自写比较）；`installSettingsSection()` 变为 provider 方法 **`ctx.settings.installSection(owner, ns, schema, entry, hooks)`**（第 4 参同时是 composition base 与服务缺席时的回退值）。
 - Connection RPC 契约（`RpcResult`/`HostRpcHandle`/`ClientRpcCall`）是宿主 `@deepseek-ai/dsh-client-connection` 的**结构复制**而非依赖：该包的 transitive 依赖范围只存在于宿主 monorepo、npm 上装不起来，故仅 type-only 使用；`ctx.get` 断言范式与宿主内置插件一致。信任围栏（loopback / 浏览器会话 cookie）由宿主施加。
 - 词典 `ctx.locale.register` 重复注册会抛错，必须经 `ctx.effect` 挂 disposer 保 HMR；卡片样式经模块级幂等 `<style>` 注入，带 `data-plugin` 标记供宿主 HMR 认领。
 
@@ -61,7 +61,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 
 - `pnpm test` **必须带 `--no-config`**：否则 CLI 参数会合并进数组配置的每一项，浏览器半的工厂 banner 会污染测试产物（无配置时产物扩展名为 `.mjs`）。
 - `pnpm install` 的 `prepare` 会跑 build ⇒ `lib/` 装完即存在。
-- 浏览器半类型依赖 `@deepseek-ai/dsh-client-*` devDeps，**版本须与宿主 latest 同号**（见「对外纪律」），否则类型面与发布版实际能力脱节；升级只能写具体版本号，`pkg@latest` 会装到陈旧 tag。
+- 宿主包的本地开发依赖全部走 devDeps：`dsh-client-*`（浏览器半类型面）、`dsh-settings`（`SettingsPathOp` 类型）、`schemastery` / `dsh-util-values`（typecheck 与 test 的类型+值面），**版本须与宿主 latest 同号**（见「对外纪律」），否则类型面与发布版实际能力脱节；升级只能写具体版本号，`pkg@latest` 会装到陈旧 tag。
 - 宿主依赖一律用 `pnpm add` 变更（`-E` 保精确、`--save-peer` 写 peer），不要手改 `package.json` 的依赖字段；`peerDependencies` 只声明下限范围时 pnpm 会归一成品版本号，需按项目惯例保留 `>=` 写法。
 
 ## UI 无痕融合纪律（浏览器半一切样式与交互取舍的准绳）

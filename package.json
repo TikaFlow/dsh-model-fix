@@ -1,8 +1,8 @@
 {
   "name": "dsh-model-fix",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "type": "module",
-  "description": "DSH 插件：给所有非官方（自定义）提供商的模型自动填充模型信息，包括：推理级别、最大上下文、输出上限与图片模态，数据来自 models.dev。",
+  "description": "DSH 插件：给非官方（自定义）提供商的模型自动填充模型信息，包括：推理级别、最大上下文、输出上限与图片模态，数据来自 models.dev。",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
@@ -27,6 +27,9 @@
     "@deepseek-ai/dsh-client-ui-settings-models": "0.1.2-rc.1",
     "@deepseek-ai/dsh-client-ui-primitives": "0.1.2-rc.1",
     "@deepseek-ai/dsh-client-ui-slots": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-settings": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-util-values": "0.1.2-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.2",
     "@types/node": "^26.2.0",
     "@types/react": "~18.3.0",
     "tsdown": "^0.22.2",
@@ -40,6 +43,9 @@
     "@deepseek-ai/dsh-client-ui-settings-models": ">=0.1.2-rc.1",
     "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.2-rc.1",
     "@deepseek-ai/dsh-client-ui-slots": ">=0.1.2-rc.1",
+    "@deepseek-ai/dsh-settings": ">=0.1.2-rc.1",
+    "@deepseek-ai/dsh-util-values": ">=0.1.2-rc.1",
+    "@deepseek-ai/schemastery": ">=3.18.2",
     "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
@@ -64,6 +70,15 @@
     "@deepseek-ai/dsh-client-ui-slots": {
       "optional": true
     },
+    "@deepseek-ai/dsh-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-util-values": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    },
     "react": {
       "optional": true
     }
@@ -79,10 +94,5 @@
         "@deepseek-ai/dsh-client-ui-settings-models"
       ]
     }
-  },
-  "dependencies": {
-    "@deepseek-ai/dsh-settings": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-util-values": "0.1.2-rc.1",
-    "@deepseek-ai/schemastery": "^3.18.2"
   }
 }
