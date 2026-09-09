@@ -76,6 +76,11 @@ export interface CardProps {
     providersScope: SettingsScope<readonly unknown[]>
     /** 强制更新 RPC：channel 与端点在入口拼好，卡片只消费结果 */
     forceUpdate: () => Promise<RpcResult<unknown>>
+    /**
+     * 根元素：模型页 footer 席位是普通块（默认 div）；插件配置席位把卡片渲在 `<ul>` 内，
+     * 官方 PluginCard 即 `<li>`，故该席位传 'li'（列表样式由 .dsh-mf-card 自清）。
+     */
+    as?: 'div' | 'li'
 }
 
 /** 内联状态行：文本 + 色调（成功＝官方 .savedNotice 绿，失败＝.failed/.error 红） */
@@ -99,9 +104,10 @@ const STYLE_ID = 'dsh-model-fix-card-css'
  * 官方源码里的 --dsw-alias-label-error、--dsw-alias-bg-layer-4 属未定义令牌，禁止照抄。
  */
 const STYLE_TEXT = [
-    // 外壳逐字照官方插件卡 .card（0.5px border-l4 + 16px 圆角 + bg-layer-3 底；hover/展开换
-    // label-dimmed 描边，展开态底改 bg-layer-2——官方即"正在编辑的那张"表达）
-    '.dsh-mf-card{max-width:720px;border:0.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:16px;background:var(--dsw-alias-bg-layer-3,#fff);transition:border-color .16s, background .16s}',
+    // 外壳逐字照官方插件卡 .card（0.5px border-l4 + 16px 圆角 + bg-layer-3 底 + list-style:none；
+    // hover/展开换 label-dimmed 描边，展开态底改 bg-layer-2——官方即"正在编辑的那张"表达）。
+    // 不写 max-width：宽度由宿主所在 section 约束（模型页 720 / 插件配置页 760），官方卡同样不写
+    '.dsh-mf-card{list-style:none;border:0.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:16px;background:var(--dsw-alias-bg-layer-3,#fff);transition:border-color .16s, background .16s}',
     '.dsh-mf-card:hover{border-color:var(--dsw-alias-label-dimmed,#e1e5ee)}',
     '.dsh-mf-cardOpen{border-color:var(--dsw-alias-label-dimmed,#e1e5ee);background:var(--dsw-alias-bg-layer-2,#fff)}',
     // header：名称叠描述，右侧未保存胶囊与旋转 chevron
@@ -424,6 +430,8 @@ export function Card(props: CardProps) {
     ensureStyles()
     const scope = props.scope
     const { t } = props
+    // 根元素由席位决定：模型页 footer 是普通块，插件配置页在 <ul> 内须为 li（官方 PluginCard 同形）
+    const Root = props.as ?? 'div'
     // scope 的方法是类实例方法，须经箭头函数保 this 绑定后交给 uSES
     const snap = useSyncExternalStore(
         (listener) => scope.subscribe(listener),
@@ -478,14 +486,14 @@ export function Card(props: CardProps) {
     // 配置服务不可用：同一外壳的静态形态（无展开语义），保留可发现性便于排查
     if (snap.status === 'unavailable') {
         return (
-            <div className="dsh-mf-card">
+            <Root className="dsh-mf-card">
                 <div className="dsh-mf-header dsh-mf-headerStatic">
                     <span className="dsh-mf-headText">
                         <span className="dsh-mf-name">{t('title')}</span>
                         <span className="dsh-mf-desc">{t('unavailable')}</span>
                     </span>
                 </div>
-            </div>
+            </Root>
         )
     }
 
@@ -571,7 +579,7 @@ export function Card(props: CardProps) {
     }
 
     return (
-        <div className={open ? 'dsh-mf-card dsh-mf-cardOpen' : 'dsh-mf-card'}>
+        <Root className={open ? 'dsh-mf-card dsh-mf-cardOpen' : 'dsh-mf-card'}>
             <button
                 type="button"
                 className="dsh-mf-header"
@@ -672,6 +680,6 @@ export function Card(props: CardProps) {
                     <Button variant="outline" className="dsh-mf-confirmDanger" onClick={runForce}>{t('forceGo')}</Button>
                 </>}
             />
-        </div>
+        </Root>
     )
 }

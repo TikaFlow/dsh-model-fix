@@ -5,8 +5,12 @@
  * → 绑定宿主 llm-pi-ai 命名空间 scope（只取其 user 层的提供方 id，供「排除提供方」瓦片判定命中；
  *   与 Node 半 fix 遍历的是同一份数据，故零漂移。读全部走宿主共享 describe mirror，本绑定不新增 wire 读）
  * → 取宿主 connection 服务的 RPC 载体（「强制更新」按钮触发 Node 半 force 填充，通道 /tikaflow-model-fix）
- * → 向「模型」选项卡底部槽 settings.models.footer 注册卡片（宿主依赖跟随宿主 latest，
- *   该槽在 peerDependencies 声明的下限版本上已存在；更旧宿主无此槽、卡片不出现，属预期不支持）。
+ * → 注册卡片到**两个**席位（同一组件、同一 scope，宿主 settings 页同时只挂载一个 section，故不会双实例并存）：
+ *   ① 「模型」选项卡底部 list 席位 settings.models.footer（与提供方列表同页）；
+ *   ② 「插件」→「插件配置」选项卡的 keyed 席位 settings.plugin.item（与终端 / Agent 循环 / Subagent /
+ *      网页搜索等官方卡并列，key 即本插件配置命名空间——该席位按命名空间分发，宿主只把「已服务的命名空间」
+ *      与「已注册的卡」求交后渲染，本插件的命名空间由 Node 半 installSection 提供）。
+ *   两处注册在宿主 peerDependencies 声明的下限版本上均已存在；更旧宿主无该席位、卡片不出现，属预期不支持。
  * 类型边全部 type-only（构建期擦除，不违反跨插件纯度纪律）。
  */
 
@@ -19,6 +23,8 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // SlotMap 的 'settings.models.footer' 键声明合并
 import type {} from '@deepseek-ai/dsh-client-ui-settings-models/client'
+// SlotMap 的 'settings.plugin.item' 键声明合并（keyed：注册用 key 而非 id）
+import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 // Connection RPC call 切片的结构复制（宿主包未装依赖；取服务沿用宿主 ui-settings-general 的 ctx.get 断言范式）
 import type { ClientRpcCall } from '../types'
 import { Card } from './card'
@@ -42,12 +48,24 @@ export function apply(ctx: ClientContext): void {
     // 与 src/rpc.ts 的 `/${PLUGIN_NS}` 配对，改动须两侧同步
     const rpc = (ctx.get('connection') as { rpc: { call: ClientRpcCall } }).rpc
     const forceUpdate = () => rpc.call(`/${MODEL_FIX_NS}`, 'forceUpdate', {})
-    // 槽仅在 ModelsSection 挂载期间存在，须经 slots.inject 等待声明后再 register；
-    // list 槽 id 取本插件配置命名空间（新 NS），保证单元格唯一
+    // 两个席位都只在对应 section 挂载期间存在，须经 slots.inject 等待声明后再 register；
+    // 单元格标识各按其 kind 的字段：list 席位用 id、keyed 席位用 key（= 本插件配置命名空间）。
+    // 两处都以 -999999 排到各自列表最前（宿主对 priority/order 一律"越小越靠前"，官方卡都是默认 0），
+    // 但各按自己 kind 的主键声明：list 席位的账本按 priority→order 排完，渲染器又按 order 单键稳定重排一次
+    // ⇒ 起作用的是 order（priority 只在同 order 时当平手判据，碰撞概率极低，不抢）；
+    // keyed 席位渲染器不排序、直接用账本序 ⇒ 只有 priority 参与。
     ctx.slots.inject('settings.models.footer', () => ctx.slots.register({
         name: 'settings.models.footer',
         id: MODEL_FIX_NS,
-        order: 100,
+        order: -999999,
         locale: CARD_NS,
     }, (props) => <Card {...props} scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} />))
+    // 插件配置页把卡片渲在 <ul> 内（官方 PluginCard 即 <li>），故该席位的根元素须为 li。
+    // 本 key 独占单元格，priority 的"同格遮蔽"语义在此不参与，只借它的排序效果
+    ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
+        name: 'settings.plugin.item',
+        key: MODEL_FIX_NS,
+        priority: -999999,
+        locale: CARD_NS,
+    }, (props) => <Card {...props} as="li" scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} />))
 }
