@@ -2,7 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { readCache, setCatalog } from './catalog'
 import { PLUGIN_NS, API_NS, PLUGIN_NAME } from './constants'
 import { DEFAULT_SECTION, SectionSchema, resolveConfig, setConfigSource } from './config'
-import { migrateConfig } from './migrate'
+import { migrateConfig, selfHealConfig } from './migrate'
 import { refresh } from './refresh'
 import { installRpc } from './rpc'
 import { fix } from './fix'
@@ -17,8 +17,18 @@ export function apply(ctx: Context) {
     // 注册自有配置命名空间：段为版本快照容器，setSource 解析出运行时配置，onChange 响应配置变更
     ctx.settings.installSection(ctx, PLUGIN_NS, SectionSchema, DEFAULT_SECTION, {
         setSource: (current) => { setConfigSource(() => resolveConfig(current())) },
-        // 插件配置变化时重新填充（fix 内部对无变更字段自然跳过）
-        onChange: () => { fix(ctx).catch(swallowFixError) },
+        // 插件配置变化时先自愈（手改文件里的重复排除项，有重复才写，否则零写入）再重新填充；
+        // 自愈写回会再次触发 onChange，此时长度已相等、不再写入，链条在此收敛。
+        // attach 时宿主也会同步触发一次 onChange（此时目录未就绪，fix 自然空转，幂等无害）；
+        // 启动路径的有效填充由下方 effort 在缓存就绪后负责，二者职责不同，不可互替
+        onChange: () => {
+            void selfHealConfig(ctx)
+                .catch((error: unknown) => {
+                    ctx.logger.warn(`${PLUGIN_NAME}: 排除列表自愈失败（不影响后续填充）：${error instanceof Error ? error.message : String(error)}`)
+                })
+                .then(() => fix(ctx))
+                .catch(swallowFixError)
+        },
     })
     // llm-pi-ai 模型配置变更后重新填充
     ctx.on('settings/updated', (ns) => {

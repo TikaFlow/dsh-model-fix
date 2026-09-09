@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-DSH 插件：为所有非官方（自定义）提供商的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`），数据来自 models.dev；并按兼容性规则为 openai-completions 提供商维护路由级 `compat`（当前一条：不使用 `developer` 角色）。
+DSH 插件：为所有非官方（自定义）提供方的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`），数据来自 models.dev；并按兼容性规则为 openai-completions 提供方维护路由级 `compat`（当前一条：不使用 `developer` 角色）。另按提供方维度提供排除（`excludes`：命中的提供方本插件零操作）。
 
 ## 技术栈与目录
 
@@ -11,14 +11,14 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | 路径 | 职责（只标非显而易见的部分） |
 | --- | --- |
 | `src/index.ts` | 仅 `export` + `apply` 生命周期编排，业务全部外拆 |
-| `src/types.ts` | 共享类型与守卫；**历史版本(v1/v2) 是冻结形态**；Connection RPC 契约的结构本地复制也在这里 |
+| `src/types.ts` | 共享类型与守卫；**历史版本(v1/v2/v3) 是冻结形态**；Connection RPC 契约的结构本地复制也在这里 |
 | `src/constants.ts` | 命名空间、版本与保留上限、重试参数、`CAPACITY_UNLIMITED`、提供商提示表 `HINTS`、兼容性落点 `DEVELOPER_COMPAT_APIS` / `DEVELOPER_COMPAT_FIELD` |
 | `src/config.ts` / `src/migrate.ts` | 当前 schema 与 `resolveConfig` / 升级链与 `migrateConfig` 编排 |
 | `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
-| `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 两类 op 同批提交 |
+| `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 两类 op 同批提交；`excludes` 命中的提供方在 provider 循环入口即整条跳过（两类 op 与 force 一起被排除，故不在各分支重复判断） |
 | `src/compat.ts` | 兼容性规则 → provider 路由 `compat` 的纯写入计划（添加 / 移除 / 删空整段 unset），零 ctx 依赖故可单测 |
 | `src/rpc.ts` / `src/refresh.ts` | 强制更新 channel / 刷新编排（含重试） |
-| `src/client/` | 浏览器半：`index.tsx` 入口（词典/scope/RPC 载体/槽注册）、`card.tsx` 卡片、`model.ts` 快照↔三组配置布尔纯映射（唯一可单测的浏览器半模块）、`locales.ts` 中英词典 |
+| `src/client/` | 浏览器半：`index.tsx` 入口（词典/两个 scope/RPC 载体/槽注册）、`card.tsx` 卡片（三张布尔瓦片 + 一张排除集合瓦片）、`model.ts` 快照↔配置（三组布尔 + `excludes`）与命中判定的纯映射（唯一可单测的浏览器半模块）、`locales.ts` 中英词典 |
 | `public/models-cache.json` | 构建期随 `lib/public/` 发布的 models.dev 拍平缓存（首启离线可用） |
 | `cordis.patch.yml` | DSH 补丁层对本插件的注册 |
 
@@ -26,7 +26,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 
 ### 跨半与宿主契约
 
-- **浏览器半禁止值导入 Node 半模块**（`src/constants.ts` 会拖入 `node:path`）。因此配置命名空间、`CONFIG_VERSION`、RPC channel 名在 `src/client/model.ts` 以**字面量**另存一份，与 `src/constants.ts` / `src/rpc.ts` **改动必须两侧同步**；`tsdown.config.ts` 的 purity 门禁会拦住越界值导入（type-only 被擦除，不受限）。
+- **浏览器半禁止值导入 Node 半模块**（`src/constants.ts` 会拖入 `node:path`）。因此配置命名空间、提供商 NS（`PI_AI_NS`）、`CONFIG_VERSION`、RPC channel 名在 `src/client/model.ts` 以**字面量**另存一份，与 `src/constants.ts` / `src/rpc.ts` **改动必须两侧同步**（`test/client-model.test.ts` 有漂移守护用例）；`tsdown.config.ts` 的 purity 门禁会拦住越界值导入（type-only 被擦除，不受限）。同理，provider id 的合法性正则 `EXCLUDE_ID_PATTERN` 是宿主 models 页 `ROUTE_PATTERN` 的字面复制，升宿主须复核。
 - 浏览器半 externals 只允许宿主模块表基线那几项，其余一律打进包；基线权威列表在宿主 `packages/client/web/src/platform.ts`，漂移的后果是运行期 `require` 未命中。
 - `package.json` 的 `dsh.client.inject` 是**依赖包图边**（填槽位所有者包），不是 cordis 服务名；服务名只写在 `src/client/index.tsx` 的 `export const inject`。
 - 浏览器半产物必须复刻宿主 client 的闭包工厂契约（`window.__ModuleLoader__.load` + banner/intro/footer 三段）。声明了 `dsh.client` 后，缺 `lib/client.js` 会让宿主**激活期聚合抛错** ⇒ **build 必须先于 link/安装到宿主**。
@@ -52,8 +52,9 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 
 - v1 = `tikaflow-model-fix` 版本快照体系的旧快照（引入 image 前的配置），其类型与 schema 一律不引用当前版本的可演进定义。
 - v2 = 引入 `compat` 前的快照（两组六布尔），冻结形态同上；台阶 `upgradeTo2` 的产物即该形态，故返回类型用冻结的 `V2PluginConfigSnapshot`。
-- **只往 `compat` 对象里加键不算形态变化**：不递增 `CONFIG_VERSION`、不加台阶，前提是每个新键都有 schema 默认（旧快照解析后即获得默认）。
-- 升级台阶按**目标版本**命名 `upgradeToN`（名字只说明"我产出 vN"，如何从更低版本接力上来是其内部事务）：每级先 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力，再按 `vN-1` 冻结 schema 解析、补新增字段落默认；**产物版本号写固定字面量**（不引用 `CONFIG_VERSION`）。`upgradeConfig` 只调最新一级，链上既有函数不改；最低一级 `upgradeTo2` 独占全链唯一的 `fromVersion < MIN_SUPPORTED_VERSION` 守卫（该常量等于这一级的输入下限，自维护，实际不会触发，仅挡误用）。
+- v3 = 引入 `excludes` 前的快照（三组布尔 + compat），冻结形态同上；`upgradeTo3` 的返回类型即该冻结形态（**每次升版都要把上一级台阶的返回类型改指新冻结的 `V(N-1)PluginConfigSnapshot`**，否则当前类型演进会连带改写历史语义）。
+- **只往 `compat` 对象里加键不算形态变化**：不递增 `CONFIG_VERSION`、不加台阶，前提是每个新键都有 schema 默认（旧快照解析后即获得默认）。**新增顶层组（如 `excludes`）则算形态变化**，必须升版——不升版会让旧插件的 `parseSnapshot` 剥掉新键并触发自愈重写，破坏版本快照体系赖以存在的"无损回退"。
+- 升级台阶按**目标版本**命名 `upgradeToN`（名字只说明"我产出 vN"，如何从更低版本接力上来是其内部事务）：每级先 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力，再按 `vN-1` 冻结 schema 解析、补新增字段落默认；**产物版本号写固定字面量**（不引用 `CONFIG_VERSION`）。`upgradeConfig` 只调最新一级，链上既有函数的**逻辑**不改（返回类型标注随冻结形态更新除外）；最低一级 `upgradeTo2` 独占全链唯一的 `fromVersion < MIN_SUPPORTED_VERSION` 守卫（该常量等于这一级的输入下限，自维护，实际不会触发，仅挡误用）。
 - 提升 `MIN_SUPPORTED_VERSION` 时：该版本的冻结段与消费它的台阶（`upgradeTo该版本`）一并移除。
 
 ### 工具链陷阱
@@ -65,16 +66,18 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 
 ## UI 无痕融合纪律（浏览器半一切样式与交互取舍的准绳）
 
-目标是 1:1 复刻官方 Web-UI：只有数据、文本与业务逻辑属于我们。三条判据：
+总纲：**官方用导出组件，我们也用同一组件；官方自绘（或该件不导出无法导入），我们就在本地逐字复制其源码——数值零自造。** 最终目标是 UI 层与官方**源码级一致**，只有数据、文本与业务逻辑属于我们。三条判据：
 
 - **能导出的宿主组件，只在官方同一位置也用了它时才用。** 官方卡片 footer 自绘 `.save`/`.discard`（不自用 `Button`）、未保存徽章自绘 `.pending`（不自用 `Pill`）、设置面完全不用 `Tooltip`/`HoverCard`/`Toast` ⇒ 本卡一律自绘复刻，不为了"用了原语"而偏离官方观感。官方在 Modal footer 里用了 `Button`，本卡的 `Modal` 亦用 `Button`。
 - **颜色只用宿主 `--dsw-alias-*` 令牌，且令牌存在性要逐个证实。** 字面量仅作令牌缺失时的浅色守卫，且必须取宿主主题 `design-platform.css` 的真值——例如 `brand-primary` 在浅色主题下解析为**近黑而非品牌蓝**。这样主题插件换色时我们与官方同步变化。官方源码里引用了但主题中**未定义**的令牌（`label-error`、`bg-layer-4`）禁止照抄（任何主题下都会失效）。
 - **取值基准是"同一类组件"而非"同一页面"。** 外层卡照 `PluginCard`，内层配置组瓦片照插件列表项卡（`ui-settings-plugin-inventory`）；同页 provider 行 `.rowCard` 是不可展开的列表行、与本卡非同类，不作基准（早期曾按它折中，已纠正）。具体数值一律以 `src/client/card.tsx` 的 `STYLE_TEXT` 为准，本文档不复述。
 
-两条需要知道"为什么"的手法：
+需要知道"为什么"的手法：
 
 - 官方项卡的发丝描边与展开态柔光用 `--dsw-elevation-stroke`/`--dsw-elevation-panel`，该组令牌无法在本地可得的发布产物中证实存在（由宿主应用主题定义、随宿主应用发布）⇒ 采取**令牌优先 + 字面复刻其计算结果作兜底**：宿主有令牌即与官方同源换色，没有也得到同一观感。该组派生变量声明在 `body *` 上（官方注释：逐元素声明才吃得到组件自己的重绑），所以在同一元素重绑 `--dsw-elevation-stroke-color` 是有效手法。
 - 瓦片 summary 行要同时容纳「整组开关」和「整行可点」：宿主 `DisclosureRow` 在五个设置包全域**零使用**、chevron 在行左端、无右侧控件槽、发布版 CSS 无焦点环 ⇒ 自绘。写法是透明空 `<button>` 绝对覆盖整行 + `aria-labelledby` 指向可见标题，hover 底色画在行容器上，开关所在尾区抬层并用 `pointer-events` 分配点击权。**禁止把 `role="switch"` 嵌进 `<button>`**（非法 HTML）。
+- 排除瓦片的控件全部照搬宿主同类自绘件——输入框照 models 页 `.input`（0.5px border-l4 / 高 32 / 圆角 8 / padding 0 10px / 14-22 / 底色 `bg-layer-1` / focus 换 `brand-primary` 且 `outline:none`）、**命中/未命中状态胶囊与小绿点照「插件列表」项卡的状态徽章体系**（`ui-settings-plugin-inventory` 的 `.configTag` + `data-kind` 与 `.statusDot`：min-height 20 / 圆角 5 / 1px 6px / 11-16，命中= `color-mix(state-success-primary 10%, transparent)` 底 + 同色文字**无边框**，未命中=默认 `bg-layer-1` + `label-secondary`；绿点 7×7 / radius 999 / `role="img"`+`title`，语义对齐"已启用/已停用"；**点是胶囊外部的兄弟节点**（官方 trailing = `[PhaseDot][StateTag]`，`gap:7px`），不许塞进胶囊底色里）、删除钮照 `.iconButton`（28×28 / 圆角 6 / hover 上底色）、贴右成列用 `.rowActions` 的 `margin-left:auto`、读屏专用文案用 `.hiddenLabel` 的裁剪手法（权威来源：两包已发布 bundle 的内联 CSS，升宿主须复核）。官方两页**没有**用 `Input`/`Pill` 原语，故本卡同样自绘；条目的删除钮**连字形一起逐字复刻**——不是 primitives 的 `IconTrashOutline16`（实心填充桶，同尺寸墨量大、显胖），而是 models 页本地自绘的**线稿** `IconTrash`（14×14 / viewBox 16 / stroke 1.3 / round cap+join，宿主不导出故须本地复制）。教训：对齐观感要连"用哪个 SVG/状态语义"一起对齐，只对齐尺寸数字对不上。
+- **UI 称谓跟随官方**：provider-id 官方叫「提供方 / Provider ID」，不用"提供商/供应商"；功能名是「排除提供方」（en: Excluded providers），不是"豁免"——文案、README、注释三处一致。
 
 ## 设计裁决（代码里看不出动机）
 
@@ -90,6 +93,9 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **compat 只写路由级、不写模型级**：宿主里模型级字段优先于路由级，写模型级会与用户逐模型的取值打架；且 `fix` 的模型整段写回已负责清理空 `compat`，两类 op 各管各的路径。
 - **compat 只发给 `api === 'openai-completions'` 的路由**：宿主按协议 gate 消费 compat，其他协议写了被静默跳过 ⇒ 主动过滤避免无意义写入与脏段；路由没有 `api`（协议靠内置目录推断）一律不碰。
 - **`force` 与 compat 无关**：兼容性规则不来自 models.dev，强制更新只绕过 `allowUpdate` 覆盖模型参数；`fix` 的返回值也仍只计模型变更数，保持 RPC 与「强制更新」反馈的契约。
+- **`excludes` 是"零操作排除"而非"撤销"**：命中的提供方在 provider 循环入口即跳过，模型写回、路由 compat、`force` 全部不作用（等效对该提供方关闭插件）。它**只有预防性**——已写入的模型参数与 `compat.supportsDeveloperRole` 原地保留（插件无字段来源记录，分不清插件写的与用户手写的，做"清除"必然误删），故瓦片释义与 README 都必须写明"仅对保存之后的行为生效"。要保护新提供方的正确顺序是**先加排除、再建提供方**（新建即触发一次填充，晚一步来不及）。
+- **必须允许填入不存在的 id**：这是本功能的正用场景（先写 id 再建提供方），故不做任何"仅可选现有项"的控件（含 `<datalist>` 约束性候选）；UI 用「命中」样式表达"当前确有同名提供方、排除正在生效"，未命中为普通样式且**不得画成错误色**（0 命中/未命中都是正常态）。命中判据取 `llm-pi-ai` 的 **user 层 `providers` 键**——与 `fix` 遍历的同一份数据，零漂移；宿主目录里"已声明未配置"的提供方不算命中（本插件从不写它们）。
+- **不自动清理失效 id；顺序沿用录入、去重分层各管一段**：`fix` 在 `providers` 缺失/非对象时早退，早期顺手 prune 会清空用户列表，且给 `fix` 加"顺带写自己配置"的第二写入面（`fix` 的写回批次是 `llm-pi-ai`，excludes 根本进不去）⇒ fix 只管排除匹配、永不写自有 NS。列表顺序是用户录入意图，草稿只由已存值经增删派生 ⇒ 脏检测用顺序敏感的逐位比较，不需要排序。去重分两层：**录入端**当场提示「已在列表中」并拒绝写入（不静默改写用户输入）；**onChange 自愈**（`migrate.ts` 的 `selfHealExcludes`，handler 里先自愈再 fix）兜住手改 `settings.yaml` 的重复——守卫即终止条件：仅当 `Set` 收窄后**变短**才产出定向路径 op（保留首次出现），无重复零写入，故自愈写回引发的再次 onChange 不再产生任何写入，链条一轮收敛。`parseSnapshot`/浏览器半 `parseV4` 均原样保留数组（去重只发生在写回 op）。id 用 `Set.has` **精确匹配**不归一化（与 `lookup` 的"宁可漏不错配"一致）。
 - **图片模态只缓存正向信息**（支持图片才写 `true`，纯文本省略字段）：缓存体积是发布包大小主因；纯文本模型本就不声明，行为与未声明一致。数据源里的 `pdf`/`video`/`audio` 忽略不写（宿主 `input` 只接受 `text`/`image`）。
 - **容量哨兵**：`CAPACITY_UNLIMITED = 99999999` 是 models.dev 对"无限/未公布"的建模，媒体模型还会给 0——两者一律视为"无该字段"（写 0 会被宿主 schema 拒绝并连累整批）。
 - **id 匹配宁可漏不错配**：精确 → 词干 → 前缀三级，词干/前缀**多命中即判无命中**；无分隔符的短 id 只走精确。跨提供商同源模型靠 `HINTS`（模型名前缀 → 官方提供商）优先命中。
@@ -115,10 +121,11 @@ graph LR
 
 ## 配置说明
 
-- 自有命名空间 `tikaflow-model-fix`（由本插件注册），仅对象写法，如 `tikaflow-model-fix: { version-3: { autoFill: { reasoning: true, context: false, image: true }, compat: { disableDeveloper: true } } }`；首次启动或版本升级时自动写入当前版本快照。
+- 自有命名空间 `tikaflow-model-fix`（由本插件注册），仅对象写法，如 `tikaflow-model-fix: { version-4: { autoFill: { reasoning: true, context: false, image: true }, compat: { disableDeveloper: true }, excludes: [ "acme-gateway" ] } }`；首次启动或版本升级时自动写入当前版本快照。
 - `compat` 与两组填充规则平行，键按「规则 → provider 路由 compat 字段」映射（当前仅 `disableDeveloper` → `supportsDeveloperRole: false`）；往该对象加新键不需要递增配置版本。
+- `excludes` 是提供方 id 字符串数组（`providers.<id>` 的 `<id>`，即界面上的「Provider ID / 路由标识」），命中的提供方本插件零操作；非数组或元素非字符串判整段快照非法（与其余组同严格度，浏览器半 `parseV4` 逐条镜像）。
 - 也可经 Web 设置的卡片修改（宿主跟随 latest，见「对外纪律」），两种途径写的是同一个东西。
-- 推理级别取值与 harness `ModelThinkingLevel` 一致：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`；模型列表在 `llm-pi-ai` 命名空间的 `providers` 下。
+- 推理级别取值与 harness `ModelThinkingLevel` 一致：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`；提供方与模型列表在 `llm-pi-ai` 命名空间的 `providers` 下。
 
 ## 命令
 

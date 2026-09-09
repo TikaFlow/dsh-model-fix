@@ -94,6 +94,33 @@ export interface V2PluginConfigSnapshot {
     autoFill: V2FieldRules
 }
 
+// ---------- 历史版本（v3）：版本快照体系内 v3 快照的冻结形态（引入 excludes 前的配置）。 ----------
+// ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 3 时本段与 upgradeTo4 的 v3 接力一并移除 ----------
+
+/** 历史版本(v3)：按字段分别控制的规则开关（与 v2 同形，独立声明以冻结形态） */
+export interface V3FieldRules {
+    /** 推理级别字段 */
+    reasoning: boolean
+    /** 上下文窗口与输出上限，二者一体受此开关控制 */
+    context: boolean
+    /** 图片/多模态（input 模态声明） */
+    image: boolean
+}
+
+/** 历史版本(v3)：兼容性规则（与当前 CompatRules 同形，独立声明以冻结形态） */
+export interface V3CompatRules {
+    /** 是否接管路由的 developer 角色兼容字段 */
+    disableDeveloper: boolean
+}
+
+/** 历史版本(v3)：version-3 快照的完整形态（无 excludes 数组） */
+export interface V3PluginConfigSnapshot {
+    configVersion: number
+    allowUpdate: V3FieldRules
+    autoFill: V3FieldRules
+    compat: V3CompatRules
+}
+
 // ---------- 当前版本随升级链持续演进 ----------
 
 /** 按字段分别控制的规则开关 */
@@ -127,6 +154,12 @@ export interface PluginConfig {
     autoFill: FieldRules
     /** 兼容性规则，作用于 provider 路由的 compat（与模型参数填充无关，不受 allowUpdate/autoFill 影响） */
     compat: CompatRules
+    /**
+     * 豁免的提供商 id：命中的提供商本插件**不做任何操作**（填充、覆盖、compat 增删、强制更新一律跳过），
+     * 等效于对该提供商关闭插件。语义是**预防性**的：只影响本值生效之后的行为，
+     * 此前已写入的模型参数与路由 compat 一律保留、不撤销（插件无字段来源记录，无从区分插件写入与用户手写）。
+     */
+    excludes: string[]
 }
 
 /** 当前版本的存储快照：运行时配置字段 + 显式版本号 */
@@ -135,6 +168,7 @@ export interface PluginConfigSnapshot {
     allowUpdate: FieldRules
     autoFill: FieldRules
     compat: CompatRules
+    excludes: string[]
 }
 
 /** 命名空间下的整段配置：version-N -> 对应版本的配置快照（保留低版本历史与更高新版本，便于无损回退） */

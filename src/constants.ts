@@ -13,10 +13,13 @@ export const API_NS = 'llm-pi-ai'
 export const PLUGIN_NS = 'tikaflow-model-fix'
 
 /** 当前代码支持的配置版本（新 NS 内的快照版本）；配置 schema 变化时递增，并在 migrate.ts 中追加升级步骤 */
-export const CONFIG_VERSION = 3
+export const CONFIG_VERSION = 4
 /** 最低支持（可升级读取）的版本；低于此值的版本快照视为已失效（运行时不读取、迁移时清理） */
 export const MIN_SUPPORTED_VERSION = 1
-/** 低于当前版本的旧快照保留上限，超出在启动时从最低版本清理（等于或高于当前版本的快照始终保留，供无损回退） */
+/**
+ * 低于当前版本的旧快照保留上限，超出在启动时从最低版本清理（等于或高于当前版本的快照始终保留，供无损回退）。
+ * 当前版本为 4 时段内 olds = {1,2,3} 恰等于本上限，故一轮不清理；升到 5 时 v1 才被淘汰。
+ */
 export const MAX_OLD_SNAPSHOTS = 3
 /** 版本快照键前缀，段内键形如 version-N */
 export const VERSION_PREFIX = 'version-'

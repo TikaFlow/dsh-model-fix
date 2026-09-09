@@ -1,5 +1,5 @@
 /**
- * 浏览器半纯映射层：`tikaflow-model-fix` 版本快照段 <-> 卡片三个配置组的布尔（autoFill / allowUpdate / compat）。
+ * 浏览器半纯映射层：`tikaflow-model-fix` 版本快照段 <-> 卡片配置（autoFill / allowUpdate / compat 三组布尔 + excludes 列表）。
  * 零外部值依赖（不引 src/constants、src/types 的值，避免 node:path 等被打进浏览器包），
  * 只读当前版本快照（Node 半迁移保证其存在；缺失/非法回退默认）。
  */
@@ -10,8 +10,11 @@ import type { CompatRules, FieldRules, PluginConfig } from '../types'
  * 浏览器半另以 `/${MODEL_FIX_NS}` 拼强制更新 RPC channel，与 src/rpc.ts 的 `/${PLUGIN_NS}` 配对，改动须两侧同步 */
 export const MODEL_FIX_NS = 'tikaflow-model-fix'
 
+/** 提供商所在的宿主配置命名空间（与 src/constants.ts 的 API_NS 字面量一致）：仅用于读 user 层提供商 id 以判定排除项是否命中 */
+export const PI_AI_NS = 'llm-pi-ai'
+
 /** 当前代码配置版本；与 src/constants.ts 的 CONFIG_VERSION 同步修改 */
-export const CONFIG_VERSION = 3
+export const CONFIG_VERSION = 4
 
 /** 版本快照键前缀 */
 const VERSION_PREFIX = 'version-'
@@ -94,15 +97,31 @@ function parseCompat(value: unknown): CompatRules | undefined {
     return rules
 }
 
-/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性按旧版 API 处理（与 src/config.ts DEFAULT_CONFIG 一致） */
+/** 排除项 id 的合法性规则：逐字复制宿主 models 页新增提供商时的 route id 校验（同一权威规则，两侧不得自行放宽） */
+export const EXCLUDE_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
+
+/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性按旧版 API 处理，无排除项（与 src/config.ts DEFAULT_CONFIG 一致） */
 export const DEFAULT_FLAGS: Flags = {
     autoFill: { reasoning: true, context: true, image: true },
     allowUpdate: { reasoning: false, context: false, image: false },
     compat: { ...COMPAT_DEFAULTS },
+    excludes: [],
 }
 
-/** 校验并物化当前版本（v3）快照；非法返回 undefined（视为无有效配置） */
-function parseV3(entry: unknown): Flags | undefined {
+/** 解析 excludes 组：整项缺失落空数组；非数组或元素非字符串 => undefined（整段快照非法，镜像 Node 侧 schema 语义） */
+function parseExcludes(value: unknown): string[] | undefined {
+    if (value === undefined) return []
+    if (!Array.isArray(value)) return
+    const ids: string[] = []
+    for (const item of value) {
+        if (typeof item !== 'string') return
+        ids.push(item)
+    }
+    return ids
+}
+
+/** 校验并物化当前版本（v4）快照；非法返回 undefined（视为无有效配置） */
+function parseV4(entry: unknown): Flags | undefined {
     if (!isPlainObject(entry)) return
     const allowUpdate = parseRules(entry.allowUpdate, false)
     if (!allowUpdate) return
@@ -110,24 +129,27 @@ function parseV3(entry: unknown): Flags | undefined {
     if (!autoFill) return
     const compat = parseCompat(entry.compat)
     if (!compat) return
-    return { allowUpdate, autoFill, compat }
+    const excludes = parseExcludes(entry.excludes)
+    if (!excludes) return
+    return { allowUpdate, autoFill, compat, excludes }
 }
 
 /**
- * 解码命名空间整段：只读当前版本快照 version-3（Node 半迁移保证启动后段内必有，见 migrateConfig）；
+ * 解码命名空间整段：只读当前版本快照 version-4（Node 半迁移保证启动后段内必有，见 migrateConfig）；
  * 段非法、快照缺失或非法均回退默认。永不返回 undefined（返回 undefined 会让宿主 scope 永挂 loading）。
  */
 export function decodeSection(section: unknown): Flags {
-    return isPlainObject(section) ? parseV3(section[VERSION_KEY]) ?? DEFAULT_FLAGS : DEFAULT_FLAGS
+    return isPlainObject(section) ? parseV4(section[VERSION_KEY]) ?? DEFAULT_FLAGS : DEFAULT_FLAGS
 }
 
-/** 配置布尔 -> 规范 v3 存储快照（configVersion + 三组布尔全显式，与宿主 DEFAULT_STORED 形态一致） */
+/** 配置 -> 规范 v4 存储快照（configVersion + 三组布尔 + 排除列表全显式，与宿主 DEFAULT_STORED 形态一致） */
 export function snapshotFromFlags(flags: Flags): Record<string, unknown> {
     return {
         configVersion: CONFIG_VERSION,
         allowUpdate: { ...flags.allowUpdate },
         autoFill: { ...flags.autoFill },
         compat: { ...flags.compat },
+        excludes: [...flags.excludes],
     }
 }
 
@@ -160,12 +182,53 @@ export function toggleCell(flags: Flags, group: Group, key: RowKey): Flags {
     return { ...flags, [group]: rows } as Flags
 }
 
-/** 三组布尔逐项比较，判断草稿相对已存配置是否有改动 */
+/**
+ * 排除列表逐项比较（**顺序敏感**）：草稿只由已存值经增删派生，顺序不会自行漂移，
+ * 故无需排序——插入顺序是用户意图的一部分。
+ */
+function sameIdList(a: readonly string[], b: readonly string[]): boolean {
+    if (a.length !== b.length) return false
+    return a.every((id, index) => id === b[index])
+}
+
+/** 三组布尔 + 排除列表逐项比较，判断草稿相对已存配置是否有改动 */
 export function isDirty(draft: Flags, saved: Flags): boolean {
     for (const group of GROUPS) {
         for (const key of GROUP_KEYS[group]) {
             if (groupValue(draft, group, key) !== groupValue(saved, group, key)) return true
         }
     }
-    return false
+    return !sameIdList(draft.excludes, saved.excludes)
+}
+
+/**
+ * 从 `llm-pi-ai` 的 user 层取提供商 id（与 Node 半 fix 遍历的 `descriptor.user.providers` 同一事实源，
+ * 故「命中」判定与本插件真实会跳过的集合零漂移）。非纯对象、无 providers 或 providers 非纯对象一律视为空。
+ */
+export function providerIdsOf(user: unknown): string[] {
+    if (!isPlainObject(user)) return []
+    const providers = user.providers
+    if (!isPlainObject(providers)) return []
+    return Object.keys(providers)
+}
+
+/** 命中的排除项集合：既决定标签的命中高亮，其 size 即 summary 徽标的命中数（未命中项仍生效，只是当前无同名提供商） */
+export function resolveHits(excludes: readonly string[], providerIds: readonly string[]): ReadonlySet<string> {
+    const live = new Set(providerIds)
+    return new Set(excludes.filter((id) => live.has(id)))
+}
+
+/** 新增排除项：已存在则原样返回（调用方先行拦截重复，此处只保证幂等）；不改入参 */
+export function addExclude(flags: Flags, id: string): Flags {
+    if (flags.excludes.includes(id)) return flags
+    return { ...flags, excludes: [...flags.excludes, id] }
+}
+
+/** 删除排除项：不存在的 id 原样返回；不改入参 */
+export function removeExclude(flags: Flags, id: string): Flags {
+    const index = flags.excludes.indexOf(id)
+    if (index < 0) return flags
+    const excludes = [...flags.excludes]
+    excludes.splice(index, 1)
+    return { ...flags, excludes }
 }

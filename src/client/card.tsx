@@ -1,15 +1,19 @@
 /**
  * 模型参数填充卡片（浏览器半）：可折叠卡片，1:1 复刻官方 Web-UI 插件卡（ui-settings-plugins）。
  * header 整块为 `aria-expanded` 按钮（名称 + 描述两行，dirty 时挂「未保存」胶囊；折叠文案只进
- * aria-label，官方同款——视觉只有 chevron，不是死代码）。展开体是三个配置组瓦片（自动填充 /
- * 允许更新 / 兼容性），排版照官方「插件列表」项卡：一行两个的栅格、summary 行（组名 + 整组开关 + 箭头，
- * min-height 52px）、展开体（组释义 + 该组的子开关行，填官方 .cardDetails 的模块底色）。展开态样式
+ * aria-label，官方同款——视觉只有 chevron，不是死代码）。展开体是四个配置组瓦片（自动填充 /
+ * 允许更新 / 兼容性 / 排除提供方），排版照官方「插件列表」项卡：一行两个的栅格、summary 行（组名 +
+ * 组控件 + 箭头，min-height 52px）、展开体（组释义 + 该组的子控件行，填官方 .cardDetails 的模块底色）。
+ * 前三张同形（布尔矩阵：组内任一为开即显示开，点击整组同置）；第四张是动态集合瓦片——summary 的开关位
+ * 换成「N 命中」计数徽标（0 命中也常驻），展开体为输入框 + 每行一项的标签列表，命中的项（其 id 存在于
+ * 宿主 llm-pi-ai 的 user 层，即本插件确会跳过它）转绿并带圆点，未命中项为普通样式但同样生效。
+ * 展开态样式
  * 完全跟随官方（`data-open` 驱动）：描边由 l4 换最浅的 l1 并叠两层柔光、summary 行保留淡底、
  * 箭头 180° 旋转。瓦片默认收起、同时只展开一个（官方手风琴语义——各瓦片展开高度不同，
  * 同时展开两列底部会参差）。
  * 正文下方为 footer（强制更新 左｜放弃修改 · 保存 右）。
  * 全卡分隔线：外层摘要↔正文 1 条 + 每个展开中的瓦片 1 条 + footer 1 条，均官方同值 0.5px --dsw-alias-border-l2。
- * 本地暂存（draft）：单格/总控点击只改草稿，点「保存」才经 settingsScope 原子写当前版本快照键；
+ * 本地暂存（draft）：单格/总控/增删排除项只改草稿，点「保存」才经 settingsScope 原子写当前版本快照键；
  * 草稿跨折叠存活（收起时靠 header 胶囊告知未落盘），「放弃修改」即草稿归 null 回随已存值；
  * 保存被宿主确认落地（dirty 归 false）后自动收起并留一行弱提示，写失败保持展开与草稿可重试。
  * 结果反馈一律走卡片内联状态行（挂在 header 之后、条件展开体之外，故折叠不丢在途结果），
@@ -18,23 +22,49 @@
  * tint + 取消键 autoFocus），确认后经 Connection RPC 请求 Node 半单次 force 填充。
  */
 
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Button, IconChevronDownOutline14, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RpcResult } from '../types'
+
+/**
+ * 排除项删除钮的字形：逐字复刻官方 models 页模型行删除的本地 `IconTrash`（线稿风格：
+ * 14×14 / viewBox 16 / stroke 1.3 / round cap+join / currentColor / aria-hidden）。
+ * 不用 primitives 的 `IconTrashOutline16`——那是实心填充桶，同尺寸下墨量大得多，正是"显胖"的根源；
+ * 本地组件同理须自绘而非引宿主内部函数（宿主该函数不导出）。
+ */
+function IconTrash() {
+    return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+            <path
+                d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.7 9a1 1 0 001 .9h4.6a1 1 0 001-.9L12 4M6.5 6.8v4.4M9.5 6.8v4.4"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </svg>
+    )
+}
 import {
     DEFAULT_FLAGS,
+    EXCLUDE_ID_PATTERN,
     GROUPS,
     GROUP_KEYS,
     VERSION_KEY,
+    addExclude,
     applyGroup,
     groupValue,
     isDirty,
     masterValue,
+    providerIdsOf,
+    removeExclude,
+    resolveHits,
     snapshotFromFlags,
     toggleCell,
 } from './model'
+import type { CardKey } from './locales'
 import type { Flags, Group, RowKey } from './model'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from './locales'
 
@@ -42,6 +72,8 @@ import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from './locales'
 export interface CardProps {
     t: TranslateNS<'settings.modelFix'>
     scope: SettingsScope<Flags>
+    /** 宿主 llm-pi-ai 命名空间：只取 snapshot.user 的提供商 id，判定排除项是否命中 */
+    providersScope: SettingsScope<readonly unknown[]>
     /** 强制更新 RPC：channel 与端点在入口拼好，卡片只消费结果 */
     forceUpdate: () => Promise<RpcResult<unknown>>
 }
@@ -116,6 +148,33 @@ const STYLE_TEXT = [
     '.dsh-mf-itemBody{border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));padding:10px 14px 12px;display:grid;gap:6px;background:var(--dsw-alias-bg-module-platform,#f5f6f7)}',
     '.dsh-mf-itemHint{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-itemRow{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,#0f1115)}',
+    // 「排除提供方」瓦片专用：命中/未命中状态胶囊与小绿点照官方「插件列表」项卡的状态徽章体系
+    // （ui-settings-plugin-inventory 的 .configTag + data-kind 与 .statusDot，语义同为"启用中/未启用"）：
+    // 胶囊 min-height 20px / 圆角 5 / 1px 6px / 11-16 / inline-flex，未命中=默认 bg-layer-1 + label-secondary，
+    // 命中=color-mix(state-success-primary 10%, transparent) 底 + state-success-primary 文字（无边框）；
+    // 绿点 7×7 / border-radius 999 / corner-shape round。输入框照 ModelsSection 的 .input；
+    // 删除钮照同页 .iconButton（28×28 / 6px 圆角 / hover 抬色），字形照同页行删除的自绘线稿 IconTrash。
+    '.dsh-mf-count{flex:none;border-radius:5px;padding:1px 6px;font-size:11px;line-height:16px;white-space:nowrap;min-height:20px;display:inline-flex;align-items:center;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-secondary,#61666b)}',
+    '.dsh-mf-count[data-hit="true"]{background:color-mix(in srgb, var(--dsw-alias-state-success-primary,#22c55e) 10%, transparent);color:var(--dsw-alias-state-success-primary,#22c55e)}',
+    '.dsh-mf-input{box-sizing:border-box;width:100%;height:32px;padding:0 10px;border:0.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#0f1115);font:inherit;font-size:14px;line-height:22px}',
+    '.dsh-mf-input:focus{border-color:var(--dsw-alias-brand-primary,#0f1115);outline:none}',
+    '.dsh-mf-input::placeholder{color:var(--dsw-alias-label-dimmed,#e1e5ee)}',
+    '.dsh-mf-input:disabled{opacity:.6;cursor:default}',
+    '.dsh-mf-fieldError{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313)}',
+    // 一行一项：状态点在胶囊**外**（官方 trailing 是 [PhaseDot][StateTag] 两个兄弟节点），行距对齐官方 7px；
+    // 删除钮用官方 .rowActions 的 margin-left:auto 贴右成列（连续点击目标不漂移）
+    '.dsh-mf-tagRow{position:relative;display:flex;align-items:center;gap:7px;min-width:0}',
+    '.dsh-mf-tag{min-width:0;display:inline-flex;align-items:center;gap:6px;border-radius:5px;padding:1px 6px;font-size:11px;line-height:16px;min-height:20px;white-space:nowrap;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-secondary,#61666b)}',
+    '.dsh-mf-tag[data-hit="true"]{background:color-mix(in srgb, var(--dsw-alias-state-success-primary,#22c55e) 10%, transparent);color:var(--dsw-alias-state-success-primary,#22c55e)}',
+    '.dsh-mf-tagText{min-width:0;overflow:hidden;text-overflow:ellipsis}',
+    // 命中的第二信号（不只靠颜色）：照官方 .statusDot 的 7px 圆点（data-phase=active 同款 success 色）
+    '.dsh-mf-tagDot{flex:none;width:7px;height:7px;display:inline-block;border-radius:999px;corner-shape:round;background:var(--dsw-alias-state-success-primary,#22c55e)}',
+    '.dsh-mf-remove{box-sizing:border-box;flex:none;width:28px;height:28px;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;padding:0;border:none;border-radius:6px;background:0 0;color:var(--dsw-alias-label-tertiary,#81858c);cursor:pointer}',
+    '.dsh-mf-remove:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-primary,#0f1115)}',
+    '.dsh-mf-remove:disabled{cursor:default;opacity:.4}',
+    '.dsh-mf-remove:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#0f1115);outline-offset:-2px}',
+    // 只给读屏器的状态文案：照同页 .hiddenLabel 的裁剪手法
+    '.dsh-mf-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
     '@media (max-width:680px){.dsh-mf-items{grid-template-columns:minmax(0,1fr)}}',
     '@media (prefers-reduced-motion:reduce){.dsh-mf-itemChevron{transition:none}}',
     // 开关：逐字复刻官方 .switch/.thumb（宿主无 Switch 原语；轨道无过渡）
@@ -242,6 +301,129 @@ function GroupTile(props: {
     )
 }
 
+/**
+ * 「排除提供方」瓦片：形状与 GroupTile 不同是必然的——排除项是动态集合而非布尔矩阵，
+ * 既没有「整组开关」的合法语义，也不能塞进 RowKey。
+ * summary 尾区为「N 命中」计数徽标（命中 = 该 id 存在于宿主 llm-pi-ai 的 user 层，即本插件确会跳过它；
+ * **0 命中也常驻**——未命中同样是生效状态，绝不能画成错误色）。
+ * 展开体自上而下：组释义、输入框、校验错误行、每行一项的标签列表（标签贴左、删除钮贴右成列）。
+ * 只能手填：正确用法就是先写尚未创建的提供商 id、再新建该提供商，故不提供任何"仅可选现有项"的控件。
+ */
+function ExcludesTile(props: {
+    t: CardProps['t']
+    flags: Flags
+    /** 命中的排除项（由卡片以宿主 user 层提供商 id 求交得出） */
+    hits: ReadonlySet<string>
+    open: boolean
+    disabled: boolean
+    onToggle: () => void
+    onAdd: (id: string) => void
+    onRemove: (id: string) => void
+}) {
+    const { t, open } = props
+    const id = 'dsh-mf-item-excludes'
+    const title = t('colExcludes')
+    // 输入文本与校验反馈是纯 UI 暂态（不属于配置），故留在瓦片本地
+    const [text, setText] = useState('')
+    const [error, setError] = useState<CardKey | undefined>()
+    const inputRef = useRef<HTMLInputElement>(null)
+    const commit = () => {
+        const value = text.trim()
+        // 空输入静默忽略（与官方新增提供商时的按钮禁用同取向：无事发生即可，不必报错）
+        if (value === '') {
+            setError(undefined)
+            return
+        }
+        if (!EXCLUDE_ID_PATTERN.test(value)) {
+            setError('excludeInvalid')
+            return
+        }
+        if (props.flags.excludes.includes(value)) {
+            setError('excludeDuplicate')
+            return
+        }
+        props.onAdd(value)
+        setText('')
+        setError(undefined)
+        // 焦点留在输入框：连续录入多项时不必每次回点
+        inputRef.current?.focus()
+    }
+    return (
+        <div className="dsh-mf-item" role="group" data-open={open ? 'true' : undefined} aria-labelledby={`${id}-title`}>
+            <div className="dsh-mf-itemHead">
+                <button
+                    type="button"
+                    className="dsh-mf-itemToggle"
+                    aria-expanded={open}
+                    aria-controls={`${id}-body`}
+                    aria-labelledby={`${id}-title`}
+                    onClick={props.onToggle}
+                />
+                <strong className="dsh-mf-itemTitle" id={`${id}-title`}>{title}</strong>
+                <span className="dsh-mf-itemTrailing">
+                    {/* 官方 trailing 结构：[状态点][状态胶囊]，点在胶囊外；summary 的点纯装饰（徽标文字已带语义，读屏不重复播报） */}
+                    {props.hits.size > 0 ? <span className="dsh-mf-tagDot" aria-hidden /> : null}
+                    <span className="dsh-mf-count" data-hit={props.hits.size > 0 ? 'true' : undefined}>
+                        {t('excludeHits', { count: props.hits.size })}
+                    </span>
+                    <IconChevronDownOutline14 size={12} className="dsh-mf-itemChevron" />
+                </span>
+            </div>
+            {open ? (
+                <div className="dsh-mf-itemBody" id={`${id}-body`}>
+                    <p className="dsh-mf-itemHint">{t('hintExcludes')}</p>
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        className="dsh-mf-input"
+                        value={text}
+                        placeholder={t('excludePlaceholder')}
+                        aria-label={t('excludeAdd')}
+                        aria-invalid={error !== undefined}
+                        disabled={props.disabled}
+                        onChange={(event) => {
+                            setText(event.target.value)
+                            setError(undefined)
+                        }}
+                        onKeyDown={(event) => {
+                            // 中文输入法候选词上屏的 Enter 不得误提交（该场景下这是主要输入路径）
+                            if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                                event.preventDefault()
+                                commit()
+                            }
+                        }}
+                    />
+                    {error !== undefined ? <p className="dsh-mf-fieldError" role="alert">{t(error)}</p> : null}
+                    {props.flags.excludes.map((excluded) => {
+                        const hit = props.hits.has(excluded)
+                        const stateText = t(hit ? 'excludeHit' : 'excludeUnmatched')
+                        return (
+                            <div key={excluded} className="dsh-mf-tagRow">
+                                {/* 官方结构：trailing 是 [状态点][状态胶囊] 两个兄弟节点，点在胶囊外面不进底色 */}
+                                {hit ? <span className="dsh-mf-tagDot" role="img" aria-label={stateText} title={stateText} /> : null}
+                                <span className="dsh-mf-tag" data-hit={hit ? 'true' : undefined}>
+                                    <span className="dsh-mf-tagText">{excluded}</span>
+                                </span>
+                                {/* 命中状态不能只靠颜色传达：圆点带读屏名，行内再留一份状态文案 */}
+                                <span className="dsh-mf-hidden">{stateText}</span>
+                                <button
+                                    type="button"
+                                    className="dsh-mf-remove"
+                                    aria-label={t('excludeRemove', { id: excluded })}
+                                    disabled={props.disabled}
+                                    onClick={() => { props.onRemove(excluded) }}
+                                >
+                                    <IconTrash />
+                                </button>
+                            </div>
+                        )
+                    })}
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
 /** 卡片主体 */
 export function Card(props: CardProps) {
     ensureStyles()
@@ -252,12 +434,22 @@ export function Card(props: CardProps) {
         (listener) => scope.subscribe(listener),
         () => scope.getSnapshot(),
     )
+    // 提供商 id 来源 scope：只消费其 user 层（宿主 describe mirror 保证快照引用稳定，memo 只在文档变更时重算）
+    const providersScope = props.providersScope
+    const providersSnap = useSyncExternalStore(
+        (listener) => providersScope.subscribe(listener),
+        () => providersScope.getSnapshot(),
+    )
+    const providerIds = useMemo(
+        () => providerIdsOf(providersSnap.status === 'ready' ? providersSnap.user : undefined),
+        [providersSnap],
+    )
     // draft === null 表示未编辑、跟随已存值；首次点击即冻结当前显示值为草稿
     const [draft, setDraft] = useState<Flags | null>(null)
     const [submitting, setSubmitting] = useState(false)
     // 折叠态为卡片本地状态（读姿而非配置），默认收起，与官方插件卡一致；草稿跨折叠存活
     const [open, setOpen] = useState(false)
-    // 三个配置组瓦片的折叠态：沿用官方「插件列表」的手风琴语义（同时只开一个、默认全收起，
+    // 四个配置组瓦片的折叠态：沿用官方「插件列表」的手风琴语义（同时只开一个、默认全收起，
     // 状态按行键 string 而非列名存，与官方 expanded: string | null 同形）——各瓦片展开后高度
     // 不同，同时展开会让两列底部参差，官方因此单选
     const [tileOpen, setTileOpen] = useState<string | null>(null)
@@ -273,6 +465,8 @@ export function Card(props: CardProps) {
     const ready = snap.status === 'ready' && saved !== undefined
     const canWrite = ready && snap.writable === true
     const dirty = draft !== null && saved !== undefined && isDirty(draft, saved)
+    // 命中集合按草稿算（编辑中即所见即所得），未命中项同样生效，只是当前无同名提供商
+    const hits = useMemo(() => resolveHits(shown.excludes, providerIds), [shown.excludes, providerIds])
 
     // 保存成功后自动收起：等宿主确认写入落地（submitting 结束且 dirty 归 false）再收，
     // 写失败时草稿与 dirty 保留，故保持展开可原地重试；用户任何时刻手动开合不受此约束
@@ -312,6 +506,15 @@ export function Card(props: CardProps) {
     // 瓦片折叠：官方 toggleRow 同语义——点已开者即收起，否则切到该瓦片
     const onTileToggle = (key: string) => {
         setTileOpen((prev) => (prev === key ? null : key))
+    }
+    // 豁免列表的增删同样只改草稿（保存才落盘），与单格/总控一条路径
+    const onAddExclude = (id: string) => {
+        setNotice(null)
+        setDraft(addExclude(shown, id))
+    }
+    const onRemoveExclude = (id: string) => {
+        setNotice(null)
+        setDraft(removeExclude(shown, id))
     }
     const onSave = () => {
         if (!canWrite || !dirty || submitting) return
@@ -403,7 +606,8 @@ export function Card(props: CardProps) {
                 <div className="dsh-mf-body">
                     {!ready ? <p className="dsh-mf-line" role="status">{t('loading')}</p> : null}
                     {ready && !snap.writable ? <p className="dsh-mf-line dsh-mf-warn" role="status">{t('readOnly')}</p> : null}
-                    {/* 三个配置组只差 group：由组枚举与键表派生渲染，保证各瓦片形态始终一致 */}
+                    {/* 三个布尔配置组只差 group：由组枚举与键表派生渲染，保证各瓦片形态始终一致；
+                        第四张是动态集合瓦片，形状不同故单独渲染（栅格仍为两列，四张正好补齐 2×2） */}
                     <div className="dsh-mf-items">
                         {GROUPS.map((group) => (
                             <GroupTile
@@ -418,6 +622,16 @@ export function Card(props: CardProps) {
                                 onCell={(key) => { onCell(group, key) }}
                             />
                         ))}
+                        <ExcludesTile
+                            t={t}
+                            flags={shown}
+                            hits={hits}
+                            open={tileOpen === 'excludes'}
+                            disabled={!canWrite}
+                            onToggle={() => { onTileToggle('excludes') }}
+                            onAdd={onAddExclude}
+                            onRemove={onRemoveExclude}
+                        />
                     </div>
                     <div className="dsh-mf-footer">
                         <button

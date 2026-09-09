@@ -43,6 +43,8 @@ function isSettingsConflict(error: unknown): boolean {
  *   未变更元素原样保留）；数据无档位不删除已有配置。
  * - 路由 compat：按 compat 规则组为 openai-completions 路由添加或**移除**字段（与模型填充不同，关闭即移除，
  *   见 src/compat.ts），只写路由级、不写模型级。
+ * - 提供方排除：`excludes` 命中的 providerId 在循环入口即整条跳过，两类 op 与 force 一律不作用其上
+ *   （等效于对该提供方关闭插件；预防性——已写入的值原地保留，见 AGENTS.md 设计裁决）。
  * 返回变更模型数（不含路由 compat 计数，保持 RPC 契约）；写回失败（冲突重试用尽等）
  * 先告警再抛出，由调用方决定后续处理（RPC 转失败结果回传，事件侧吞掉 rejection）。
  */
@@ -57,11 +59,18 @@ export async function fix(ctx: Context, force = false): Promise<number> {
         const allowRules = cfg.allowUpdate
         const autoRules = cfg.autoFill
         const compatRules = cfg.compat
+        // 提供方级排除：命中的 id 整条跳过（模型写回与路由 compat 都不作用其上）
+        const excludes = new Set(cfg.excludes)
         const indexed = getCatalog()
         const ops: SettingsPathOp[] = []
         let changes = 0
         let compatChanges = 0
+        let excluded = 0
         for (const [providerId, provider] of Object.entries(providers)) {
+            if (excludes.has(providerId)) {
+                excluded++
+                continue
+            }
             if (!isPlainObject(provider)) continue
             const { api, models, compat: currentCompat } = provider as { api?: unknown; models?: unknown; compat?: unknown }
             if (Array.isArray(models)) {
@@ -136,7 +145,7 @@ export async function fix(ctx: Context, force = false): Promise<number> {
         if (ops.length === 0) return 0
         try {
             await ctx.settings.mutate(API_NS, ops, descriptor.revision)
-            ctx.logger.info(`${PLUGIN_NAME}: 已变更 ${changes} 个模型（补充/同步推理级别、容量字段、图片模态、清理空字段）、${compatChanges} 个提供商的路由 compat（developer 角色兼容）`)
+            ctx.logger.info(`${PLUGIN_NAME}: 已变更 ${changes} 个模型（补充/同步推理级别、容量字段、图片模态、清理空字段）、${compatChanges} 个提供方的路由 compat（developer 角色兼容），跳过 ${excluded} 个已排除提供方`)
             return changes
         } catch (error) {
             if (isSettingsConflict(error) && attempt < MAX_ATTEMPTS) continue
