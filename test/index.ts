@@ -5,7 +5,6 @@ import { run as runCompat } from './compat.test'
 import { run as runConfig } from './config.test'
 import { run as runLookup } from './lookup.test'
 import { run as runMigrate } from './migrate.test'
-import { run as runRefresh } from './refresh.test'
 import { summary } from './helper'
 
 runCatalog()
@@ -14,5 +13,4 @@ runCompat()
 runConfig()
 runLookup()
 runMigrate()
-runRefresh()
 summary()

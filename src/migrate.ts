@@ -117,7 +117,7 @@ function upgradeTo3(config: unknown, fromVersion: number): V3PluginConfigSnapsho
 }
 
 /**
- * 提供商豁免列表的台阶默认值：v3 无该数组，升级到 v4 时落空列表。
+ * 排除列表的台阶默认值：v3 无该数组，升级到 v4 时落空列表。
  * 写空字面量而不引用 config.ts 的 DEFAULT_CONFIG.excludes，理由同上（产物形态恒定）。
  */
 const V4_EXCLUDES_DEFAULT: readonly string[] = []

@@ -10,7 +10,7 @@ import type { CompatRules, FieldRules, PluginConfig } from '../types'
  * 浏览器半另以 `/${MODEL_FIX_NS}` 拼强制更新 RPC channel，与 src/rpc.ts 的 `/${PLUGIN_NS}` 配对，改动须两侧同步 */
 export const MODEL_FIX_NS = 'tikaflow-model-fix'
 
-/** 提供商所在的宿主配置命名空间（与 src/constants.ts 的 API_NS 字面量一致）：仅用于读 user 层提供商 id 以判定排除项是否命中 */
+/** 提供方所在的宿主配置命名空间（与 src/constants.ts 的 API_NS 字面量一致）：仅用于读 user 层提供方 id 以判定排除项是否命中 */
 export const PI_AI_NS = 'llm-pi-ai'
 
 /** 当前代码配置版本；与 src/constants.ts 的 CONFIG_VERSION 同步修改 */
@@ -97,7 +97,7 @@ function parseCompat(value: unknown): CompatRules | undefined {
     return rules
 }
 
-/** 排除项 id 的合法性规则：逐字复制宿主 models 页新增提供商时的 route id 校验（同一权威规则，两侧不得自行放宽） */
+/** 排除项 id 的合法性规则：逐字复制宿主 models 页新增提供方时的 route id 校验（同一权威规则，两侧不得自行放宽） */
 export const EXCLUDE_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 
 /** 默认配置：填充缺失开启，覆盖更新关闭，兼容性按旧版 API 处理，无排除项（与 src/config.ts DEFAULT_CONFIG 一致） */
@@ -202,7 +202,7 @@ export function isDirty(draft: Flags, saved: Flags): boolean {
 }
 
 /**
- * 从 `llm-pi-ai` 的 user 层取提供商 id（与 Node 半 fix 遍历的 `descriptor.user.providers` 同一事实源，
+ * 从 `llm-pi-ai` 的 user 层取提供方 id（与 Node 半 fix 遍历的 `descriptor.user.providers` 同一事实源，
  * 故「命中」判定与本插件真实会跳过的集合零漂移）。非纯对象、无 providers 或 providers 非纯对象一律视为空。
  */
 export function providerIdsOf(user: unknown): string[] {
@@ -212,7 +212,7 @@ export function providerIdsOf(user: unknown): string[] {
     return Object.keys(providers)
 }
 
-/** 命中的排除项集合：既决定标签的命中高亮，其 size 即 summary 徽标的命中数（未命中项仍生效，只是当前无同名提供商） */
+/** 命中的排除项集合：既决定标签的命中高亮，其 size 即 summary 徽标的命中数（未命中项仍生效，只是当前无同名提供方） */
 export function resolveHits(excludes: readonly string[], providerIds: readonly string[]): ReadonlySet<string> {
     const live = new Set(providerIds)
     return new Set(excludes.filter((id) => live.has(id)))

@@ -3,7 +3,7 @@ import { CONFIG_VERSION, MIN_SUPPORTED_VERSION, VERSION_PREFIX } from './constan
 import type { CompatRules, FieldRules, PluginConfig, VersionedSection } from './types'
 import { isPlainObject } from './types'
 
-/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，提供商豁免列表为空 */
+/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，排除列表为空 */
 export const DEFAULT_CONFIG: PluginConfig = {
     allowUpdate: { reasoning: false, context: false, image: false },
     autoFill: { reasoning: true, context: true, image: true },
@@ -30,7 +30,7 @@ const compatRules: z<CompatRules> = z.object({
 })
 
 /**
- * 提供商豁免列表 schema：整项缺失落空数组；非数组或元素非字符串判整段快照非法
+ * 排除列表 schema：整项缺失落空数组；非数组或元素非字符串判整段快照非法
  * （与 fieldRules / compatRules 同一严格度，浏览器半 parseV4 须逐条镜像）。
  */
 const excludesRules: z<string[]> = z.array(z.string()).default([])

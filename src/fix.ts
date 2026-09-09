@@ -35,7 +35,7 @@ function isSettingsConflict(error: unknown): boolean {
 }
 
 /**
- * 遍历提供商写回变更，一次 mutate 内提交两类 op（模型参数与路由兼容性，二者互不影响）：
+ * 遍历提供方写回变更，一次 mutate 内提交两类 op（模型参数与路由兼容性，二者互不影响）：
  * - 模型参数：缺失推理级别/容量/图片模态且有目录数据则填充（受 autoFill 对应字段控制），
  *   allowUpdate（force 时单次绕过，不落存储）开启则按目录最新值同步——含缺失补写与已有覆盖
  *   （旧值缺失经 deepEqualJson 判为不一致，属设计裁决，见 AGENTS.md 填充流程），并剔除空 input/compat。

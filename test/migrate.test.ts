@@ -132,8 +132,7 @@ export function run(): void {
         compat: { disableDeveloper: false },
         excludes: [],
     }), resolveConfig(healed))
-    // 自愈重写不得把用户已配的排除列表丢掉（次高版本快照带 excludes 的形态只有更高版本才写得出，
-    // 故这里验证「当前版本快照非法 + 更高版本快照存在」时按语义回退为不豁免，而非静默保留坏值）
+    // 无任何可用快照时自愈为默认（回退语义：不静默保留坏值）
     const allBroken = { 'version-4': 42, 'version-9': { future: true } }
     check('无任何可用快照时自愈为默认', stable(resolveConfig({ 'version-4': toStored(resolveConfig(allBroken)) })) === stable(resolveConfig(allBroken)), resolveConfig(allBroken))
 

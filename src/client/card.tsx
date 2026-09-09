@@ -72,7 +72,7 @@ import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from './locales'
 export interface CardProps {
     t: TranslateNS<'settings.modelFix'>
     scope: SettingsScope<Flags>
-    /** 宿主 llm-pi-ai 命名空间：只取 snapshot.user 的提供商 id，判定排除项是否命中 */
+    /** 宿主 llm-pi-ai 命名空间：只取 snapshot.user 的提供方 id，判定排除项是否命中 */
     providersScope: SettingsScope<readonly unknown[]>
     /** 强制更新 RPC：channel 与端点在入口拼好，卡片只消费结果 */
     forceUpdate: () => Promise<RpcResult<unknown>>
@@ -92,7 +92,7 @@ const STYLE_ID = 'dsh-model-fix-card-css'
  * 描边 label-dimmed、底 bg-layer-2；胶囊/开关/按钮亦出自该包）；内层瓦片＝ui-settings-plugin-inventory
  * 的插件列表项卡（栅格 repeat(2,minmax(0,1fr)) gap 10、14px 圆角、elevation 发丝描边、展开态
  * data-open 三变化）。本卡是可展开的设置卡，与 provider 行（.rowCard，不可展开的列表行）不是同类
- * 组件，故不再按同页数值折中，一律照官方同类组件取值。宿主无 Switch 原语、插件卡 footer 亦不自用
+ * 组件，取值一律照官方同类组件。宿主无 Switch 原语、插件卡 footer 亦不自用
  * Button 原语，故两处皆自绘复刻。
  * 颜色一律只用宿主 --dsw-alias-* 令牌（主题插件改色时与官方同步变化），字面量仅作令牌缺失时的
  * 浅色守卫，且取 design-platform.css 真值（label-primary/brand-primary 浅色下即近黑，非品牌蓝）；
@@ -302,12 +302,12 @@ function GroupTile(props: {
  * summary 尾区为「N 命中」计数徽标（命中 = 该 id 存在于宿主 llm-pi-ai 的 user 层，即本插件确会跳过它；
  * **0 命中也常驻**——未命中同样是生效状态，绝不能画成错误色）。
  * 展开体自上而下：组释义、输入框、校验错误行、每行一项的标签列表（标签贴左、删除钮贴右成列）。
- * 只能手填：正确用法就是先写尚未创建的提供商 id、再新建该提供商，故不提供任何"仅可选现有项"的控件。
+ * 只能手填：正确用法就是先写尚未创建的提供方 id、再新建该提供方，故不提供任何"仅可选现有项"的控件。
  */
 function ExcludesTile(props: {
     t: CardProps['t']
     flags: Flags
-    /** 命中的排除项（由卡片以宿主 user 层提供商 id 求交得出） */
+    /** 命中的排除项（由卡片以宿主 user 层提供方 id 求交得出） */
     hits: ReadonlySet<string>
     open: boolean
     disabled: boolean
@@ -324,7 +324,7 @@ function ExcludesTile(props: {
     const inputRef = useRef<HTMLInputElement>(null)
     const commit = () => {
         const value = text.trim()
-        // 空输入静默忽略（与官方新增提供商时的按钮禁用同取向：无事发生即可，不必报错）
+        // 空输入静默忽略（与官方新增提供方时的按钮禁用同取向：无事发生即可，不必报错）
         if (value === '') {
             setError(undefined)
             return
@@ -429,7 +429,7 @@ export function Card(props: CardProps) {
         (listener) => scope.subscribe(listener),
         () => scope.getSnapshot(),
     )
-    // 提供商 id 来源 scope：只消费其 user 层（宿主 describe mirror 保证快照引用稳定，memo 只在文档变更时重算）
+    // 提供方 id 来源 scope：只消费其 user 层（宿主 describe mirror 保证快照引用稳定，memo 只在文档变更时重算）
     const providersScope = props.providersScope
     const providersSnap = useSyncExternalStore(
         (listener) => providersScope.subscribe(listener),
@@ -460,7 +460,7 @@ export function Card(props: CardProps) {
     const ready = snap.status === 'ready' && saved !== undefined
     const canWrite = ready && snap.writable === true
     const dirty = draft !== null && saved !== undefined && isDirty(draft, saved)
-    // 命中集合按草稿算（编辑中即所见即所得），未命中项同样生效，只是当前无同名提供商
+    // 命中集合按草稿算（编辑中即所见即所得），未命中项同样生效，只是当前无同名提供方
     const hits = useMemo(() => resolveHits(shown.excludes, providerIds), [shown.excludes, providerIds])
 
     // 保存成功后自动收起：等宿主确认写入落地（submitting 结束且 dirty 归 false）再收，
@@ -502,7 +502,7 @@ export function Card(props: CardProps) {
     const onTileToggle = (key: string) => {
         setTileOpen((prev) => (prev === key ? null : key))
     }
-    // 豁免列表的增删同样只改草稿（保存才落盘），与单格/总控一条路径
+    // 排除列表的增删同样只改草稿（保存才落盘），与单格/总控一条路径
     const onAddExclude = (id: string) => {
         setNotice(null)
         setDraft(addExclude(shown, id))

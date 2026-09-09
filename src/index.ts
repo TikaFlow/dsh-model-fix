@@ -19,10 +19,9 @@ export function apply(ctx: Context) {
     // 注册自有配置命名空间：段为版本快照容器，setSource 解析出运行时配置，onChange 响应配置变更
     ctx.settings.installSection(ctx, PLUGIN_NS, SectionSchema, DEFAULT_SECTION, {
         setSource: (current) => { setConfigSource(() => resolveConfig(current())) },
-        // 插件配置变化时先自愈（手改文件里的重复排除项，有重复才写，否则零写入）再重新填充；
-        // 自愈写回会再次触发 onChange，此时长度已相等、不再写入，链条在此收敛。
-        // attach 时宿主也会同步触发一次 onChange（此时目录未就绪，fix 自然空转，幂等无害）；
-        // 启动路径的有效填充由下方 effort 在缓存就绪后负责，二者职责不同，不可互替
+        // 配置变化先自愈（手改文件的重复排除项，有重复才写、否则零写入）再重新填充；
+        // 自愈写回会再触发一次 onChange，此时长度已相等、零写入而收敛。
+        // attach 也会同步触发一次 onChange（目录未就绪，fix 空转无害）；启动的有效填充由 effort 负责
         onChange: () => {
             void selfHealConfig(ctx)
                 .catch((error: unknown) => {

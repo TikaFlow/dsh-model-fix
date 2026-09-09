@@ -31,7 +31,7 @@ export function run(): void {
         compat: { disableDeveloper: false },
         excludes: ['acme-gateway', 'lab-7'],
     }), resolveConfig({ 'version-4': v4Entry }))
-    // 兼容语义：v3 无 excludes 数组，经当前 schema 解析后落该项默认（等价于「不豁免任何提供商」）
+    // 兼容语义：v3 无 excludes 数组，经当前 schema 解析后落该项默认（等价于「不排除任何提供方」）
     const v3Entry = {
         configVersion: 3,
         autoFill: { reasoning: true, context: false, image: false },

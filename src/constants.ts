@@ -4,10 +4,7 @@ import { fileURLToPath } from 'node:url'
 /** 插件名，同时用作日志前缀 */
 export const PLUGIN_NAME = 'dsh-model-fix'
 
-/**
- * 模型配置读写目标命名空间（harness 的 llm-pi-ai）。
- * 宿主 0.1.2 起命名空间即小写连字符字面量（由 settings 服务在注册/读写时校验），不再有包装函数。
- */
+/** 模型配置读写目标命名空间（harness 的 llm-pi-ai）：小写连字符字面量，由 settings 服务在注册/读写时校验 */
 export const API_NS = 'llm-pi-ai'
 /** 自有配置命名空间（带发布者前缀，避免与其他插件抢占通用名字；fix 即填充/修复），由 ctx.settings.installSection 注册 */
 export const PLUGIN_NS = 'tikaflow-model-fix'

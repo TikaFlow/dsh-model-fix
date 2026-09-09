@@ -174,7 +174,7 @@ export function run(): void {
     // ---------- 命中判定：只看交集，顺序沿用排除列表本身的顺序 ----------
     check('resolveHits 只收命中的排除项', stable([...resolveHits(WITH_EXCLUDES.excludes, ['acme-gateway', 'other'])]) === stable(['acme-gateway']))
     check('resolveHits 全不命中为空集', resolveHits(WITH_EXCLUDES.excludes, ['nothing']).size === 0)
-    check('resolveHits 提供商多于排除项时不计入提供商', resolveHits(['a'], ['a', 'b', 'c']).size === 1)
+    check('resolveHits 提供方多于排除项时不计入提供方', resolveHits(['a'], ['a', 'b', 'c']).size === 1)
     check('resolveHits 空排除列表恒空', resolveHits([], ['a']).size === 0)
     // ---------- 增删：只追加/原位删除，不改入参，重复与不存在均为幂等空操作 ----------
     const added = addExclude(DEFAULT_FLAGS, 'acme-gateway')
@@ -191,7 +191,7 @@ export function run(): void {
     // compat 行的改动同样要标脏，否则「关闭即移除」的写回没有 UI 入口
     check('isDirty compat 不同即为脏', isDirty({ ...DEFAULT_FLAGS, compat: { disableDeveloper: false } }, DEFAULT_FLAGS) === true)
     check('isDirty compat 相同不为脏', isDirty({ ...DEFAULT_FLAGS, compat: { ...DEFAULT_FLAGS.compat } }, DEFAULT_FLAGS) === false)
-    // 排除列表的增删都必须标脏（否则豁免没有保存入口），内容相同则不脏
+    // 排除列表的增删都必须标脏（否则排除没有保存入口），内容相同则不脏
     check('isDirty 新增排除项为脏', isDirty(added, DEFAULT_FLAGS) === true)
     check('isDirty 删除排除项为脏', isDirty(DEFAULT_FLAGS, withTwo) === true)
     check('isDirty 排除列表等值不为脏', isDirty(withTwo, { ...withTwo, excludes: ['acme-gateway', 'lab-7'] }) === false)
