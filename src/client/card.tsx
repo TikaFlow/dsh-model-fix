@@ -106,7 +106,6 @@ const STYLE_TEXT = [
     '.dsh-mf-cardOpen{border-color:var(--dsw-alias-label-dimmed,#e1e5ee);background:var(--dsw-alias-bg-layer-2,#fff)}',
     // header：名称叠描述，右侧未保存胶囊与旋转 chevron
     '.dsh-mf-header{display:flex;align-items:center;gap:12px;box-sizing:border-box;width:100%;padding:14px 16px;border:1px solid transparent;border-radius:12px;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer}',
-    '.dsh-mf-header:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#0f1115);outline-offset:-2px}',
     // 配置服务不可用时的静态头（div 渲染，无展开语义）
     '.dsh-mf-headerStatic{cursor:default}',
     '.dsh-mf-headText{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}',
@@ -138,7 +137,6 @@ const STYLE_TEXT = [
     // 整行折叠按钮：透明覆盖层承担点击与键盘（hover/展开底色画在行容器上）；
     // 尾区抬 z-index 并关掉自身 pointer-events、只放开开关本体——整行可点而开关不被吞，也不产生 button 套 button
     '.dsh-mf-itemToggle{position:absolute;inset:0;padding:0;border:none;border-radius:14px;background:none;cursor:pointer}',
-    '.dsh-mf-itemToggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:-2px}',
     '.dsh-mf-itemTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:20px;font-weight:600}',
     '.dsh-mf-itemTrailing{position:relative;z-index:1;display:inline-flex;flex:none;align-items:center;gap:7px;pointer-events:none;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-itemSwitch{pointer-events:auto}',
@@ -172,7 +170,6 @@ const STYLE_TEXT = [
     '.dsh-mf-remove{box-sizing:border-box;flex:none;width:28px;height:28px;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;padding:0;border:none;border-radius:6px;background:0 0;color:var(--dsw-alias-label-tertiary,#81858c);cursor:pointer}',
     '.dsh-mf-remove:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-primary,#0f1115)}',
     '.dsh-mf-remove:disabled{cursor:default;opacity:.4}',
-    '.dsh-mf-remove:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#0f1115);outline-offset:-2px}',
     // 只给读屏器的状态文案：照同页 .hiddenLabel 的裁剪手法
     '.dsh-mf-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
     '@media (max-width:680px){.dsh-mf-items{grid-template-columns:minmax(0,1fr)}}',
@@ -181,7 +178,6 @@ const STYLE_TEXT = [
     '.dsh-mf-switch{box-sizing:border-box;position:relative;flex:0 0 auto;width:36px;height:20px;padding:2px;border:0;border-radius:10px;background:var(--dsw-alias-border-l3,rgba(0,0,0,.12));cursor:pointer}',
     '.dsh-mf-switch[aria-checked="true"]{background:var(--dsw-alias-brand-primary,#0f1115)}',
     '.dsh-mf-switch:disabled{cursor:default;opacity:.5}',
-    '.dsh-mf-switch:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#0f1115);outline-offset:2px}',
     '.dsh-mf-thumb{display:block;width:16px;height:16px;border-radius:50%;corner-shape:round;background:var(--dsw-alias-label-primary-foreground,#fff);transition:transform 120ms ease}',
     '.dsh-mf-switch[aria-checked="true"] .dsh-mf-thumb{transform:translateX(16px)}',
     '.dsh-mf-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 0 4px;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1))}',
@@ -194,7 +190,6 @@ const STYLE_TEXT = [
     '.dsh-mf-force{background:none;color:var(--dsw-alias-state-error-primary,#ec1313)}',
     '.dsh-mf-force:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger,rgba(236,19,19,.05))}',
     '.dsh-mf-discard:disabled,.dsh-mf-save:disabled,.dsh-mf-force:disabled{opacity:.4;cursor:default}',
-    '.dsh-mf-discard:focus-visible,.dsh-mf-save:focus-visible,.dsh-mf-force:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#0f1115);outline-offset:1px}',
     // 危险确认键：官方 .deleteConfirm 写法（outline 按钮 + 红描边红字 + danger hover）
     '.dsh-mf-confirmDanger:not(:disabled){border-color:var(--dsw-alias-state-error-primary,#ec1313);color:var(--dsw-alias-state-error-primary,#ec1313)}',
     '.dsh-mf-confirmDanger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger,rgba(236,19,19,.05))}',
