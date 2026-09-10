@@ -19,17 +19,22 @@
 
 ## 安装
 
--  通过插件市场安装（推荐）
+### 方式一：通过插件市场安装（推荐）
 
 > 使用 `dsh-market` 插件市场安装时无需重启 DSH 即生效。
 
--  通过命令行安装
+直接在插件市场搜索安装即可。
+
+### 方式二：通过 Release 预构建包安装
+
+```bash
+dsh plugin --profile web add https://github.com/TikaFlow/dsh-model-fix/releases/latest/download/dsh-model-fix.tgz
+```
+
+### 方式三：通过 Git 安装
 
 ```bash
 dsh plugin --profile web add github:TikaFlow/dsh-model-fix
-
-# 重启 DSH 
-dsh web
 ```
 
 ## 版本说明

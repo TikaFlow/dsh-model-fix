@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-fix",
-  "version": "0.10.4",
+  "version": "0.11.0",
   "type": "module",
   "description": "DSH 插件：给非官方（自定义）提供商的模型自动填充模型信息，包括：推理级别、最大上下文、输出上限与图片模态，数据来自 models.dev。",
   "main": "lib/index.js",
@@ -17,6 +17,8 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "test": "tsdown test/index.ts -d .test-dist --no-config && node .test-dist/index.mjs",
+    "prepack": "pnpm typecheck && pnpm test",
+    "pack:release": "pnpm pack --out=\"dist/%s.tgz\"",
     "prepare": "pnpm build"
   },
   "devDependencies": {

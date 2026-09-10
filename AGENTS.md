@@ -138,6 +138,7 @@ graph LR
 
 - `pnpm build` / `pnpm run typecheck` / `pnpm test`（**必须 `--no-config`**，见上）
 - `pnpm install` 触发 `prepare` → build
+- `pnpm pack:release` → 依次跑 `prepack`（typecheck + test）与 `prepare`（build），产出 `dist/dsh-model-fix.tgz`
 
 ## 测试规范
 
