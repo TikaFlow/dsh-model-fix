@@ -139,7 +139,8 @@ export function run(): void {
     // pruneOps：两阶段清理——先淘汰低于最低支持版本（Phase A），再淘汰低于当前版本且超出保留上限的 excess（Phase B）；
     // 等于/高于当前版本永不清理
     check('当前与高版本不参与清理', pruneOps([4, 5, 6, 7]).length === 0, pruneOps([4, 5, 6, 7]))
-    check('v1/v2/v3 同时保留（olds 恰等于上限，一轮不清理）', pruneOps([1, 2, 3]).length === 0, pruneOps([1, 2, 3]))
+    check('olds 超限淘汰最低（<=当前版本共保留 3 个）', pruneOps([1, 2, 3]).length === 1 && stable(pruneOps([1, 2, 3])) === stable([{ op: 'unset', path: ['version-1'] }]), pruneOps([1, 2, 3]))
+    check('olds 未超限不清理', pruneOps([2, 3]).length === 0, pruneOps([2, 3]))
     check('Phase A 清理低于最低支持版本', stable(pruneOps([1, 2, 3, 4], 6, 4, 3)) === stable([
         { op: 'unset', path: ['version-1'] }, { op: 'unset', path: ['version-2'] }, { op: 'unset', path: ['version-3'] },
     ]), pruneOps([1, 2, 3, 4], 6, 4, 3))
