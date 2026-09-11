@@ -1,4 +1,4 @@
-// lookup.ts 纯函数测试：模型 id 匹配（精确/词干/前缀三级）、提供商提示与推理级别转换
+// lookup.ts 纯函数测试：模型 id 匹配（精确/词干/前缀三级）、提供方提示与推理级别转换
 import { lookup, toReasoningEfforts } from '../src/lookup'
 import type { CacheEntry, IndexedCatalog } from '../src/types'
 import { check, stable } from './helper'
@@ -31,9 +31,9 @@ export function run(): void {
     check('provider 不在目录 -> 全局唯一命中', lookup(catalog({ deepseek: ['deepseek-chat'] }), 'custom-router', 'deepseek-chat')?.id === 'deepseek-chat')
     check('provider 命中但模型不在 -> 全局唯一命中', lookup(catalog({ deepseek: ['deepseek-reasoner'], anthropic: ['claude-sonnet-4'] }), 'deepseek', 'claude-sonnet-4')?.id === 'claude-sonnet-4')
 
-    // ---------- 官方提供商提示：模型名前缀优先在 hinted 提供商内匹配 ----------
+    // ---------- 官方提供方提示：模型名前缀优先在 hinted 提供方内匹配 ----------
     check(
-        '前缀提示优先官方提供商',
+        '前缀提示优先官方提供方',
         lookup(catalog({ openai: ['gpt-5-mini'], 'custom-ai': ['gpt-5-turbo'] }), 'custom-ai', 'gpt-5-mini')?.id === 'gpt-5-mini',
         lookup(catalog({ openai: ['gpt-5-mini'], 'custom-ai': ['gpt-5-turbo'] }), 'custom-ai', 'gpt-5-mini'),
     )

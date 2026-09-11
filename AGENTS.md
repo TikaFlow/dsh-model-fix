@@ -12,7 +12,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | --- | --- |
 | `src/index.ts` | 仅 `export` + `apply` 生命周期编排，业务全部外拆 |
 | `src/types.ts` | 共享类型与守卫；**历史版本(v1/v2/v3) 是冻结形态**；Connection RPC 契约的结构本地复制也在这里 |
-| `src/constants.ts` | 命名空间、版本与保留上限、重试参数、`CAPACITY_UNLIMITED`、提供商提示表 `HINTS`、兼容性落点 `DEVELOPER_COMPAT_APIS` / `DEVELOPER_COMPAT_FIELD` |
+| `src/constants.ts` | 命名空间、版本与保留上限、重试参数、`CAPACITY_UNLIMITED`、提供方提示表 `HINTS`、兼容性落点 `DEVELOPER_COMPAT_APIS` / `DEVELOPER_COMPAT_FIELD` |
 | `src/config.ts` / `src/migrate.ts` | 当前 schema 与 `resolveConfig` / 升级链与 `migrateConfig` 编排 |
 | `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
 | `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 两类 op 同批提交；`excludes` 命中的提供方在 provider 循环入口即整条跳过（两类 op 与 force 一起被排除，故不在各分支重复判断） |
@@ -26,7 +26,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 
 ### 跨半与宿主契约
 
-- **浏览器半禁止值导入 Node 半模块**（`src/constants.ts` 会拖入 `node:path`）。因此配置命名空间、提供商 NS（`PI_AI_NS`）、`CONFIG_VERSION`、RPC channel 名在 `src/client/model.ts` 以**字面量**另存一份，与 `src/constants.ts` / `src/rpc.ts` **改动必须两侧同步**（`test/client-model.test.ts` 有漂移守护用例）；`tsdown.config.ts` 的 purity 门禁会拦住越界值导入（type-only 被擦除，不受限）。同理，provider id 的合法性正则 `EXCLUDE_ID_PATTERN` 是宿主 models 页 `ROUTE_PATTERN` 的字面复制，升宿主须复核。
+- **浏览器半禁止值导入 Node 半模块**（`src/constants.ts` 会拖入 `node:path`）。因此配置命名空间、提供方 NS（`PI_AI_NS`）、`CONFIG_VERSION`、RPC channel 名在 `src/client/model.ts` 以**字面量**另存一份，与 `src/constants.ts` / `src/rpc.ts` **改动必须两侧同步**（`test/client-model.test.ts` 有漂移守护用例）；`tsdown.config.ts` 的 purity 门禁会拦住越界值导入（type-only 被擦除，不受限）。同理，provider id 的合法性正则 `EXCLUDE_ID_PATTERN` 是宿主 models 页 `ROUTE_PATTERN` 的字面复制，升宿主须复核。
 - 浏览器半 externals 只允许宿主模块表基线那几项，其余一律打进包；基线权威列表在宿主 `packages/client/web/src/platform.ts`，漂移的后果是运行期 `require` 未命中。
 - `package.json` 的 `dsh.client.inject` 是**依赖包图边**（填槽位所有者包），不是 cordis 服务名；服务名只写在 `src/client/index.tsx` 的 `export const inject`。
 - 浏览器半产物必须复刻宿主 client 的闭包工厂契约（`window.__ModuleLoader__.load` + banner/intro/footer 三段）。声明了 `dsh.client` 后，缺 `lib/client.js` 会让宿主**激活期聚合抛错** ⇒ **build 必须先于 link/安装到宿主**。
@@ -92,7 +92,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **当前版本快照非法时自愈重写**：不修就会长期停在"文件里是坏值、运行期按次高版本或默认执行"的不一致态且无从纠正。重写目标取**当前生效值**（有可用旧快照则沿用其语义），而非强行落默认。
 - **全新用户直接写规范默认快照**（不经升级链），保证启动后段内必有当前版本快照；写入用定向路径 op，不触碰用户手写键与高版本快照。
 - **`allowUpdate` 含缺失补写**，且 `autoFill` 关闭也拦不住它——语义是"以目录为准同步该字段"；对已有字段才是覆盖，且要求新值合法（档位/容量/模态各自校验），新旧相同则跳过。**数据无档位不删除已有配置**。
-- **`force` 是单次绕过**：`fix(ctx, true)` 等价三项临时为真但不落存储，且不重新拉取 models.dev（用当前内存目录，避免把网络耗时算进按钮反馈）。官方允许覆盖用户手动配置，Modal 文案已就此明示。
+- **`force` 是单次绕过**：`fix(ctx, true)` 等价三项临时为真但不落存储，且不重新拉取 models.dev（用当前内存目录，避免把网络耗时算进按钮反馈）。允许覆盖用户手动配置，Modal 已就此二次确认（含"无法撤销"提示）。
 - **写失败先告警再抛出**：事件类调用点 catch 吞掉 rejection（日志已在 `fix` 内），RPC 调用方转 `ok:false` 回传前端——同一个错误不能既静默又弹窗。
 - **`fix` 读 `descriptor.user`（原始用户段）而非解析值**：写回值与读回值同源，避免 schema 规范化后的形态与写入形态不一致而反复触发重写。写回携带 revision 做并发围栏，冲突时重读重算（限次）。
 - **空 `input` / 空 `compat` 一律删除**：harness 语义上与"未声明"等同，删除无损且操作幂等。
@@ -105,7 +105,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **不自动清理失效 id；顺序沿用录入、去重分层各管一段**：`fix` 在 `providers` 缺失/非对象时早退，早期顺手 prune 会清空用户列表，且给 `fix` 加"顺带写自己配置"的第二写入面（`fix` 的写回批次是 `llm-pi-ai`，excludes 根本进不去）⇒ fix 只管排除匹配、永不写自有 NS。列表顺序是用户录入意图，草稿只由已存值经增删派生 ⇒ 脏检测用顺序敏感的逐位比较，不需要排序。去重分两层：**录入端**当场提示「已在列表中」并拒绝写入（不静默改写用户输入）；**onChange 自愈**（`migrate.ts` 的 `selfHealExcludes`，handler 里先自愈再 fix）兜住手改 `settings.yaml` 的重复——守卫即终止条件：仅当 `Set` 收窄后**变短**才产出定向路径 op（保留首次出现），无重复零写入，故自愈写回引发的再次 onChange 不再产生任何写入，链条一轮收敛。`parseSnapshot`/浏览器半 `parseV4` 均原样保留数组（去重只发生在写回 op）。id 用 `Set.has` **精确匹配**不归一化（与 `lookup` 的"宁可漏不错配"一致）。
 - **图片模态只缓存正向信息**（支持图片才写 `true`，纯文本省略字段）：缓存体积是发布包大小主因；纯文本模型本就不声明，行为与未声明一致。数据源里的 `pdf`/`video`/`audio` 忽略不写（宿主 `input` 只接受 `text`/`image`）。
 - **容量哨兵**：`CAPACITY_UNLIMITED = 99999999` 是 models.dev 对"无限/未公布"的建模，媒体模型还会给 0——两者一律视为"无该字段"（写 0 会被宿主 schema 拒绝并连累整批）。
-- **id 匹配宁可漏不错配**：精确 → 词干 → 前缀三级，词干/前缀**多命中即判无命中**；无分隔符的短 id 只走精确。跨提供商同源模型靠 `HINTS`（模型名前缀 → 官方提供商）优先命中。
+- **id 匹配宁可漏不错配**：精确 → 词干 → 前缀三级，词干/前缀**多命中即判无命中**；无分隔符的短 id 只走精确。跨提供方同源模型靠 `HINTS`（模型名前缀 → 官方提供方）优先命中。
 - **卡片按钮文案取「保存」不取「应用」**：写 settings 即前端职责终点，填充由后端 `onChange → fix` 触发，其结果（填了几条）前端无法感知——叫「应用」会让人误以为按钮本身应用了目录值。
 - **瓦片默认收起、同时只展开一个**（手风琴）：各瓦片展开后高度不同，同时展开会让两列底部参差，官方即如此设计。
 - **展开体填 `bg-module-platform`、外层整卡不填**：前者在宿主语义里是"展开出来的内层面板"（同页 `.editor`/`.setupCard` 同令牌），后者填了会在页面上显成灰块。深色主题下官方瓦片本体与该填充同值、看不出差异，我们本体透明故可见——与同页一致，属预期。

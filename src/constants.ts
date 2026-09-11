@@ -49,7 +49,7 @@ export const DEVELOPER_COMPAT_APIS = new Set(['openai-completions'])
 /** disableDeveloper 对应的 provider 路由 compat 字段名（开启写 false，关闭删键） */
 export const DEVELOPER_COMPAT_FIELD = 'supportsDeveloperRole'
 
-/** 模型名前缀 -> 官方提供商，用于跨提供商匹配同源模型 */
+/** 模型名前缀 -> 官方提供方，用于跨提供方匹配同源模型 */
 export const HINTS: ReadonlyArray<readonly [string, string]> = [
     ['deepseek', 'deepseek'],
     ['claude', 'anthropic'],

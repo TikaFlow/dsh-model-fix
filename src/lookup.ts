@@ -6,7 +6,7 @@ function normalizeId(id: string): string {
     return id.toLowerCase().replace(/-openai-compact$/, '').replace(/-latest$/, '')
 }
 
-/** 提取模型 id 的语义主体（去供应商后缀与版本日期） */
+/** 提取模型 id 的语义主体（去提供方前缀与版本日期） */
 function stem(id: string): string {
     return normalizeId(id)
         .replace(/-\d{8}$/, '')
@@ -27,7 +27,7 @@ function matchId(localId: string, ids: readonly string[]): string | undefined {
     if (prefix.length === 1) return prefix[0]
 }
 
-/** 按模型名前缀提示官方提供商 */
+/** 按模型名前缀提示官方提供方 */
 function hintedProvider(id: string): string | undefined {
     const bare = id.slice(id.lastIndexOf('/') + 1).toLowerCase()
     return HINTS.find(([prefix]) => bare === prefix || bare.startsWith(`${prefix}-`) || bare.startsWith(`${prefix}.`))?.[1]
@@ -49,7 +49,7 @@ export function lookup(indexed: IndexedCatalog, providerId: string, modelId: str
         const same = matchIn(providerId)
         if (same) return same
     }
-    // 否则按 modelId 全局匹配：先提示提供商，再全部提供商
+    // 否则按 modelId 全局匹配：先提示提供方，再全部提供方
     const hinted = hintedProvider(bare)
     if (hinted) {
         const official = matchIn(hinted)
