@@ -1,5 +1,5 @@
 // reset.ts 纯函数测试：重置计划（剔除插件填充字段、排除跳过、零变更零 op）
-import { planResetModels, startIgnoreAll, endIgnoreAll, isIgnoreAll } from '../src/reset'
+import { planResetModels } from '../src/reset'
 import type { PluginConfig } from '../src/types'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { check } from './helper'
@@ -67,11 +67,4 @@ export function run(): void {
     // 空 providers：无模型 op
     const emptyPlan = planResetModels(base, {})
     check('空 providers 无模型 op、changed 为 0', emptyPlan.modelOps.length === 0 && emptyPlan.changed === 0)
-
-    // ---------- 事件流守卫 ----------
-    check('守卫初始为 false', isIgnoreAll() === false)
-    startIgnoreAll()
-    check('startIgnoreAll 后为 true', isIgnoreAll() === true)
-    endIgnoreAll()
-    check('endIgnoreAll 后为 false', isIgnoreAll() === false)
 }

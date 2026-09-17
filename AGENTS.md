@@ -17,9 +17,11 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
 | `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 两类 op 同批提交；`excludes` 命中的提供方在 provider 循环入口即整条跳过（两类 op 与 force 一起被排除，故不在各分支重复判断） |
 | `src/reset.ts` | 重置模型：仅剔除各非排除 provider 模型上的插件填充字段（`reasoningEfforts`/容量/`input`），配置段原样保留（开关不变，重置后改配置仍按原开关触发填充）；`planResetModels` 零 ctx 可单测，`resetModels` 全程打开事件流守卫（`isIgnoreAll`）防写回反向触发填充 |
+| `src/guard.ts` | 事件流守卫（模块级 `ignoreAll` + `startIgnoreAll`/`endIgnoreAll`/`isIgnoreAll`）：重置与恢复共用的写回保护，`index.ts` 两事件入口最先判定 |
+| `src/restore.ts` | 恢复备份：`captureBackup` 仅在 `apply` 最顶部（先于 `installSection`）读一次 `llm-pi-ai` 的 **`providers` 段**并深拷贝为内存备份（不写盘，重启重建；绝不做延迟补捕，见设计裁决）；`providersOf` 为捕获与恢复共用的收窄口径；`planRestore` 零 ctx 可单测，按**交集**语义只回退「备份与当前都存在」的 provider+model；`restoreModels` 与 reset 同样全程开守卫 |
 | `src/compat.ts` | 兼容性规则 → provider 路由 `compat` 的纯写入计划（添加 / 移除 / 删空整段 unset），零 ctx 依赖故可单测 |
-| `src/rpc.ts` / `src/refresh.ts` | 两个 RPC 端点（`forceUpdate` 强制更新 / `resetModels` 重置模型）/ 刷新编排（含重试） |
-| `src/client/` | 浏览器半：`index.tsx` 入口（词典/两个 scope/RPC 载体/槽注册）、`card.tsx` 卡片（三张布尔瓦片 + 一张排除集合瓦片 + footer 的「强制更新 / 重置模型」两危险键）、`model.ts` 快照↔配置（三组布尔 + `excludes`）与命中判定的纯映射（唯一可单测的浏览器半模块）、`locales.ts` 中英词典 |
+| `src/rpc.ts` / `src/refresh.ts` | 三个 RPC 端点（`forceUpdate` 强制更新 / `resetModels` 重置模型 / `restoreModels` 恢复备份，以守卫互斥）/ 刷新编排（含重试） |
+| `src/client/` | 浏览器半：`index.tsx` 入口（词典/两个 scope/RPC 载体/槽注册）、`card.tsx` 卡片（三张布尔瓦片 + 一张排除集合瓦片 + footer 的「强制更新 / 重置模型」两危险键与「恢复备份」次级键）、`model.ts` 快照↔配置（三组布尔 + `excludes`）与命中判定的纯映射（唯一可单测的浏览器半模块）、`locales.ts` 中英词典 |
 | `public/models-cache.json` | 构建期随 `lib/public/` 发布的 models.dev 拍平缓存（首启离线可用） |
 | `cordis.patch.yml` | DSH 补丁层对本插件的注册 |
 
@@ -68,6 +70,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 ### 工具链陷阱
 
 - `pnpm test` **必须带 `--no-config`**：否则 CLI 参数会合并进数组配置的每一项，浏览器半的工厂 banner 会污染测试产物（无配置时产物扩展名为 `.mjs`）。
+- **沙箱内的验证结果不可信，要提权跑**：文件沙箱禁止命名管道 ⇒ `tsdown`/`node` 子进程的输出捕获受阻，`pnpm test`/`pnpm build` 可能返回 exit 0 却既无汇总输出也不落产物（实测：`.test-dist` 未生成、`lib/index.js` 时间戳早于本次 build）。验证须一次性提权执行，并**以看到的汇总行与产物时间戳为准**（`ALL PASS (n)`、`lib/*.js` 大小与 mtime），只看 exit 码会把空跑当成通过。
 - `pnpm install` 的 `prepare` 会跑 build ⇒ `lib/` 装完即存在。
 - 宿主包的本地开发依赖全部走 devDeps：`dsh-client-*`（浏览器半类型面）、`dsh-settings`（`SettingsPathOp` 类型）、`schemastery` / `dsh-util-values`（typecheck 与 test 的类型+值面），**版本须与宿主 latest 同号**（见「对外纪律」），否则类型面与发布版实际能力脱节；升级只能写具体版本号，`pkg@latest` 会装到陈旧 tag。
 - 宿主依赖一律用 `pnpm add` 变更（`-E` 保精确、`--save-peer` 写 peer），不要手改 `package.json` 的依赖字段；`peerDependencies` 只声明下限范围时 pnpm 会归一成品版本号，需按项目惯例保留 `>=` 写法。
@@ -113,15 +116,18 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **不引入 `failed` 态、不做「恢复默认」**：三组布尔恒合法、写入为单字段原子写，失败时 `dirty` 保留已完整传达该信息；官方 reset 依赖字段级 user/base 分层与"未填回落"语义，本插件是整体显式快照，二者不成立。
 - **`expand`/`collapse` 文案只用于 `aria-label`**（视觉只有箭头），官方同款——**不要当成死代码删除**。
 - **有意的布局偏离**：表头/瓦片里开关在文字左（矩阵列对齐需要，官方 `.toggleRow` 是左文右钮）、卡片内不写 `body[data-ds-dark-theme]` 镜像规则（宿主令牌自动切换）。
-- **「重置模型」不写配置段、不改开关**：重置是"删掉插件曾填充的模型字段"（`reasoningEfforts`/`contextWindow`/`maxTokens`/`input`），用户自定义字段与 `excludes` 命中的提供方一律不动；关掉开关等于修改了配置、用户不一定要，故配置段零写入——重置后修改配置仍按原开关触发填充。竞态防护不靠前端（不可靠），而是 Node 半模块级守卫 `ignoreAll`：`resetModels` 置位 → 写回 → finally 解除，`index.ts` 的 `settings/updated`（API_NS）与自身 NS `onChange` 两事件入口最先判定 `isIgnoreAll()`，为 true 整条链（selfHeal / fix / refresh）短路，防止重置自身写回触发填充把刚删的字段重新填回；`forceUpdate` 端点同样被守卫拒绝（重置期间强制更新与重置语义冲突）。置位先于 mutate 同步完成（await 前），宿主事件同步派发故覆盖写回触发的后续事件。
+- **「重置模型」不写配置段、不改开关**：重置是"删掉插件曾填充的模型字段"（`reasoningEfforts`/`contextWindow`/`maxTokens`/`input`），用户自定义字段与 `excludes` 命中的提供方一律不动；关掉开关等于修改了配置、用户不一定要，故配置段零写入——重置后修改配置仍按原开关触发填充。竞态防护不靠前端（不可靠），而是 Node 半模块级守卫 `ignoreAll`：`resetModels` 置位 → 写回 → finally 解除，`index.ts` 的 `settings/updated`（API_NS）与自身 NS `onChange` 两事件入口最先判定 `isIgnoreAll()`，为 true 整条链（selfHeal / fix / refresh）短路，防止重置自身写回触发填充把刚删的字段重新填回；`forceUpdate` 端点同样被守卫拒绝（写回期间强制更新会把刚改动的字段填回）。置位先于 mutate 同步完成（await 前），宿主事件同步派发故覆盖写回触发的后续事件。
+- **「恢复备份」只回退交集，且备份只在启动时读一次**：备份 = `llm-pi-ai` 的 **`providers` 段**深拷贝，捕获与恢复都经 `providersOf` 收窄（曾出现捕获存整层 user、恢复按 providers 段消费，`planRestore` 把键名 `"providers"` 当 provider id ⇒ 永不交集、`changed` 恒 0）。捕获点唯一：`apply` 最顶部（`inject` 已声明 settings，注册与文档装载都先于 apply ⇒ 此刻必可读），严格早于一切写回；**绝不做"取不到就稍后补捕"**——若首次没取到而 `fix` 已写回，再捕到的是被填充过的内容，恢复会把改后值当原值写回，比没有备份更危险。仅存内存、不落盘 ⇒ 重启 DSH 即重建，语义是"本次运行内的后悔药"。恢复按**交集**语义：只有「备份与当前都存在」的 provider 里的「备份与当前都存在」的 model 才回退为启动取值，被用户删掉的 provider/model **不复活**——删除与插件填充无关，且宿主删 provider 时连 api-key 一并删除（本插件无从取得），复活只会造出能看见却用不了的坏路由；启动后新增的 provider/model 同样原样保留。备份是 model **整对象**快照，故连用户手写的同名键（如 name）一起回退——"恢复到当时取值"的应有之义；确认文案保持简短，细节见 README。三个 RPC 端点以守卫互斥（守卫已开时一律拒绝）：两个写回端点并发时，后到者的 `finally` 会提前解除守卫、令先到者写回失去保护，前端按钮禁用挡不住跨标签页并发，故 Node 半必须自己拦。确认弹窗确认键**不上红色 tint**、按钮取 discard 次级样式：操作不删用户任何东西，红色与语义不符。
+- **备份缺失／当前无 `providers` 段要显式抛错，不能回 0**：`changed: 0` 会被前端显示成「已恢复 0 个模型」，与"确实无可恢复"无法区分，用户只会以为按钮坏了。
 
 ## 数据流骨架
 
-启动一条链：**迁移 → 读缓存 → 填充 → 异步刷新（拉取成功则覆盖索引与缓存后再填充）**，全程由一个 effect 管理，卸载置位后在途结果不触碰已销毁上下文；刷新与缓存写入失败都是"固定间隔、含首次共最多 3 次、最终仅告警"，不影响本次运行。缓存内容与新拉数据无变化时跳过写盘。
+`apply` 顶部先捕获 llm-pi-ai 内存备份（「恢复备份」的回退基准，必须先于 installSection 及一切写回），随后启动一条链：**迁移 → 读缓存 → 填充 → 异步刷新（拉取成功则覆盖索引与缓存后再填充）**，该链全程由一个 effect 管理，卸载置位后在途结果不触碰已销毁上下文；刷新与缓存写入失败都是"固定间隔、含首次共最多 3 次、最终仅告警"，不影响本次运行。缓存内容与新拉数据无变化时跳过写盘。
 
 ```mermaid
 graph LR
-    M[migrateConfig] --> C[readCache 逐条校验]
+    B[apply 顶部 captureBackup 内存备份] --> M[migrateConfig]
+    M --> C[readCache 逐条校验]
     C --> F[fix 填充]
     F --> X[fetchLatest 拉取]
     X -->|数据非空| I[替换索引 + 覆盖缓存]

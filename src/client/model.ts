@@ -7,7 +7,7 @@
 import type { CompatRules, FieldRules, PluginConfig } from '../types'
 
 /** 本插件的配置命名空间（与 src/constants.ts 的 PLUGIN_NS 字面量一致，宿主迁移后仅存本 NS）；
- * 浏览器半另以 `/${MODEL_FIX_NS}` 拼 RPC channel（强制更新 / 重置模型两端点），与 src/rpc.ts 的 `/${PLUGIN_NS}` 配对，改动须两侧同步 */
+ * 浏览器半另以 `/${MODEL_FIX_NS}` 拼 RPC channel（强制更新 / 重置模型 / 恢复备份三端点），与 src/rpc.ts 的 `/${PLUGIN_NS}` 配对，改动须两侧同步 */
 export const MODEL_FIX_NS = 'tikaflow-model-fix'
 
 /** 提供方所在的宿主配置命名空间（与 src/constants.ts 的 API_NS 字面量一致）：仅用于读 user 层提供方 id 以判定排除项是否命中 */

@@ -4,6 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import type { PluginConfig } from './types'
 import { isPlainObject } from './types'
+import { startIgnoreAll, endIgnoreAll } from './guard'
 
 /** 插件可能填充的模型字段（用户自定义字段不动） */
 const FILLED_FIELDS = ['reasoningEfforts', 'contextWindow', 'maxTokens', 'input'] as const
@@ -44,30 +45,6 @@ export function planResetModels(config: PluginConfig, providers: Record<string, 
         if (next) modelOps.push({ op: 'set', path: ['providers', providerId, 'models'], value: next })
     }
     return { modelOps, changed }
-}
-
-/**
- * 事件流守卫：重置写回期间为 true。index.ts 的两个事件入口最先判定——
- * `settings/updated`（API_NS）与自身 NS 的 onChange（write 回推）——为 true 时整条事件链短路
- * （selfHeal / fix / refresh 全部跳过），防止重置自身写回的模型段、及并发到达的事件
- * 触发填充把刚删掉的字段重新写回。置位先于 mutate 同步完成（await 前），
- * finally 解除后事件链恢复正常。
- */
-let ignoreAll = false
-
-/** 开启事件流守卫（重置写回前调用） */
-export function startIgnoreAll(): void {
-    ignoreAll = true
-}
-
-/** 解除事件流守卫（重置写回全部落盘后调用） */
-export function endIgnoreAll(): void {
-    ignoreAll = false
-}
-
-/** 事件流守卫是否生效 */
-export function isIgnoreAll(): boolean {
-    return ignoreAll
 }
 
 /**

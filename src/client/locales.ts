@@ -56,6 +56,12 @@ export type CardKey =
     | 'resetGo'
     | 'resetDone'
     | 'resetFailed'
+    | 'restore'
+    | 'restoreBusy'
+    | 'restoreConfirm'
+    | 'restoreGo'
+    | 'restoreDone'
+    | 'restoreFailed'
     | 'loading'
     | 'unavailable'
     | 'readOnly'
@@ -134,6 +140,12 @@ export const zh: Record<CardKey, string> = {
     resetGo: '确认重置',
     resetDone: '已重置 {count} 个模型。',
     resetFailed: '重置失败：{message}',
+    restore: '恢复备份',
+    restoreBusy: '恢复中…',
+    restoreConfirm: '是否把模型配置恢复到插件启动前？',
+    restoreGo: '确认恢复',
+    restoreDone: '已恢复 {count} 个模型。',
+    restoreFailed: '恢复失败：{message}',
     loading: '正在读取配置…',
     unavailable: '配置不可用（未检测到插件的宿主服务）',
     readOnly: '当前环境为只读，无法保存',
@@ -185,6 +197,12 @@ export const en: Record<CardKey, string> = {
     resetGo: 'Reset',
     resetDone: 'Reset {count} model(s).',
     resetFailed: 'Reset failed: {message}',
+    restore: 'Restore backup',
+    restoreBusy: 'Restoring…',
+    restoreConfirm: 'Restore model configuration to the state before plugin startup?',
+    restoreGo: 'Restore',
+    restoreDone: 'Restored {count} model(s).',
+    restoreFailed: 'Restore failed: {message}',
     loading: 'Loading settings…',
     unavailable: 'Settings unavailable (host plugin service not found)',
     readOnly: 'Read-only environment; cannot save',

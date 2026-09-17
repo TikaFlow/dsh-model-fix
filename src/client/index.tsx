@@ -44,11 +44,12 @@ export function apply(ctx: ClientContext): void {
     const scope = ctx.settingsScope.bind<Flags>({ namespace: MODEL_FIX_NS, decode: decodeSection })
     // 提供方 id 来源：user 层随宿主 settings/invalidation 推送自动更新，卡片订阅即可拿到最新命中状态
     const providersScope = ctx.settingsScope.bind<readonly unknown[]>({ namespace: PI_AI_NS, decode: () => PROVIDERS_VIEW })
-    // 强制更新 / 重置模型 RPC：channel 用浏览器半 NS 字面量拼（禁值导入 Node 半 constants），
+    // 强制更新 / 重置模型 / 恢复备份 RPC：channel 用浏览器半 NS 字面量拼（禁值导入 Node 半 constants），
     // 与 src/rpc.ts 的 `/${PLUGIN_NS}` 配对（endpoint 名须与 rpc.ts 两侧同步），改动须两侧同步
     const rpc = (ctx.get('connection') as { rpc: { call: ClientRpcCall } }).rpc
     const forceUpdate = () => rpc.call(`/${MODEL_FIX_NS}`, 'forceUpdate', {})
     const resetModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'resetModels', {})
+    const restoreModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'restoreModels', {})
     // 两个席位都只在对应 section 挂载期间存在，须经 slots.inject 等待声明后再 register；
     // 单元格标识各按其 kind 的字段：list 席位用 id、keyed 席位用 key（= 本插件配置命名空间）。
     // 两处都以 -999999 排到各自列表最前（宿主对 priority/order 一律"越小越靠前"，官方卡都是默认 0），
@@ -60,7 +61,7 @@ export function apply(ctx: ClientContext): void {
         id: MODEL_FIX_NS,
         order: -999999,
         locale: CARD_NS,
-    }, (props) => <Card {...props} scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} />))
+    }, (props) => <Card {...props} scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
     // 插件配置页把卡片渲在 <ul> 内（官方 PluginCard 即 <li>），故该席位的根元素须为 li。
     // 本 key 独占单元格，priority 的"同格遮蔽"语义在此不参与，只借它的排序效果
     ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
@@ -68,5 +69,5 @@ export function apply(ctx: ClientContext): void {
         key: MODEL_FIX_NS,
         priority: -999999,
         locale: CARD_NS,
-    }, (props) => <Card {...props} as="li" scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} />))
+    }, (props) => <Card {...props} as="li" scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
 }

@@ -6,7 +6,8 @@ import { migrateConfig, selfHealConfig } from './migrate'
 import { refreshIfStale } from './refresh'
 import { installRpc } from './rpc'
 import { fix } from './fix'
-import { isIgnoreAll } from './reset'
+import { isIgnoreAll } from './guard'
+import { captureBackup } from './restore'
 
 export const name = PLUGIN_NAME
 export const inject = ['settings', 'connection']
@@ -17,14 +18,19 @@ const swallowFixError = (): void => {}
 export function apply(ctx: Context) {
     // 插件级卸载标记：启动链与事件驱动的异步续体都据此中止，卸载后不触碰已销毁上下文
     let disposed = false
+    // 捕获 llm-pi-ai 的 providers 段内存备份（「恢复备份」的回退基准），仅此一次。放 apply 最顶部：
+    // 此刻 describe() 已含 API_NS（inject 声明了 settings，注册与文档装载都先于 apply），且严格早于
+    // 一切写回路径（installSection 的 attach 会经 onChange 起异步 fix）——备份必须早于插件第一次写入，
+    // 否则备份的就是被填充过的内容，恢复会把改后值当原值写回，比没有备份更糟。
+    captureBackup(ctx)
     // 注册自有配置命名空间：段为版本快照容器，setSource 解析出运行时配置，onChange 响应配置变更
     ctx.settings.installSection(ctx, PLUGIN_NS, SectionSchema, DEFAULT_SECTION, {
         setSource: (current) => { setConfigSource(() => resolveConfig(current())) },
         // 配置变化先自愈（手改文件的重复排除项，有重复才写、否则零写入）再重新填充；
         // 自愈写回会再触发一次 onChange，此时长度已相等、零写入而收敛。
         // attach 也会同步触发一次 onChange（目录未就绪，fix 空转无害）；启动的有效填充由 effect 负责。
-        // 事件流守卫：重置写回期间（ignoreAll 为 true）整条链短路，
-        // 防止把刚删掉的字段重新填回；普通配置变更事件照常处理（排除列表去重等自愈不受影响）。
+        // 事件流守卫：重置/恢复写回期间（ignoreAll 为 true）整条链短路，
+        // 防止把刚改动掉的字段重新填回；普通配置变更事件照常处理（排除列表去重等自愈不受影响）。
         onChange: () => {
             if (isIgnoreAll()) return
             void selfHealConfig(ctx)
@@ -48,7 +54,7 @@ export function apply(ctx: Context) {
             })
             .catch(swallowFixError)
     })
-    // 浏览器半「强制更新 / 重置模型」RPC channel（结果经 RpcResult 回传卡片）
+    // 浏览器半「强制更新 / 重置模型 / 恢复备份」RPC channel（结果经 RpcResult 回传卡片）
     installRpc(ctx)
     // 首轮：配置迁移 → 缓存读取 → 填充 → 异步刷新，统一由 effect 管理
     // （命名空间注册与文档装载都在本插件可注入 settings 之前完成，故可直接迁移，无需等待就绪）

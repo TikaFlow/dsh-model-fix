@@ -11,15 +11,16 @@
  * 完全跟随官方（`data-open` 驱动）：描边由 l4 换最浅的 l1 并叠两层柔光、summary 行保留淡底、
  * 箭头 180° 旋转。瓦片默认收起、同时只展开一个（官方手风琴语义——各瓦片展开高度不同，
  * 同时展开两列底部会参差）。
- * 正文下方为 footer（强制更新 · 重置模型 左｜放弃修改 · 保存 右）。
+ * 正文下方为 footer（强制更新 · 重置模型 · 恢复备份 左｜放弃修改 · 保存 右）。
  * 全卡分隔线：外层摘要↔正文 1 条 + 每个展开中的瓦片 1 条 + footer 1 条，均官方同值 0.5px --dsw-alias-border-l2。
  * 本地暂存（draft）：单格/总控/增删排除项只改草稿，点「保存」才经 settingsScope 原子写当前版本快照键；
  * 草稿跨折叠存活（收起时靠 header 胶囊告知未落盘），「放弃修改」即草稿归 null 回随已存值；
  * 保存被宿主确认落地（dirty 归 false）后自动收起并留一行弱提示，写失败保持展开与草稿可重试。
  * 结果反馈一律走卡片内联状态行（挂在 header 之后、条件展开体之外，故折叠不丢在途结果），
  * 不用宿主 Toast——官方设置面零 Toast 调用，成功走自动收起/绿字提示、失败走行内红字。
- * 「强制更新 / 重置模型」（危险按钮，贴最左）弹宿主 Modal 二次确认（官方删除确认同款：outline 按钮 + 红色
- * tint + 取消键 autoFocus），确认后经 Connection RPC 请求 Node 半 force 填充 / 剔除插件填充的模型参数。
+ * 「强制更新 / 重置模型」（危险按钮，贴最左）与「恢复备份」（discard 次级样式，紧随其后）均弹宿主
+ * Modal 二次确认（官方删除确认同款：outline 按钮 + 取消键 autoFocus；仅危险两键的确认键上红色 tint），
+ * 确认后经 Connection RPC 请求 Node 半 force 填充 / 剔除插件填充的模型参数 / 回退启动时备份的共有模型。
  */
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -76,8 +77,10 @@ export interface CardProps {
     providersScope: SettingsScope<readonly unknown[]>
     /** 强制更新 RPC：channel 与端点在入口拼好，卡片只消费结果 */
     forceUpdate: () => Promise<RpcResult<unknown>>
-    /** 重置模型 RPC：仅剔除插件曾填充的模型字段（reasoningEfforts/容量/图片模态，excludes 命中跳过），配置段原样保留；返回被剔除的键数 */
+    /** 重置模型 RPC：仅剔除插件曾填充的模型字段（reasoningEfforts/容量/图片模态，excludes 命中跳过），配置段原样保留；返回受影响的模型数 */
     resetModels: () => Promise<RpcResult<unknown>>
+    /** 恢复备份 RPC：回退启动时备份（交集 provider+model）到当前配置；返回被恢复的模型数 */
+    restoreModels: () => Promise<RpcResult<unknown>>
     /**
      * 根元素：模型页 footer 席位是普通块（默认 div）；插件配置席位把卡片渲在 `<ul>` 内，
      * 官方 PluginCard 即 `<li>`，故该席位传 'li'（列表样式由 .dsh-mf-card 自清）。
@@ -466,6 +469,9 @@ export function Card(props: CardProps) {
     // 重置模型执行态；resetConfirmOpen 控二次确认
     const [resetBusy, setResetBusy] = useState(false)
     const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
+    // 恢复备份执行态；restoreConfirmOpen 控二次确认
+    const [restoreBusy, setRestoreBusy] = useState(false)
+    const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
     const saveStarted = useRef(false)
 
     const saved = snap.value
@@ -555,7 +561,7 @@ export function Card(props: CardProps) {
     // 危险操作：点按钮先弹宿主 Modal 二次确认；确认后经 RPC 触发 Node 半单次 force 填充。
     // 不依赖 canWrite/dirty（不改配置本身，只按目录覆盖写回模型字段）
     const onForce = () => {
-        if (!ready || forceBusy || submitting) return
+        if (!ready || forceBusy || resetBusy || restoreBusy || submitting) return
         setNotice(null)
         setConfirmOpen(true)
     }
@@ -585,7 +591,7 @@ export function Card(props: CardProps) {
     // 重置模型：与强制更新同形（危险键 + 二次确认 Modal），确认后经 RPC 剔除插件曾填充的模型参数。
     // 配置段原样保留，开关不变——重置后修改配置仍按原开关触发填充（竞态防护由 Node 半事件流守卫负责）
     const onReset = () => {
-        if (!ready || resetBusy || submitting) return
+        if (!ready || resetBusy || restoreBusy || submitting) return
         setNotice(null)
         setResetConfirmOpen(true)
     }
@@ -609,6 +615,35 @@ export function Card(props: CardProps) {
             })
             .finally(() => {
                 setResetBusy(false)
+            })
+    }
+    // 恢复备份：与重置同形（次级样式 + 二次确认 Modal），确认后经 RPC 把启动时备份的共有 provider+model 回退。
+    // 仅回退「备份与当前都存在」的 provider+model，启动后新增的 provider/model 保留不动。
+    const onRestore = () => {
+        if (!ready || restoreBusy || resetBusy || submitting) return
+        setNotice(null)
+        setRestoreConfirmOpen(true)
+    }
+    const runRestore = () => {
+        setRestoreConfirmOpen(false)
+        setRestoreBusy(true)
+        props.restoreModels()
+            .then((result) => {
+                if (result.ok) {
+                    const changed = (result.value as { changed?: number } | undefined)?.changed ?? 0
+                    setNotice({ text: t('restoreDone', { count: changed }), tone: 'success' })
+                } else {
+                    setNotice({ text: t('restoreFailed', { message: truncateMessage(result.error.message) }), tone: 'error' })
+                }
+            })
+            .catch((error: unknown) => {
+                setNotice({
+                    text: t('restoreFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) }),
+                    tone: 'error',
+                })
+            })
+            .finally(() => {
+                setRestoreBusy(false)
             })
     }
 
@@ -675,7 +710,7 @@ export function Card(props: CardProps) {
                             <button
                                 type="button"
                                 className="dsh-mf-force"
-                                disabled={!ready || forceBusy || resetBusy || submitting}
+                                disabled={!ready || forceBusy || resetBusy || restoreBusy || submitting}
                                 onClick={onForce}
                             >
                                 {forceBusy ? t('forceBusy') : t('force')}
@@ -683,10 +718,18 @@ export function Card(props: CardProps) {
                             <button
                                 type="button"
                                 className="dsh-mf-force"
-                                disabled={!ready || forceBusy || resetBusy || submitting}
+                                disabled={!ready || forceBusy || resetBusy || restoreBusy || submitting}
                                 onClick={onReset}
                             >
                                 {resetBusy ? t('resetBusy') : t('reset')}
+                            </button>
+                            <button
+                                type="button"
+                                className="dsh-mf-discard"
+                                disabled={!ready || forceBusy || resetBusy || restoreBusy || submitting}
+                                onClick={onRestore}
+                            >
+                                {restoreBusy ? t('restoreBusy') : t('restore')}
                             </button>
                         </span>
                         <span className="dsh-mf-actions">
@@ -701,7 +744,7 @@ export function Card(props: CardProps) {
                             <button
                                 type="button"
                                 className="dsh-mf-save"
-                                disabled={!canWrite || !dirty || submitting || forceBusy || resetBusy}
+                                disabled={!canWrite || !dirty || submitting || forceBusy || resetBusy || restoreBusy}
                                 onClick={onSave}
                             >
                                 {submitting ? t('saving') : t('save')}
@@ -733,6 +776,19 @@ export function Card(props: CardProps) {
                 footer={<>
                     <Button variant="outline" autoFocus onClick={() => { setResetConfirmOpen(false) }}>{t('forceCancel')}</Button>
                     <Button variant="outline" className="dsh-mf-confirmDanger" onClick={runReset}>{t('resetGo')}</Button>
+                </>}
+            />
+            {/* 恢复备份的二次确认：确认键不上红 tint——该按钮取次级（discard）样式，
+                操作只把共有模型回退到启动时取值、不删用户任何东西，红色与语义不符 */}
+            <Modal
+                open={restoreConfirmOpen}
+                onClose={() => { setRestoreConfirmOpen(false) }}
+                title={t('restore')}
+                closeLabel={t('close')}
+                description={t('restoreConfirm')}
+                footer={<>
+                    <Button variant="outline" autoFocus onClick={() => { setRestoreConfirmOpen(false) }}>{t('forceCancel')}</Button>
+                    <Button variant="outline" onClick={runRestore}>{t('restoreGo')}</Button>
                 </>}
             />
         </Root>
