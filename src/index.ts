@@ -6,6 +6,7 @@ import { migrateConfig, selfHealConfig } from './migrate'
 import { refreshIfStale } from './refresh'
 import { installRpc } from './rpc'
 import { fix } from './fix'
+import { isIgnoreAll } from './reset'
 
 export const name = PLUGIN_NAME
 export const inject = ['settings', 'connection']
@@ -21,8 +22,11 @@ export function apply(ctx: Context) {
         setSource: (current) => { setConfigSource(() => resolveConfig(current())) },
         // 配置变化先自愈（手改文件的重复排除项，有重复才写、否则零写入）再重新填充；
         // 自愈写回会再触发一次 onChange，此时长度已相等、零写入而收敛。
-        // attach 也会同步触发一次 onChange（目录未就绪，fix 空转无害）；启动的有效填充由 effort 负责
+        // attach 也会同步触发一次 onChange（目录未就绪，fix 空转无害）；启动的有效填充由 effect 负责。
+        // 事件流守卫：重置写回期间（ignoreAll 为 true）整条链短路，
+        // 防止把刚删掉的字段重新填回；普通配置变更事件照常处理（排除列表去重等自愈不受影响）。
         onChange: () => {
+            if (isIgnoreAll()) return
             void selfHealConfig(ctx)
                 .catch((error: unknown) => {
                     ctx.logger.warn(`${PLUGIN_NAME}: 排除列表自愈失败（不影响后续填充）：${error instanceof Error ? error.message : String(error)}`)
@@ -34,6 +38,8 @@ export function apply(ctx: Context) {
     // llm-pi-ai 模型配置变更后重新填充；距上次成功拉取超过保鲜窗口（如长期不重启）时
     // 拉取最新数据（结算后再填充一次）——事件驱动刷新，无常驻定时器
     ctx.on('settings/updated', (ns) => {
+        // 重置期间所有 settings/updated 一律短路（含重置自身写回、并发到达的事件）
+        if (isIgnoreAll()) return
         if (ns !== API_NS) return
         fix(ctx)
             .finally(() => {
@@ -42,7 +48,7 @@ export function apply(ctx: Context) {
             })
             .catch(swallowFixError)
     })
-    // 浏览器半「强制更新」RPC channel（结果经 RpcResult 回传卡片）
+    // 浏览器半「强制更新 / 重置模型」RPC channel（结果经 RpcResult 回传卡片）
     installRpc(ctx)
     // 首轮：配置迁移 → 缓存读取 → 填充 → 异步刷新，统一由 effect 管理
     // （命名空间注册与文档装载都在本插件可注入 settings 之前完成，故可直接迁移，无需等待就绪）

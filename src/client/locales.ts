@@ -50,6 +50,12 @@ export type CardKey =
     | 'forceDone'
     | 'forceNone'
     | 'forceFailed'
+    | 'reset'
+    | 'resetBusy'
+    | 'resetConfirm'
+    | 'resetGo'
+    | 'resetDone'
+    | 'resetFailed'
     | 'loading'
     | 'unavailable'
     | 'readOnly'
@@ -122,6 +128,12 @@ export const zh: Record<CardKey, string> = {
     forceDone: '已强制更新 {count} 个模型。',
     forceNone: '目录值与现有配置一致，无需变更。',
     forceFailed: '强制更新失败：{message}',
+    reset: '重置模型',
+    resetBusy: '重置中…',
+    resetConfirm: '是否确认删除所有模型的推理级别、最大上下文、输出上限与图片模态？此操作无法撤销！',
+    resetGo: '确认重置',
+    resetDone: '已重置 {count} 个模型。',
+    resetFailed: '重置失败：{message}',
     loading: '正在读取配置…',
     unavailable: '配置不可用（未检测到插件的宿主服务）',
     readOnly: '当前环境为只读，无法保存',
@@ -167,6 +179,12 @@ export const en: Record<CardKey, string> = {
     forceDone: 'Force-updated {count} model(s).',
     forceNone: 'Catalog values match; nothing to update.',
     forceFailed: 'Force update failed: {message}',
+    reset: 'Reset models',
+    resetBusy: 'Resetting…',
+    resetConfirm: 'Confirm removal of reasoningEfforts, context window, output limit, and image modality for all models? This cannot be undone!',
+    resetGo: 'Reset',
+    resetDone: 'Reset {count} model(s).',
+    resetFailed: 'Reset failed: {message}',
     loading: 'Loading settings…',
     unavailable: 'Settings unavailable (host plugin service not found)',
     readOnly: 'Read-only environment; cannot save',

@@ -11,15 +11,15 @@
  * 完全跟随官方（`data-open` 驱动）：描边由 l4 换最浅的 l1 并叠两层柔光、summary 行保留淡底、
  * 箭头 180° 旋转。瓦片默认收起、同时只展开一个（官方手风琴语义——各瓦片展开高度不同，
  * 同时展开两列底部会参差）。
- * 正文下方为 footer（强制更新 左｜放弃修改 · 保存 右）。
+ * 正文下方为 footer（强制更新 · 重置模型 左｜放弃修改 · 保存 右）。
  * 全卡分隔线：外层摘要↔正文 1 条 + 每个展开中的瓦片 1 条 + footer 1 条，均官方同值 0.5px --dsw-alias-border-l2。
  * 本地暂存（draft）：单格/总控/增删排除项只改草稿，点「保存」才经 settingsScope 原子写当前版本快照键；
  * 草稿跨折叠存活（收起时靠 header 胶囊告知未落盘），「放弃修改」即草稿归 null 回随已存值；
  * 保存被宿主确认落地（dirty 归 false）后自动收起并留一行弱提示，写失败保持展开与草稿可重试。
  * 结果反馈一律走卡片内联状态行（挂在 header 之后、条件展开体之外，故折叠不丢在途结果），
  * 不用宿主 Toast——官方设置面零 Toast 调用，成功走自动收起/绿字提示、失败走行内红字。
- * 「强制更新」（危险按钮，贴最左）弹宿主 Modal 二次确认（官方删除确认同款：outline 按钮 + 红色
- * tint + 取消键 autoFocus），确认后经 Connection RPC 请求 Node 半单次 force 填充。
+ * 「强制更新 / 重置模型」（危险按钮，贴最左）弹宿主 Modal 二次确认（官方删除确认同款：outline 按钮 + 红色
+ * tint + 取消键 autoFocus），确认后经 Connection RPC 请求 Node 半 force 填充 / 剔除插件填充的模型参数。
  */
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -76,6 +76,8 @@ export interface CardProps {
     providersScope: SettingsScope<readonly unknown[]>
     /** 强制更新 RPC：channel 与端点在入口拼好，卡片只消费结果 */
     forceUpdate: () => Promise<RpcResult<unknown>>
+    /** 重置模型 RPC：仅剔除插件曾填充的模型字段（reasoningEfforts/容量/图片模态，excludes 命中跳过），配置段原样保留；返回被剔除的键数 */
+    resetModels: () => Promise<RpcResult<unknown>>
     /**
      * 根元素：模型页 footer 席位是普通块（默认 div）；插件配置席位把卡片渲在 `<ul>` 内，
      * 官方 PluginCard 即 `<li>`，故该席位传 'li'（列表样式由 .dsh-mf-card 自清）。
@@ -461,6 +463,9 @@ export function Card(props: CardProps) {
     // 强制更新执行态；confirmOpen 控宿主 Modal 二次确认
     const [forceBusy, setForceBusy] = useState(false)
     const [confirmOpen, setConfirmOpen] = useState(false)
+    // 重置模型执行态；resetConfirmOpen 控二次确认
+    const [resetBusy, setResetBusy] = useState(false)
+    const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
     const saveStarted = useRef(false)
 
     const saved = snap.value
@@ -577,6 +582,35 @@ export function Card(props: CardProps) {
                 setForceBusy(false)
             })
     }
+    // 重置模型：与强制更新同形（危险键 + 二次确认 Modal），确认后经 RPC 剔除插件曾填充的模型参数。
+    // 配置段原样保留，开关不变——重置后修改配置仍按原开关触发填充（竞态防护由 Node 半事件流守卫负责）
+    const onReset = () => {
+        if (!ready || resetBusy || submitting) return
+        setNotice(null)
+        setResetConfirmOpen(true)
+    }
+    const runReset = () => {
+        setResetConfirmOpen(false)
+        setResetBusy(true)
+        props.resetModels()
+            .then((result) => {
+                if (result.ok) {
+                    const changed = (result.value as { changed?: number } | undefined)?.changed ?? 0
+                    setNotice({ text: t('resetDone', { count: changed }), tone: 'success' })
+                } else {
+                    setNotice({ text: t('resetFailed', { message: truncateMessage(result.error.message) }), tone: 'error' })
+                }
+            })
+            .catch((error: unknown) => {
+                setNotice({
+                    text: t('resetFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) }),
+                    tone: 'error',
+                })
+            })
+            .finally(() => {
+                setResetBusy(false)
+            })
+    }
 
     return (
         <Root className={open ? 'dsh-mf-card dsh-mf-cardOpen' : 'dsh-mf-card'}>
@@ -637,14 +671,24 @@ export function Card(props: CardProps) {
                         />
                     </div>
                     <div className="dsh-mf-footer">
-                        <button
-                            type="button"
-                            className="dsh-mf-force"
-                            disabled={!ready || forceBusy || submitting}
-                            onClick={onForce}
-                        >
-                            {forceBusy ? t('forceBusy') : t('force')}
-                        </button>
+                        <span className="dsh-mf-actions">
+                            <button
+                                type="button"
+                                className="dsh-mf-force"
+                                disabled={!ready || forceBusy || resetBusy || submitting}
+                                onClick={onForce}
+                            >
+                                {forceBusy ? t('forceBusy') : t('force')}
+                            </button>
+                            <button
+                                type="button"
+                                className="dsh-mf-force"
+                                disabled={!ready || forceBusy || resetBusy || submitting}
+                                onClick={onReset}
+                            >
+                                {resetBusy ? t('resetBusy') : t('reset')}
+                            </button>
+                        </span>
                         <span className="dsh-mf-actions">
                             <button
                                 type="button"
@@ -657,7 +701,7 @@ export function Card(props: CardProps) {
                             <button
                                 type="button"
                                 className="dsh-mf-save"
-                                disabled={!canWrite || !dirty || submitting || forceBusy}
+                                disabled={!canWrite || !dirty || submitting || forceBusy || resetBusy}
                                 onClick={onSave}
                             >
                                 {submitting ? t('saving') : t('save')}
@@ -678,6 +722,17 @@ export function Card(props: CardProps) {
                 footer={<>
                     <Button variant="outline" autoFocus onClick={() => { setConfirmOpen(false) }}>{t('forceCancel')}</Button>
                     <Button variant="outline" className="dsh-mf-confirmDanger" onClick={runForce}>{t('forceGo')}</Button>
+                </>}
+            />
+            <Modal
+                open={resetConfirmOpen}
+                onClose={() => { setResetConfirmOpen(false) }}
+                title={t('reset')}
+                closeLabel={t('close')}
+                description={t('resetConfirm')}
+                footer={<>
+                    <Button variant="outline" autoFocus onClick={() => { setResetConfirmOpen(false) }}>{t('forceCancel')}</Button>
+                    <Button variant="outline" className="dsh-mf-confirmDanger" onClick={runReset}>{t('resetGo')}</Button>
                 </>}
             />
         </Root>

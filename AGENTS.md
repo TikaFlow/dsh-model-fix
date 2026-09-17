@@ -16,9 +16,10 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | `src/config.ts` / `src/migrate.ts` | 当前 schema 与 `resolveConfig` / 升级链与 `migrateConfig` 编排 |
 | `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
 | `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 两类 op 同批提交；`excludes` 命中的提供方在 provider 循环入口即整条跳过（两类 op 与 force 一起被排除，故不在各分支重复判断） |
+| `src/reset.ts` | 重置模型：仅剔除各非排除 provider 模型上的插件填充字段（`reasoningEfforts`/容量/`input`），配置段原样保留（开关不变，重置后改配置仍按原开关触发填充）；`planResetModels` 零 ctx 可单测，`resetModels` 全程打开事件流守卫（`isIgnoreAll`）防写回反向触发填充 |
 | `src/compat.ts` | 兼容性规则 → provider 路由 `compat` 的纯写入计划（添加 / 移除 / 删空整段 unset），零 ctx 依赖故可单测 |
-| `src/rpc.ts` / `src/refresh.ts` | 强制更新 channel / 刷新编排（含重试） |
-| `src/client/` | 浏览器半：`index.tsx` 入口（词典/两个 scope/RPC 载体/槽注册）、`card.tsx` 卡片（三张布尔瓦片 + 一张排除集合瓦片）、`model.ts` 快照↔配置（三组布尔 + `excludes`）与命中判定的纯映射（唯一可单测的浏览器半模块）、`locales.ts` 中英词典 |
+| `src/rpc.ts` / `src/refresh.ts` | 两个 RPC 端点（`forceUpdate` 强制更新 / `resetModels` 重置模型）/ 刷新编排（含重试） |
+| `src/client/` | 浏览器半：`index.tsx` 入口（词典/两个 scope/RPC 载体/槽注册）、`card.tsx` 卡片（三张布尔瓦片 + 一张排除集合瓦片 + footer 的「强制更新 / 重置模型」两危险键）、`model.ts` 快照↔配置（三组布尔 + `excludes`）与命中判定的纯映射（唯一可单测的浏览器半模块）、`locales.ts` 中英词典 |
 | `public/models-cache.json` | 构建期随 `lib/public/` 发布的 models.dev 拍平缓存（首启离线可用） |
 | `cordis.patch.yml` | DSH 补丁层对本插件的注册 |
 
@@ -112,6 +113,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **不引入 `failed` 态、不做「恢复默认」**：三组布尔恒合法、写入为单字段原子写，失败时 `dirty` 保留已完整传达该信息；官方 reset 依赖字段级 user/base 分层与"未填回落"语义，本插件是整体显式快照，二者不成立。
 - **`expand`/`collapse` 文案只用于 `aria-label`**（视觉只有箭头），官方同款——**不要当成死代码删除**。
 - **有意的布局偏离**：表头/瓦片里开关在文字左（矩阵列对齐需要，官方 `.toggleRow` 是左文右钮）、卡片内不写 `body[data-ds-dark-theme]` 镜像规则（宿主令牌自动切换）。
+- **「重置模型」不写配置段、不改开关**：重置是"删掉插件曾填充的模型字段"（`reasoningEfforts`/`contextWindow`/`maxTokens`/`input`），用户自定义字段与 `excludes` 命中的提供方一律不动；关掉开关等于修改了配置、用户不一定要，故配置段零写入——重置后修改配置仍按原开关触发填充。竞态防护不靠前端（不可靠），而是 Node 半模块级守卫 `ignoreAll`：`resetModels` 置位 → 写回 → finally 解除，`index.ts` 的 `settings/updated`（API_NS）与自身 NS `onChange` 两事件入口最先判定 `isIgnoreAll()`，为 true 整条链（selfHeal / fix / refresh）短路，防止重置自身写回触发填充把刚删的字段重新填回；`forceUpdate` 端点同样被守卫拒绝（重置期间强制更新与重置语义冲突）。置位先于 mutate 同步完成（await 前），宿主事件同步派发故覆盖写回触发的后续事件。
 
 ## 数据流骨架
 
