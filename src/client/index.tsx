@@ -4,7 +4,7 @@
  * → 绑定 tikaflow-model-fix 命名空间 scope（自带 decode，杜绝宿主 schema rehydrate 挂死）
  * → 绑定宿主 llm-pi-ai 命名空间 scope（只取其 user 层的提供方 id，供「排除提供方」瓦片判定命中；
  *   与 Node 半 fix 遍历的是同一份数据，故零漂移。读全部走宿主共享 describe mirror，本绑定不新增 wire 读）
- * → 取宿主 connection 服务的 RPC 载体（「强制更新」按钮触发 Node 半 force 填充，通道 /tikaflow-model-fix）
+ * → 取宿主 connection 服务的 RPC 载体（「强制更新 / 重置模型 / 恢复备份」三按钮共用，通道 /tikaflow-model-fix）
  * → 注册卡片到**两个**席位（同一组件、同一 scope，宿主 settings 页同时只挂载一个 section，故不会双实例并存）：
  *   ① 「模型」选项卡底部 list 席位 settings.models.footer（与提供方列表同页）；
  *   ② 「插件」→「插件配置」选项卡的 keyed 席位 settings.plugin.item（与终端 / Agent 循环 / Subagent /

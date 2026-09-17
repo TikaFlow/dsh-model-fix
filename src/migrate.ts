@@ -271,9 +271,8 @@ export function dedupeExcludesOp(snapshot: unknown): SettingsPathOp[] {
 }
 
 /**
- * 自有配置的通用自愈入口（onChange 与配置加载都调用）：读 user 层当前版本快照，逐条套用自愈规则，
- * 有 op 才写入（各规则的零写入条件即反馈循环的终止条件）。当前规则：excludes 去重（手改兜底）；
- * 后续新增自愈规则在内部追加，入口函数名不变。
+ * 自有配置的通用自愈入口（onChange 调用）：读 user 层当前版本快照，逐条套用自愈规则，
+ * 有 op 才写入（各规则的零写入条件即反馈循环的终止条件）。当前唯一规则：excludes 去重（手改兜底）。
  */
 export async function selfHealConfig(ctx: Context): Promise<void> {
     const descriptor = ctx.settings.describe().find((d) => d.ns === PLUGIN_NS)

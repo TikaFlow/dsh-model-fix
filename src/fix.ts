@@ -38,7 +38,7 @@ function isSettingsConflict(error: unknown): boolean {
  * 遍历提供方写回变更，一次 mutate 内提交两类 op（模型参数与路由兼容性，二者互不影响）：
  * - 模型参数：缺失推理级别/容量/图片模态且有目录数据则填充（受 autoFill 对应字段控制），
  *   allowUpdate（force 时单次绕过，不落存储）开启则按目录最新值同步——含缺失补写与已有覆盖
- *   （旧值缺失经 deepEqualJson 判为不一致，属设计裁决，见 AGENTS.md 填充流程），并剔除空 input/compat。
+ *   （旧值缺失经 deepEqualJson 判为不一致，属设计裁决，见 AGENTS.md「设计裁决」），并剔除空 input/compat。
  *   读 descriptor.user（原始字段），按 provider 整数组写回 models（路径 op 不支持数组下标，故 value 为全量重建的数组，
  *   未变更元素原样保留）；数据无档位不删除已有配置。
  * - 路由 compat：按 compat 规则组为 openai-completions 路由添加或**移除**字段（与模型填充不同，关闭即移除，
@@ -96,7 +96,7 @@ export async function fix(ctx: Context, force = false): Promise<number> {
                     const reasoningUpdatable = (force || allowRules.reasoning)
                         && !deepEqualJson(reasoningEfforts, efforts)
                         && isPlainObject(efforts)
-                    // 容量新值须为正整数且非哨兵（存量旧缓存可能仍带 0/99999999，写 0 会被 schema 拒绝并连累整批）
+                    // 容量新值须为正整数且非哨兵（写 0 会被宿主 schema 拒绝并连累整批写入）
                     const ctxW = entry?.contextWindow
                     const maxT = entry?.maxTokens
                     const contextFillable = autoRules.context
@@ -130,8 +130,7 @@ export async function fix(ctx: Context, force = false): Promise<number> {
                     ops.push({ op: 'set', path: ['providers', providerId, 'models'], value: next })
                 }
             }
-            // 路由级兼容性（与模型参数无关，故 models 缺失也要处理）：仅 openai-completions 风格的路由消费该字段，
-            // 其他协议写入无意义（宿主按协议 gate 静默跳过），故不碰。
+            // 路由级兼容性（与模型参数无关，故 models 缺失也要处理）；协议适用范围见 DEVELOPER_COMPAT_APIS
             if (typeof api === 'string' && DEVELOPER_COMPAT_APIS.has(api)) {
                 const plan = planProviderCompat(compatRules, currentCompat)
                 if (plan) {

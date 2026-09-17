@@ -30,10 +30,9 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RpcResult } from '../types'
 
 /**
- * 排除项删除钮的字形：逐字复刻官方 models 页模型行删除的本地 `IconTrash`（线稿风格：
+ * 排除项删除钮的字形：逐字复刻官方 models 页模型行删除的本地自绘 `IconTrash`（线稿：
  * 14×14 / viewBox 16 / stroke 1.3 / round cap+join / currentColor / aria-hidden）。
- * 不用 primitives 的 `IconTrashOutline16`——那是实心填充桶，同尺寸下墨量大得多，正是"显胖"的根源；
- * 本地组件同理须自绘而非引宿主内部函数（宿主该函数不导出）。
+ * 不用 primitives 的 `IconTrashOutline16`——实心填充桶在同尺寸下墨量大得多；宿主那个线稿版本不导出，故本地复制。
  */
 function IconTrash() {
     return (
@@ -463,13 +462,11 @@ export function Card(props: CardProps) {
     const [tileOpen, setTileOpen] = useState<string | null>(null)
     // 内联结果提示：常驻至下一次操作（官方 .savedNotice 无定时器，故不设自动淡出）
     const [notice, setNotice] = useState<Notice | null>(null)
-    // 强制更新执行态；confirmOpen 控宿主 Modal 二次确认
+    // 三个后端写回操作的执行态；confirm 三态各控一个宿主 Modal 二次确认
     const [forceBusy, setForceBusy] = useState(false)
     const [confirmOpen, setConfirmOpen] = useState(false)
-    // 重置模型执行态；resetConfirmOpen 控二次确认
     const [resetBusy, setResetBusy] = useState(false)
     const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
-    // 恢复备份执行态；restoreConfirmOpen 控二次确认
     const [restoreBusy, setRestoreBusy] = useState(false)
     const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
     const saveStarted = useRef(false)

@@ -96,18 +96,13 @@ export function buildCatalog(api: Record<string, unknown> | undefined): Catalog 
     return catalog
 }
 
-/**
- * 构建带 provider 分组索引的目录；catalog 本身保留原引用（fetchLatest 以它做序列化对比），
- * 索引条目另建（省一份 provider/id 存储）。
- * 磁盘缓存可被手改或写坏：坏条目直接丢弃（单条不洁不拖垮整盘），保证填充迭代 efforts 不抛错。
- */
-export function indexFromCatalog(catalog: Catalog): IndexedCatalog {
+/** 构建带 provider 分组索引的目录；catalog 本身保留原引用（fetchLatest 以它做序列化对比），索引条目另建（省一份 provider/id 存储） */
+function indexFromCatalog(catalog: Catalog): IndexedCatalog {
     const groups = new Map<string, ProviderGroup>()
     for (const [provider, models] of Object.entries(catalog)) {
         const entries: IndexEntry[] = []
         const ids: string[] = []
         for (const [id, record] of Object.entries(models)) {
-            // 磁盘缓存可被手改或写坏：坏条目直接丢弃（单条不洁不拖垮整盘），保证填充迭代 efforts 不抛错
             if (!isCacheRecord(record)) continue
             const entry: IndexEntry = { id, efforts: record.efforts.slice() }
             if (record.contextWindow !== undefined) entry.contextWindow = record.contextWindow
