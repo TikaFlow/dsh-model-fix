@@ -53,6 +53,8 @@ function refresh(ctx: Context, isDisposed: () => boolean, retryCount = MAX_ATTEM
                     refreshing = false
                     return
                 }
+                // 重试前复位在途守卫
+                refreshing = false
                 refresh(ctx, isDisposed, retryCount)
             }, RETRY_DELAY_MS)
         })
