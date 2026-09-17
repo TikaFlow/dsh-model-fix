@@ -1,17 +1,17 @@
 // lookup.ts 纯函数测试：模型 id 匹配（精确/词干/前缀三级）、提供方提示与推理级别转换
 import { lookup, toReasoningEfforts } from '../src/lookup'
-import type { CacheEntry, IndexedCatalog } from '../src/types'
+import type { IndexedCatalog, IndexEntry } from '../src/types'
 import { check, stable } from './helper'
 
 /** 构造目录条目 */
-function entry(id: string, efforts: string[] = []): CacheEntry {
-    return { provider: '', id, efforts }
+function entry(id: string, efforts: string[] = []): IndexEntry {
+    return { id, efforts }
 }
 
 /** 构造分组索引 */
 function catalog(groups: Record<string, string[]>): IndexedCatalog {
     return {
-        catalog: [],
+        catalog: {},
         groups: new Map(Object.entries(groups).map(([provider, ids]) => [provider, {
             ids,
             entries: ids.map((id) => entry(id)),

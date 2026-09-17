@@ -1,11 +1,11 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { API_URL, CACHE_FILE, FETCH_MS, LEVELS, MAX_ATTEMPTS, PLUGIN_NAME, RETRY_DELAY_MS } from './constants'
-import type { CacheEntry, Catalog, IndexedCatalog, ModelEntry, ProviderGroup } from './types'
+import type { CacheRecord, Catalog, IndexedCatalog, ModelEntry, ProviderGroup, IndexEntry } from './types'
 import { isCapacity, isPlainObject } from './types'
 
 /** 目录尚未可用时的空兜底 */
-const EMPTY_INDEX: IndexedCatalog = { catalog: [], groups: new Map() }
+const EMPTY_INDEX: IndexedCatalog = { catalog: {}, groups: new Map() }
 
 // 内存索引：缓存加载或网络拉取成功后整体替换
 let indexedCache: IndexedCatalog | undefined
@@ -60,15 +60,17 @@ function fromApiEntry(entry: unknown): ModelEntry | undefined {
 }
 
 /**
- * 将 models.dev 原始 JSON 拍平为缓存数组：仅保留有可用推理级别、容量或支持图片的模型；
+ * 将 models.dev 原始 JSON 构建为分组缓存：{ provider: { model-id: 条目 } }，
+ * 仅保留有可用推理级别、容量或支持图片的模型；
  * efforts 过滤为 harness 支持的取值并统一 'off' 拼写为 'none'，toggle 且无关闭标记时补 'none'。
  */
 export function buildCatalog(api: Record<string, unknown> | undefined): Catalog {
-    const catalog: Catalog = []
+    const catalog: Catalog = {}
     for (const [provider, block] of Object.entries(api ?? {})) {
         if (!isPlainObject(block)) continue
         const models = (block as { models?: unknown }).models
         if (!isPlainObject(models)) continue
+        const group: Record<string, CacheRecord> = {}
         for (const [id, entry] of Object.entries(models as Record<string, unknown>)) {
             const parsed = fromApiEntry(entry)
             if (!parsed) continue
@@ -83,53 +85,90 @@ export function buildCatalog(api: Record<string, unknown> | undefined): Catalog 
             const hasUsableReasoning = parsed.reasoning && efforts.some((effort) => effort !== 'none')
             // 仅有 none 的推理能力（无可选档位）不视为推理数据，但容量或图片支持仍可入库
             if (!hasUsableReasoning && parsed.contextWindow === undefined && parsed.maxTokens === undefined && !parsed.image) continue
-            const result: CacheEntry = { provider, id, efforts: hasUsableReasoning ? efforts : [] }
+            const result: CacheRecord = { efforts: hasUsableReasoning ? efforts : [] }
             if (parsed.contextWindow !== undefined) result.contextWindow = parsed.contextWindow
             if (parsed.maxTokens !== undefined) result.maxTokens = parsed.maxTokens
             if (parsed.image) result.image = parsed.image
-            catalog.push(result)
+            group[id] = result
         }
+        if (Object.keys(group).length > 0) catalog[provider] = group
     }
     return catalog
 }
 
-/** 构建带 provider 分组索引的目录 */
-function indexFromArray(catalog: Catalog): IndexedCatalog {
+/**
+ * 构建带 provider 分组索引的目录；catalog 本身保留原引用（fetchLatest 以它做序列化对比），
+ * 索引条目另建（省一份 provider/id 存储）。
+ * 磁盘缓存可被手改或写坏：坏条目直接丢弃（单条不洁不拖垮整盘），保证填充迭代 efforts 不抛错。
+ */
+export function indexFromCatalog(catalog: Catalog): IndexedCatalog {
     const groups = new Map<string, ProviderGroup>()
-    for (const entry of catalog) {
-        let group = groups.get(entry.provider)
-        if (!group) groups.set(entry.provider, (group = { ids: [], entries: [] }))
-        group.ids.push(entry.id)
-        group.entries.push(entry)
+    for (const [provider, models] of Object.entries(catalog)) {
+        const entries: IndexEntry[] = []
+        const ids: string[] = []
+        for (const [id, record] of Object.entries(models)) {
+            // 磁盘缓存可被手改或写坏：坏条目直接丢弃（单条不洁不拖垮整盘），保证填充迭代 efforts 不抛错
+            if (!isCacheRecord(record)) continue
+            const entry: IndexEntry = { id, efforts: record.efforts.slice() }
+            if (record.contextWindow !== undefined) entry.contextWindow = record.contextWindow
+            if (record.maxTokens !== undefined) entry.maxTokens = record.maxTokens
+            if (record.image) entry.image = true
+            entries.push(entry)
+            ids.push(id)
+        }
+        if (ids.length === 0) continue
+        groups.set(provider, { ids, entries })
     }
     return { catalog, groups }
 }
 
 /**
- * 缓存条目结构校验：条目来自磁盘 JSON（用户可编辑、写入可能被截断），
- * 而填充流程直接迭代 `entry.efforts` 并按 provider/id 建索引——一条坏条目会让整批填充抛错，
- * 故在入库前逐条判定：必填字段类型正确、可选容量通过 isCapacity、image 只认真值。
+ * 缓存条目结构校验（单条，嵌套于 provider→model 两层键之下）：条目来自磁盘 JSON（用户可编辑、写入可能被截断），
+ * 而填充流程直接迭代 `entry.efforts`——一条坏条目会让整批填充抛错，故在入库前逐条判定。
+ * 未知多余键忽略（向前兼容：比当前代码更新的缓存不应整盘作废）；
+ * provider/id 键属分组与嵌套键已承担的定位信息，出现在记录本体即判非法。
  */
-export function isCacheEntry(value: unknown): value is CacheEntry {
+export function isCacheRecord(value: unknown): value is CacheRecord {
     if (!isPlainObject(value)) return false
-    const { provider, id, efforts, contextWindow, maxTokens, image } = value as Partial<CacheEntry> & Record<string, unknown>
-    if (typeof provider !== 'string' || provider === '') return false
-    if (typeof id !== 'string' || id === '') return false
+    const { efforts, contextWindow, maxTokens, image } = value as Partial<CacheRecord> & Record<string, unknown>
     if (!Array.isArray(efforts) || !efforts.every((effort) => typeof effort === 'string')) return false
     if (contextWindow !== undefined && !isCapacity(contextWindow)) return false
     if (maxTokens !== undefined && !isCapacity(maxTokens)) return false
     if (image !== undefined && image !== true) return false
+    if ('provider' in value || 'id' in value) return false
     return true
 }
 
-/** 从缓存文件异步加载目录：解析为非空数组后逐条校验，有效条目为空才算不可用（交由网络拉取自愈） */
+/** 判断缓存文件顶层条目（model -> 记录映射）是否全部合法；任一不合法返回 undefined */
+export function parseCacheGroup(value: unknown): Record<string, CacheRecord> | undefined {
+    if (!isPlainObject(value)) return
+    const group: Record<string, CacheRecord> = {}
+    for (const [model, record] of Object.entries(value)) {
+        if (!isCacheRecord(record)) return
+        group[model] = record
+    }
+    return group
+}
+
+/**
+ * 从缓存文件异步加载目录：顶层必须为对象（provider→model 两层嵌套；其他形态一律判不可用，交由网络拉取覆盖），
+ * 逐层逐条校验，任一层/条不合法整份文件不可用（缓存为派生数据，坏盘自愈优先级高于坏条丢弃）。
+ */
 export async function readCache(): Promise<IndexedCatalog | undefined> {
     try {
         const parsed = JSON.parse(await readFile(CACHE_FILE, 'utf8')) as unknown
-        if (!Array.isArray(parsed)) return
-        const usable = parsed.filter(isCacheEntry)
-        if (usable.length === 0) return
-        return indexFromArray(usable)
+        if (!isPlainObject(parsed)) return
+        const catalog: Catalog = {}
+        let usable = 0
+        for (const [provider, group] of Object.entries(parsed)) {
+            const records = parseCacheGroup(group)
+            if (records === undefined) return
+            if (Object.keys(records).length === 0) continue
+            catalog[provider] = records
+            usable += 1
+        }
+        if (usable === 0) return
+        return indexFromCatalog(catalog)
     } catch {
         return
     }
@@ -145,8 +184,8 @@ export async function fetchLatest(ctx: Context): Promise<IndexedCatalog> {
     const api = (await res.json()) as Record<string, unknown>
     const catalog = buildCatalog(api)
     // 空数据拒绝覆盖，避免坏响应破坏现有目录
-    if (catalog.length === 0) throw new Error(`${API_URL} 返回的数据未包含可用的模型信息`)
-    const indexed = indexFromArray(catalog)
+    if (Object.keys(catalog).length === 0) throw new Error(`${API_URL} 返回的数据未包含可用的模型信息`)
+    const indexed = indexFromCatalog(catalog)
     const serialized = JSON.stringify(catalog)
     if (!indexedCache || serialized !== JSON.stringify(indexedCache.catalog)) {
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {

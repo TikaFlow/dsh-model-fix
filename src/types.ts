@@ -15,10 +15,11 @@ export interface ModelEntry {
     image?: boolean
 }
 
-/** 缓存条目：已拍平并过滤，仅保留填充所需字段 */
-export interface CacheEntry {
-    provider: string
-    id: string
+/**
+ * 磁盘缓存条目：缓存条目去 provider/id 两字段（分组键与嵌套键已承担），体积更小。
+ * 内存索引（IndexEntry）为补全分组键的完整条目，供 lookup/fix 消费。
+ */
+export interface CacheRecord {
     /** 可选推理级别，'none' 表示可关闭推理；无可选档位时为空数组 */
     efforts: string[]
     /** 最大上下文窗口（tokens），仅当 models.dev 提供 */
@@ -29,13 +30,22 @@ export interface CacheEntry {
     image?: boolean
 }
 
-/** 拍平缓存：每条为 provider/id/efforts 及可选的容量与图片字段 */
-export type Catalog = CacheEntry[]
+/** 磁盘缓存：{ provider-id: { model-id: 缓存条目 } }，provider 只作外层键，消除逐条重复 */
+export type Catalog = Record<string, Record<string, CacheRecord>>
+
+/** 内存索引条目：缓存条目（CacheRecord）补上分组键下的 model id，供 lookup/fix 按 provider+id 消费 */
+export interface IndexEntry {
+    id: string
+    efforts: string[]
+    contextWindow?: number
+    maxTokens?: number
+    image?: boolean
+}
 
 /** 按 provider 分组的内存索引，供 lookup 复用 */
 export interface ProviderGroup {
     ids: string[]
-    entries: CacheEntry[]
+    entries: IndexEntry[]
 }
 
 /** 目录及其预构建的 provider 分组索引 */

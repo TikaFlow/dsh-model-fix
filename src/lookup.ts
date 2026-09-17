@@ -1,5 +1,5 @@
 import { HINTS } from './constants'
-import type { CacheEntry, IndexedCatalog } from './types'
+import type { IndexedCatalog, IndexEntry } from './types'
 
 /** 归一化模型 id：小写并去 -latest / -openai-compact 后缀噪音 */
 function normalizeId(id: string): string {
@@ -34,10 +34,10 @@ function hintedProvider(id: string): string | undefined {
 }
 
 /** 在目录中查找模型条目：优先按 provider+modelId，失败再仅按 modelId 全局匹配 */
-export function lookup(indexed: IndexedCatalog, providerId: string, modelId: string): CacheEntry | undefined {
+export function lookup(indexed: IndexedCatalog, providerId: string, modelId: string): IndexEntry | undefined {
     const { groups } = indexed
     const bare = modelId.slice(modelId.lastIndexOf('/') + 1)
-    const matchIn = (provider: string): CacheEntry | undefined => {
+    const matchIn = (provider: string): IndexEntry | undefined => {
         const group = groups.get(provider)
         if (!group) return
         const hit = matchId(bare, group.ids)
@@ -63,7 +63,7 @@ export function lookup(indexed: IndexedCatalog, providerId: string, modelId: str
 }
 
 /** 转换为 reasoningEfforts 映射：key 为可选等级，value 为实际发送拼写（仅 off 允许空值） */
-export function toReasoningEfforts(entry: CacheEntry | undefined): Record<string, string | null> | undefined {
+export function toReasoningEfforts(entry: IndexEntry | undefined): Record<string, string | null> | undefined {
     if (!entry) return
     const mapped: Record<string, string | null> = {}
     for (const effort of entry.efforts) {
