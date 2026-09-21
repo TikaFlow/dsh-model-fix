@@ -18,6 +18,8 @@
  * 保存被宿主确认落地（dirty 归 false）后自动收起并留一行弱提示，写失败保持展开与草稿可重试。
  * 结果反馈一律走卡片内联状态行（挂在 header 之后、条件展开体之外，故折叠不丢在途结果），
  * 不用宿主 Toast——官方设置面零 Toast 调用，成功走自动收起/绿字提示、失败走行内红字。
+ * 另有一种无外壳形态：插件管理页「已安装」组里本 bundle 详情页索取的 view:'page'，把同一份
+ * notices / body / confirms 直排进 .dsh-mf-page，标题 / 简介 / 面包屑 / 开关由页面自绘。
  * 「强制更新 / 重置模型」（危险按钮，贴最左）与「恢复备份」（discard 次级样式，紧随其后）均弹宿主
  * Modal 二次确认（官方删除确认同款：outline 按钮 + 取消键 autoFocus；仅危险两键的确认键上红色 tint），
  * 确认后经 Connection RPC 请求 Node 半 force 填充 / 剔除插件填充的模型参数 / 回退启动时备份的共有模型。
@@ -66,6 +68,7 @@ import {
 } from './model'
 import type { CardKey } from './locales'
 import type { Flags, Group, RowKey } from './model'
+import type { PluginConfigViewProps } from './slot-contract'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from './locales'
 
 /** 卡片组件 props（t 由 slots.register 的 locale 席位合成注入；scope/forceUpdate 由入口闭包传入） */
@@ -85,6 +88,12 @@ export interface CardProps {
      * 官方 PluginCard 即 `<li>`，故该席位传 'li'（列表样式由 .dsh-mf-card 自清）。
      */
     as?: 'div' | 'li'
+    /**
+     * 插件详情页（plugins.bundle.config 席位）索取的视图：该席位按宿主契约只传 `page`，
+     * 页面自绘面包屑 / 标题 / 简介 / 开关，我们只出不带外壳的配置体；两个 settings 席位不传，
+     * 走可折叠卡片。
+     */
+    view?: PluginConfigViewProps['view']
 }
 
 /** 内联状态行：文本 + 色调（成功＝官方 .savedNotice 绿，失败＝.failed/.error 红） */
@@ -127,6 +136,10 @@ const STYLE_TEXT = [
     // 展开体：左右内缩 16px 与 header 的 padding 对齐；顶部 0.5px 分隔线隔开外层摘要与正文，
     // 12px 上边距撑开与瓦片的距离（官方由子项 .permission 的 padding:12px 0 提供，我们以容器 padding 等效实现）
     '.dsh-mf-body{margin:0 16px;padding:12px 0 8px;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));display:flex;flex-direction:column;gap:12px}',
+    // 插件详情页的形态容器：页面已自绘标题 / 简介 / 面包屑，故不画外壳；落在页面 .detailSection
+    // （官方 flex 列 + 12px 间距）之内，故按同一组取值排布子项；状态提示在该形态下不写卡片内的 16px 侧缩进
+    '.dsh-mf-page{display:flex;flex-direction:column;gap:12px}',
+    '.dsh-mf-page .dsh-mf-notice{padding:0}',
     // 状态行：内联承载一切结果反馈（官方设置面无 Toast）
     '.dsh-mf-notice{margin:0;padding:0 16px 12px;font-size:12px;line-height:18px}',
     '.dsh-mf-noticeSuccess{color:var(--dsw-alias-state-success-primary,#22c55e)}',
@@ -491,8 +504,15 @@ export function Card(props: CardProps) {
         if (!dirty) setOpen(false)
     }, [submitting, dirty])
 
-    // 配置服务不可用：同一外壳的静态形态（无展开语义），保留可发现性便于排查
+    // 插件详情页形态：该席位按宿主契约只传 view:'page'，标题与简介由页面自绘
+    const pageView = props.view === 'page'
+
+    // 配置服务不可用：卡片形态保留外壳的静态形态（无展开语义），保留可发现性便于排查；
+    // 插件详情页只给一行说明，行间距由 .dsh-mf-page 的容器 gap 提供
     if (snap.status === 'unavailable') {
+        if (pageView) {
+            return <p className="dsh-mf-line" role="status">{t('unavailable')}</p>
+        }
         return (
             <Root className="dsh-mf-card">
                 <div className="dsh-mf-header dsh-mf-headerStatic">
@@ -644,115 +664,101 @@ export function Card(props: CardProps) {
             })
     }
 
-    return (
-        <Root className={open ? 'dsh-mf-card dsh-mf-cardOpen' : 'dsh-mf-card'}>
-            <button
-                type="button"
-                className="dsh-mf-header"
-                aria-expanded={open}
-                aria-label={`${t(open ? 'collapse' : 'expand')}: ${t('title')}`}
-                onClick={() => { setOpen(!open) }}
-            >
-                <span className="dsh-mf-headText">
-                    <span className="dsh-mf-name">{t('title')}</span>
-                    <span className="dsh-mf-desc">{t('description')}</span>
+    // 结果提示挂在条件体之外：折叠不会吞掉在途/已到的结果
+    const notices = notice !== null ? (
+        <p
+            className={notice.tone === 'error' ? 'dsh-mf-notice dsh-mf-noticeError' : 'dsh-mf-notice dsh-mf-noticeSuccess'}
+            role={notice.tone === 'error' ? 'alert' : 'status'}
+            aria-live={notice.tone === 'error' ? undefined : 'polite'}
+        >
+            {notice.text}
+        </p>
+    ) : null
+    // 正文（状态行 + 瓦片栅格 + footer）：卡片展开体与插件页正文共用，只换容器
+    const body = (
+        <>
+            {!ready ? <p className="dsh-mf-line" role="status">{t('loading')}</p> : null}
+            {ready && !snap.writable ? <p className="dsh-mf-line dsh-mf-warn" role="status">{t('readOnly')}</p> : null}
+            {/* 三个布尔配置组只差 group：由组枚举与键表派生渲染，保证各瓦片形态始终一致；
+                第四张是动态集合瓦片，形状不同故单独渲染（栅格仍为两列，四张正好补齐 2×2） */}
+            <div className="dsh-mf-items">
+                {GROUPS.map((group) => (
+                    <GroupTile
+                        key={group}
+                        group={group}
+                        t={t}
+                        flags={shown}
+                        open={tileOpen === group}
+                        disabled={!canWrite}
+                        onToggle={() => { onTileToggle(group) }}
+                        onMaster={() => { onMaster(group) }}
+                        onCell={(key) => { onCell(group, key) }}
+                    />
+                ))}
+                <ExcludesTile
+                    t={t}
+                    flags={shown}
+                    hits={hits}
+                    open={tileOpen === 'excludes'}
+                    disabled={!canWrite}
+                    onToggle={() => { onTileToggle('excludes') }}
+                    onAdd={onAddExclude}
+                    onRemove={onRemoveExclude}
+                />
+            </div>
+            <div className="dsh-mf-footer">
+                <span className="dsh-mf-actions">
+                    <button
+                        type="button"
+                        className="dsh-mf-force"
+                        disabled={!ready || forceBusy || resetBusy || restoreBusy || submitting}
+                        onClick={onForce}
+                    >
+                        {forceBusy ? t('forceBusy') : t('force')}
+                    </button>
+                    <button
+                        type="button"
+                        className="dsh-mf-force"
+                        disabled={!ready || forceBusy || resetBusy || restoreBusy || submitting}
+                        onClick={onReset}
+                    >
+                        {resetBusy ? t('resetBusy') : t('reset')}
+                    </button>
+                    <button
+                        type="button"
+                        className="dsh-mf-discard"
+                        disabled={!ready || forceBusy || resetBusy || restoreBusy || submitting}
+                        onClick={onRestore}
+                    >
+                        {restoreBusy ? t('restoreBusy') : t('restore')}
+                    </button>
                 </span>
-                {/* 胶囊挂在 header：收起态也要说明卡里存着未落盘的编辑 */}
-                {dirty ? <span className="dsh-mf-pending">{t('unsaved')}</span> : null}
-                <IconChevronDownOutline14 className={open ? 'dsh-mf-chevron dsh-mf-chevronOpen' : 'dsh-mf-chevron'} />
-            </button>
-            {/* 结果提示挂在条件体之外：折叠不会吞掉在途/已到的结果 */}
-            {notice !== null ? (
-                <p
-                    className={notice.tone === 'error' ? 'dsh-mf-notice dsh-mf-noticeError' : 'dsh-mf-notice dsh-mf-noticeSuccess'}
-                    role={notice.tone === 'error' ? 'alert' : 'status'}
-                    aria-live={notice.tone === 'error' ? undefined : 'polite'}
-                >
-                    {notice.text}
-                </p>
-            ) : null}
-            {open ? (
-                <div className="dsh-mf-body">
-                    {!ready ? <p className="dsh-mf-line" role="status">{t('loading')}</p> : null}
-                    {ready && !snap.writable ? <p className="dsh-mf-line dsh-mf-warn" role="status">{t('readOnly')}</p> : null}
-                    {/* 三个布尔配置组只差 group：由组枚举与键表派生渲染，保证各瓦片形态始终一致；
-                        第四张是动态集合瓦片，形状不同故单独渲染（栅格仍为两列，四张正好补齐 2×2） */}
-                    <div className="dsh-mf-items">
-                        {GROUPS.map((group) => (
-                            <GroupTile
-                                key={group}
-                                group={group}
-                                t={t}
-                                flags={shown}
-                                open={tileOpen === group}
-                                disabled={!canWrite}
-                                onToggle={() => { onTileToggle(group) }}
-                                onMaster={() => { onMaster(group) }}
-                                onCell={(key) => { onCell(group, key) }}
-                            />
-                        ))}
-                        <ExcludesTile
-                            t={t}
-                            flags={shown}
-                            hits={hits}
-                            open={tileOpen === 'excludes'}
-                            disabled={!canWrite}
-                            onToggle={() => { onTileToggle('excludes') }}
-                            onAdd={onAddExclude}
-                            onRemove={onRemoveExclude}
-                        />
-                    </div>
-                    <div className="dsh-mf-footer">
-                        <span className="dsh-mf-actions">
-                            <button
-                                type="button"
-                                className="dsh-mf-force"
-                                disabled={!ready || forceBusy || resetBusy || restoreBusy || submitting}
-                                onClick={onForce}
-                            >
-                                {forceBusy ? t('forceBusy') : t('force')}
-                            </button>
-                            <button
-                                type="button"
-                                className="dsh-mf-force"
-                                disabled={!ready || forceBusy || resetBusy || restoreBusy || submitting}
-                                onClick={onReset}
-                            >
-                                {resetBusy ? t('resetBusy') : t('reset')}
-                            </button>
-                            <button
-                                type="button"
-                                className="dsh-mf-discard"
-                                disabled={!ready || forceBusy || resetBusy || restoreBusy || submitting}
-                                onClick={onRestore}
-                            >
-                                {restoreBusy ? t('restoreBusy') : t('restore')}
-                            </button>
-                        </span>
-                        <span className="dsh-mf-actions">
-                            <button
-                                type="button"
-                                className="dsh-mf-discard"
-                                disabled={!dirty || submitting}
-                                onClick={onDiscard}
-                            >
-                                {t('discard')}
-                            </button>
-                            <button
-                                type="button"
-                                className="dsh-mf-save"
-                                disabled={!canWrite || !dirty || submitting || forceBusy || resetBusy || restoreBusy}
-                                onClick={onSave}
-                            >
-                                {submitting ? t('saving') : t('save')}
-                            </button>
-                        </span>
-                    </div>
-                </div>
-            ) : null}
-            {/* 二次确认弹层：宿主 Modal + Button 原语（官方同页删除 provider 即用此组合，
-                portal/遮罩/Escape 由组件自带）；危险确认键按官方 .deleteConfirm 上红 tint，
-                取消键 autoFocus（与官方一致：焦点落在可安全退出的那一侧） */}
+                <span className="dsh-mf-actions">
+                    <button
+                        type="button"
+                        className="dsh-mf-discard"
+                        disabled={!dirty || submitting}
+                        onClick={onDiscard}
+                    >
+                        {t('discard')}
+                    </button>
+                    <button
+                        type="button"
+                        className="dsh-mf-save"
+                        disabled={!canWrite || !dirty || submitting || forceBusy || resetBusy || restoreBusy}
+                        onClick={onSave}
+                    >
+                        {submitting ? t('saving') : t('save')}
+                    </button>
+                </span>
+            </div>
+        </>
+    )
+    // 二次确认弹层：宿主 Modal + Button 原语（官方同页删除 provider 即用此组合，portal/遮罩/Escape
+    // 由组件自带）；危险确认键按官方 .deleteConfirm 上红 tint，取消键 autoFocus（与官方一致：
+    // 焦点落在可安全退出的那一侧）
+    const confirms = (
+        <>
             <Modal
                 open={confirmOpen}
                 onClose={() => { setConfirmOpen(false) }}
@@ -788,6 +794,40 @@ export function Card(props: CardProps) {
                     <Button variant="outline" onClick={runRestore}>{t('restoreGo')}</Button>
                 </>}
             />
+        </>
+    )
+
+    // 插件详情页的配置段：不画卡片外壳与标题行（页面自绘）
+    if (pageView) {
+        return (
+            <div className="dsh-mf-page">
+                {notices}
+                {body}
+                {confirms}
+            </div>
+        )
+    }
+
+    return (
+        <Root className={open ? 'dsh-mf-card dsh-mf-cardOpen' : 'dsh-mf-card'}>
+            <button
+                type="button"
+                className="dsh-mf-header"
+                aria-expanded={open}
+                aria-label={`${t(open ? 'collapse' : 'expand')}: ${t('title')}`}
+                onClick={() => { setOpen(!open) }}
+            >
+                <span className="dsh-mf-headText">
+                    <span className="dsh-mf-name">{t('title')}</span>
+                    <span className="dsh-mf-desc">{t('description')}</span>
+                </span>
+                {/* 胶囊挂在 header：收起态也要说明卡里存着未落盘的编辑 */}
+                {dirty ? <span className="dsh-mf-pending">{t('unsaved')}</span> : null}
+                <IconChevronDownOutline14 className={open ? 'dsh-mf-chevron dsh-mf-chevronOpen' : 'dsh-mf-chevron'} />
+            </button>
+            {notices}
+            {open ? <div className="dsh-mf-body">{body}</div> : null}
+            {confirms}
         </Root>
     )
 }

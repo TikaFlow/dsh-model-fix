@@ -5,12 +5,17 @@
  * → 绑定宿主 llm-pi-ai 命名空间 scope（只取其 user 层的提供方 id，供「排除提供方」瓦片判定命中；
  *   与 Node 半 fix 遍历的是同一份数据，故零漂移。读全部走宿主共享 describe mirror，本绑定不新增 wire 读）
  * → 取宿主 connection 服务的 RPC 载体（「强制更新 / 重置模型 / 恢复备份」三按钮共用，通道 /tikaflow-model-fix）
- * → 注册卡片到**两个**席位（同一组件、同一 scope，宿主 settings 页同时只挂载一个 section，故不会双实例并存）：
+ * → 注册卡片到**三个**席位（同一组件、同一 scope）：
  *   ① 「模型」选项卡底部 list 席位 settings.models.footer（与提供方列表同页）；
- *   ② 「插件」→「插件配置」选项卡的 keyed 席位 settings.plugin.item（与终端 / Agent 循环 / Subagent /
- *      网页搜索等官方卡并列，key 即本插件配置命名空间——该席位按命名空间分发，宿主只把「已服务的命名空间」
- *      与「已注册的卡」求交后渲染，本插件的命名空间由 Node 半 installSection 提供）。
- *   两处注册在宿主 peerDependencies 声明的下限版本上均已存在；更旧宿主无该席位、卡片不出现，属预期不支持。
+ *   ② 「插件」→「插件配置」选项卡的 keyed 席位 settings.plugin.item（仅 0.1.2 系列宿主声明；与终端 / Agent 循环 /
+ *      Subagent / 网页搜索等官方卡并列，key 即本插件配置命名空间——该席位按命名空间分发，宿主只把「已服务的命名空间」
+ *      与「已注册的卡」求交后渲染，本插件的命名空间由 Node 半 installSection 提供）；
+ *   ③ 插件管理页（0.1.6+ 与「设置」平行的顶级入口）「已安装」组里本 bundle 详情页的 keyed 席位
+ *      plugins.bundle.config：该页已按 npm 包名自动列出本 bundle，本席位把配置体填进其详情页的描述
+ *      与 rows 之间（标题 / 简介 / 面包屑 / 开关均由页面自绘）。宿主 settings 页同时只挂载一个
+ *      section，故①②不会双实例并存；③与②互斥（0.1.6+ 不再有 settings.plugin.item 的声明方），故亦不并存。
+ *   ①②在宿主 peerDependencies 声明的下限版本上即已存在；③需要 0.1.6 起的插件管理页，更旧的宿主上
+ *   该席位无声明方、配置段不出现，属预期不支持。
  * 类型边全部 type-only（构建期擦除，不违反跨插件纯度纪律）。
  */
 
@@ -23,8 +28,8 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // SlotMap 的 'settings.models.footer' 键声明合并
 import type {} from '@deepseek-ai/dsh-client-ui-settings-models/client'
-// SlotMap 的 'settings.plugin.item' 键声明合并（keyed：注册用 key 而非 id）
-import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
+// SlotMap 的 'plugins.bundle.config'（0.1.6+）与 'settings.plugin.item'（0.1.2 系列）键声明（本地结构复制）
+import type {} from './slot-contract'
 // Connection RPC call 切片的结构复制（宿主包未装依赖；取服务沿用宿主 ui-settings-general 的 ctx.get 断言范式）
 import type { ClientRpcCall } from '../types'
 import { Card } from './card'
@@ -50,9 +55,11 @@ export function apply(ctx: ClientContext): void {
     const forceUpdate = () => rpc.call(`/${MODEL_FIX_NS}`, 'forceUpdate', {})
     const resetModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'resetModels', {})
     const restoreModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'restoreModels', {})
-    // 两个席位都只在对应 section 挂载期间存在，须经 slots.inject 等待声明后再 register；
-    // 单元格标识各按其 kind 的字段：list 席位用 id、keyed 席位用 key（= 本插件配置命名空间）。
-    // 两处都以 -999999 排到各自列表最前（宿主对 priority/order 一律"越小越靠前"，官方卡都是默认 0），
+    // 三个席位都要先有声明方才能占格，故经 slots.inject 等声明后再 register
+    //（宿主版本过旧时没有对应声明方，注册静默不发生 ⇒ 卡片/配置段不出现）；
+    // 单元格标识各按其 kind 的字段：list 席位用 id、keyed 席位用 key；标识值上 ①②都是本插件配置
+    // 命名空间、③是 bundle 的 npm 包名（不同 slot 即不同账本，无需加后缀区分）。
+    // ①②都以 -999999 排到各自列表最前（宿主对 priority/order 一律"越小越靠前"，官方卡都是默认 0），
     // 但各按自己 kind 的主键声明：list 席位的账本按 priority→order 排完，渲染器又按 order 单键稳定重排一次
     // ⇒ 起作用的是 order（priority 只在同 order 时当平手判据，碰撞概率极低，不抢）；
     // keyed 席位渲染器不排序、直接用账本序 ⇒ 只有 priority 参与。
@@ -70,4 +77,13 @@ export function apply(ctx: ClientContext): void {
         priority: -999999,
         locale: CARD_NS,
     }, (props) => <Card {...props} as="li" scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
+    // 插件管理页（0.1.6+）「已安装」组里本 bundle 详情页的配置段：keyed 席位按 entryKey 分发，
+    // key 是 bundle 的 npm 包名（profile manifest 的依赖键，不是 patch 里的条目 id）；
+    // 页面自绘面包屑 / 标题 / 简介 / 开关且只要 view:'page'，故不声明 label/order/priority。
+    // 该席位不与命名空间求交，命名空间未服务时配置段仍在、显示不可用行——发现性优先于隐藏
+    ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+        name: 'plugins.bundle.config',
+        key: name,
+        locale: CARD_NS,
+    }, (props) => <Card {...props} scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
 }
