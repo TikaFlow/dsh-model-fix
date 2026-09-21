@@ -31,19 +31,33 @@
 
 ## 安装
 
-### 方式一：通过插件市场安装（推荐）
+> 以下所有安装方式安装的内容、效果完全相同。
+
+### 方式一：通过插件管理页面安装（推荐）
+
+> 需要 DSH 版本 >= `0.1.6-alpha.2`。
+
+在 DSH 中，点击「插件」-->「添加插件」，复制以下链接到输入框，完成安装：
+
+```
+https://github.com/TikaFlow/dsh-model-fix/releases/latest/download/dsh-model-fix.tgz
+```
+
+### 方式二：通过插件市场安装（推荐）
 
 > 使用 `dsh-market` 插件市场安装时无需重启 DSH 即生效。
 
-直接在插件市场搜索安装即可。
+直接在插件市场搜索我的用户名：`TikaFlow`，找到「dsh-model-fix」插件，即可安装。
 
-### 方式二：通过 Release 预构建包安装
+### 方式三：通过 Release 预构建包安装
 
 ```bash
 dsh plugin --profile web add https://github.com/TikaFlow/dsh-model-fix/releases/latest/download/dsh-model-fix.tgz
 ```
 
-### 方式三：通过 Git 安装
+### 方式四：通过 Git 安装（不推荐）
+
+> 使用这种方式安装需要现场编译插件，不推荐。
 
 ```bash
 dsh plugin --profile web add github:TikaFlow/dsh-model-fix
