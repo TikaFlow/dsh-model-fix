@@ -11,6 +11,8 @@
  * channel 为插件自有命名空间拼成的绝对前缀，浏览器半以 `/${MODEL_FIX_NS}` 字面量配对（跨半禁值导入，改动须两侧同步）。
  * connection 服务经 ctx.get 断言取得（宿主包未安装为依赖，类型用 src/types 的结构复制；
  * 断言范式与宿主内置插件 ui-settings-general 一致），信任围栏由宿主 connection 统一施加。
+ * 路由由本插件自注册而不走宿主 `connection.rpc.handle`：后者在**服务自己的 ctx** 上求值
+ * `owner.webServer`，而 connection 插件自 0.1.5 起不再注入 webServer，故它必然抛错（详见 rpc-route.ts）。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -19,7 +21,9 @@ import { fix } from './fix'
 import { isIgnoreAll } from './guard'
 import { resetModels } from './reset'
 import { restoreModels } from './restore'
-import type { HostRpcHandle, RpcResult } from './types'
+import { createChannelRoute } from './rpc-route'
+import type { EndpointHandler } from './rpc-route'
+import type { HostRequestRejection, HostWebServerRegister, RpcResult } from './types'
 
 /** 卡片「强制更新」按钮调用的 endpoint 名 */
 const ENDPOINT_FORCE_UPDATE = 'forceUpdate'
@@ -34,50 +38,53 @@ const writeInProgress = (): RpcResult<unknown> => ({
     error: { code: 'model-fix/write-in-progress', message: '另一操作进行中，请稍后重试', details: {} },
 })
 
-/** 注册一个 channel（三个端点；handle 返回 async disposer，经 ctx.effect 挂卸载自动回收） */
+/** 注册一个 channel（三个端点）；register 返回 disposer，经 ctx.effect 挂卸载自动回收 */
 export function installRpc(ctx: Context): void {
-    // dsh-client-connection ≥0.1.5 的 rpc.handle 在调用方 fiber 上求值 owner.webServer，
-    // 未注入 webServer 的上下文注册会抛 "cannot get property" 错误；
-    // 故经 ctx.inject 子 fiber 声明 connection+webServer（范式同宿主内置 api-gateway），
+    // 子 fiber 声明 connection + webServer：webServer 用于注册前缀路由，connection 用于信任围栏。
     // 无 webServer 的 profile（如 headless）下子 fiber 不启动，插件其余功能不受影响。
     ctx.inject(['connection', 'webServer'], (rpcCtx) => {
-        const connection = rpcCtx.get('connection') as { rpc: { handle: HostRpcHandle } }
-        rpcCtx.effect(() => connection.rpc.handle(`/${PLUGIN_NS}`, async (endpoint) => {
-            if (endpoint === ENDPOINT_FORCE_UPDATE) {
-                // 重置/恢复写回期间拒绝：填充会把刚回退掉的字段重新写回，与写回语义冲突
-                if (isIgnoreAll()) return writeInProgress()
-                try {
-                    return { ok: true, value: { changed: await fix(ctx, true) } }
-                } catch (error) {
-                    // fix 内部已告警；此处转成 RPC 失败结果回传前端展示
-                    return {
-                        ok: false,
-                        error: {
-                            code: 'model-fix/force-update-failed',
-                            message: error instanceof Error ? error.message : String(error),
-                            details: {},
-                        },
+        const connection = rpcCtx.get('connection') as { requestRejection: HostRequestRejection }
+        const webServer = rpcCtx.get('webServer') as { register: HostWebServerRegister }
+        rpcCtx.effect(() => {
+            const channel = `/${PLUGIN_NS}`
+            const handler: EndpointHandler = async (endpoint) => {
+                if (endpoint === ENDPOINT_FORCE_UPDATE) {
+                    // 重置/恢复写回期间拒绝：填充会把刚回退掉的字段重新写回，与写回语义冲突
+                    if (isIgnoreAll()) return writeInProgress()
+                    try {
+                        return { ok: true, value: { changed: await fix(ctx, true) } }
+                    } catch (error) {
+                        // fix 内部已告警；此处转成 RPC 失败结果回传前端展示
+                        return {
+                            ok: false,
+                            error: {
+                                code: 'model-fix/force-update-failed',
+                                message: error instanceof Error ? error.message : String(error),
+                                details: {},
+                            },
+                        }
                     }
                 }
-            }
-            if (endpoint === ENDPOINT_RESET_MODELS || endpoint === ENDPOINT_RESTORE_MODELS) {
-                // 两个写回端点互斥：守卫已开时第二个写回的 finally 会提前解除守卫，故一律拒绝
-                if (isIgnoreAll()) return writeInProgress()
-                try {
-                    const changed = endpoint === ENDPOINT_RESET_MODELS ? await resetModels(ctx) : await restoreModels(ctx)
-                    return { ok: true, value: { changed } }
-                } catch (error) {
-                    return {
-                        ok: false,
-                        error: {
-                            code: endpoint === ENDPOINT_RESET_MODELS ? 'model-fix/reset-models-failed' : 'model-fix/restore-models-failed',
-                            message: error instanceof Error ? error.message : String(error),
-                            details: {},
-                        },
+                if (endpoint === ENDPOINT_RESET_MODELS || endpoint === ENDPOINT_RESTORE_MODELS) {
+                    // 两个写回端点互斥：守卫已开时第二个写回的 finally 会提前解除守卫，故一律拒绝
+                    if (isIgnoreAll()) return writeInProgress()
+                    try {
+                        const changed = endpoint === ENDPOINT_RESET_MODELS ? await resetModels(ctx) : await restoreModels(ctx)
+                        return { ok: true, value: { changed } }
+                    } catch (error) {
+                        return {
+                            ok: false,
+                            error: {
+                                code: endpoint === ENDPOINT_RESET_MODELS ? 'model-fix/reset-models-failed' : 'model-fix/restore-models-failed',
+                                message: error instanceof Error ? error.message : String(error),
+                                details: {},
+                            },
+                        }
                     }
                 }
+                return { ok: false, error: { code: 'model-fix/unknown-endpoint', message: `未知端点：${endpoint}`, details: {} } }
             }
-            return { ok: false, error: { code: 'model-fix/unknown-endpoint', message: `未知端点：${endpoint}`, details: {} } }
-        }), `${PLUGIN_NAME}: rpc channel`)
+            return webServer.register({ kind: 'prefix', path: channel, handler: createChannelRoute(connection, channel, handler) })
+        }, `${PLUGIN_NAME}: rpc channel`)
     })
 }

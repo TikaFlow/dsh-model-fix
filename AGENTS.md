@@ -11,7 +11,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | 路径 | 职责（只标非显而易见的部分） |
 | --- | --- |
 | `src/index.ts` | 仅 `export` + `apply` 生命周期编排，业务全部外拆 |
-| `src/types.ts` | 共享类型与守卫；**历史版本(v1/v2/v3) 是冻结形态**；Connection RPC 契约的结构本地复制也在这里 |
+| `src/types.ts` | 共享类型与守卫；**历史版本(v1-v4) 是冻结形态**；Connection RPC 契约的结构本地复制也在这里 |
 | `src/constants.ts` | 命名空间、版本与保留上限、重试参数、`CAPACITY_UNLIMITED`、提供方提示表 `HINTS`、兼容性落点 `DEVELOPER_COMPAT_APIS` / `DEVELOPER_COMPAT_FIELD` |
 | `src/config.ts` / `src/migrate.ts` | 当前 schema 与 `resolveConfig` / 升级链与 `migrateConfig` 编排 |
 | `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
@@ -20,7 +20,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | `src/guard.ts` | 事件流守卫（模块级 `ignoreAll` + `startIgnoreAll`/`endIgnoreAll`/`isIgnoreAll`）：重置与恢复共用的写回保护，`index.ts` 两事件入口最先判定 |
 | `src/restore.ts` | 恢复备份：`captureBackup` 仅在 `apply` 最顶部（先于 `installSection`）读一次 `llm-pi-ai` 的 **`providers` 段**并深拷贝为内存备份（不写盘，重启重建；绝不做延迟补捕，见设计裁决）；`providersOf` 为捕获与恢复共用的收窄口径；`planRestore` 零 ctx 可单测，按**交集**语义只回退「备份与当前都存在」的 provider+model；`restoreModels` 与 reset 同样全程开守卫 |
 | `src/compat.ts` | 兼容性规则 → provider 路由 `compat` 的纯写入计划（添加 / 移除 / 删空整段 unset），零 ctx 依赖故可单测 |
-| `src/rpc.ts` / `src/refresh.ts` | 三个 RPC 端点（`forceUpdate` 强制更新 / `resetModels` 重置模型 / `restoreModels` 恢复备份，以守卫互斥）/ 刷新编排（含重试） |
+| `src/rpc.ts` / `src/rpc-route.ts` / `src/refresh.ts` | 三个 RPC 端点（`forceUpdate` 强制更新 / `resetModels` 重置模型 / `restoreModels` 恢复备份，以守卫互斥）/ 自注册 channel 路由（围栏 + 信封，见「设计裁决」）/ 刷新编排（含重试） |
 | `src/client/` | 浏览器半：`index.tsx` 入口（词典/两个 scope/RPC 载体/槽注册/记忆监听子 fiber）、`card.tsx` 卡片（三张布尔瓦片 + 一张排除集合瓦片 + footer 的「强制更新 / 重置模型」两危险键与「恢复备份」次级键）、`model.ts` 快照↔配置（三组布尔 + `excludes` + `efforts`）与命中判定的纯映射、`effort.ts` 每模型推理级别记忆的纯逻辑（`classifyTransition` / `lookupEffort` / `applyEffort` / `advertisesEffort` / `sameSelection`）、`locales.ts` 中英词典 |
 | `public/models-cache.json` | 构建期随 `lib/public/` 发布的 models.dev 拍平缓存（首启离线可用） |
 | `cordis.patch.yml` | DSH 补丁层对本插件的注册 |
@@ -46,7 +46,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - client 模块必须 `export const name`，且与包名一致。
 - **对外纪律：前端可用面一律以 npm 发布版为准**（`npm view @deepseek-ai/dsh dist-tags`）；宿主源码仓 HEAD 领先一切已发布版本，只作参照，**其工作树路径不得写进本项目文档**（未被版本追踪）。本插件的宿主依赖**总是跟随宿主 latest**：`@deepseek-ai/dsh-*`（`dsh-settings`、`dsh-util-values` 与 7 个 `dsh-client-*`）取宿主 latest 的那个版本号（当前 `0.1.2-rc.1`），`peerDependencies` 同版作下限；`@deepseek-ai/cordis` / `schemastery` 不随宿主版本号，取宿主本体自己声明的那条线（`^4.0.2` / `^3.18.2`）。**官方包一律 optional peer + devDep 同版兜底，`dependencies` 恒为空**（生态惯例：awesome-dsh-plugin 贡献指南）：运行期裸导入经宿主安装闭包投影路由到宿主实例——`~/.dsh/profiles/node_modules` 为安装闭包逐包 junction（`dsh-util-values` / `dsh-settings` 是宿主 settings 栈的嵌套依赖、不在宿主 manifest 公开承诺里，宿主重构 settings 栈时须复核）；profile 的 pnpm `autoInstallPeers: false`，不会自动补装 peer。**peer 范围的 semver 坑**：`>=0.1.2-rc.1` 只匹配 `0.1.2-*` rc 与其后正式版，不匹配 `0.1.3-rc.1`（node-semver 元组规则，`<0.2.0-0` 上界同样躲不开）⇒ 宿主出新 rc 元组时下限必须显式 bump，必要时用 `||` 分支带预发布标签。**坑**：这些子包各自的 `latest` tag 是陈旧的（如 `dsh-client-ui-slots` latest = `0.0.1-rc.1`），与宿主同号的线在它们的 `next` ⇒ 升级要写具体版本号，别用 `pkg@latest`。功能未生效即提示用户升级宿主（README「版本说明」）。
 - 宿主 0.1.2 起 settings 面的两处搬迁：`deepEqualJson` 从 `@deepseek-ai/dsh-settings` 迁到 **`@deepseek-ai/dsh-util-values`**（宿主运行时依赖，且是宿主唯一的变更检测判据 ⇒ `fix` / `compat` 复用它，勿自写比较）；`installSettingsSection()` 变为 provider 方法 **`ctx.settings.installSection(owner, ns, schema, entry, hooks)`**（第 4 参同时是 composition base 与服务缺席时的回退值）。
-- Connection RPC 契约（`RpcResult`/`HostRpcHandle`/`ClientRpcCall`）是宿主 `@deepseek-ai/dsh-client-connection` 的**结构复制**而非依赖：该包的 transitive 依赖范围只存在于宿主 monorepo、npm 上装不起来，故仅 type-only 使用；`ctx.get` 断言范式与宿主内置插件一致。信任围栏（loopback / 浏览器会话 cookie）由宿主施加。
+- Connection RPC 契约（`RpcResult`/`HostRequestRejection`/`HostWebServerRegister`/`ClientRpcCall`）是宿主 `@deepseek-ai/dsh-client-connection` / `dsh-host-webserver` 的**结构复制**而非依赖：仅 type-only 使用（运行期服务经 `ctx` 注入取得，不 import 宿主值；官方包一律不落 dependencies，见「对外纪律」）；`ctx.get` 断言范式与宿主内置插件一致。信任围栏（loopback / 浏览器会话 cookie）由宿主施加。
 - 词典 `ctx.locale.register` 重复注册会抛错，必须经 `ctx.effect` 挂 disposer 保 HMR；卡片样式经模块级幂等 `<style>` 注入，带 `data-plugin` 标记供宿主 HMR 认领。
 
 ### 宿主 settings 的脾气
@@ -122,10 +122,11 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **「重置模型」不写配置段、不改开关**：重置是"删掉插件曾填充的模型字段"（`reasoningEfforts`/`contextWindow`/`maxTokens`/`input`），用户自定义字段与 `excludes` 命中的提供方一律不动；关掉开关等于修改了配置、用户不一定要，故配置段零写入——重置后修改配置仍按原开关触发填充。竞态防护不靠前端（不可靠），而是 Node 半模块级守卫 `ignoreAll`：`resetModels` 置位 → 写回 → finally 解除，`index.ts` 的 `settings/updated`（API_NS）与自身 NS `onChange` 两事件入口最先判定 `isIgnoreAll()`，为 true 整条链（selfHeal / fix / refresh）短路，防止重置自身写回触发填充把刚删的字段重新填回；`forceUpdate` 端点同样被守卫拒绝（写回期间强制更新会把刚改动的字段填回）。置位先于 mutate 同步完成（await 前），宿主事件同步派发故覆盖写回触发的后续事件。
 - **「恢复备份」只回退交集，且备份只在启动时读一次**：备份 = `llm-pi-ai` 的 **`providers` 段**深拷贝，捕获与恢复都经 `providersOf` 收窄（曾出现捕获存整层 user、恢复按 providers 段消费，`planRestore` 把键名 `"providers"` 当 provider id ⇒ 永不交集、`changed` 恒 0）。捕获点唯一：`apply` 最顶部（`inject` 已声明 settings，注册与文档装载都先于 apply ⇒ 此刻必可读），严格早于一切写回；**绝不做"取不到就稍后补捕"**——若首次没取到而 `fix` 已写回，再捕到的是被填充过的内容，恢复会把改后值当原值写回，比没有备份更危险。仅存内存、不落盘 ⇒ 重启 DSH 即重建，语义是"本次运行内的后悔药"。恢复按**交集**语义：只有「备份与当前都存在」的 provider 里的「备份与当前都存在」的 model 才回退为启动取值，被用户删掉的 provider/model **不复活**——删除与插件填充无关，且宿主删 provider 时连 api-key 一并删除（本插件无从取得），复活只会造出能看见却用不了的坏路由；启动后新增的 provider/model 同样原样保留。备份是 model **整对象**快照，故连用户手写的同名键（如 name）一起回退——"恢复到当时取值"的应有之义；确认文案保持简短，细节见 README。三个 RPC 端点以守卫互斥（守卫已开时一律拒绝）：两个写回端点并发时，后到者的 `finally` 会提前解除守卫、令先到者写回失去保护，前端按钮禁用挡不住跨标签页并发，故 Node 半必须自己拦。确认弹窗确认键**不上红色 tint**、按钮取 discard 次级样式：操作不删用户任何东西，红色与语义不符。
 - **备份缺失／当前无 `providers` 段要显式抛错，不能回 0**：`changed: 0` 会被前端显示成「已恢复 0 个模型」，与"确实无可恢复"无法区分，用户只会以为按钮坏了。
+- **RPC channel 由本插件自注册，不用宿主 `connection.rpc.handle`**：`handle` 在**服务自己的 ctx** 上求值 `owner.webServer`（`get rpc() { const owner = this.ctx }`，与调用方 fiber 无关），而 connection 插件的 `inject` 从 0.1.2-rc.1 的 `["webServer","credentials"]` 缩成 ≥0.1.5 的 `["credentials"]`（三版的 `get rpc`/`register` 逐字未变）⇒ `owner.webServer` 抛 `cannot get property "webServer" without inject`，路由从不注册。故改在**本插件自己的子 fiber**（已注入 webServer）上 `webServer.register({kind:'prefix'})`，复用宿主的 `connection.requestRejection` 做围栏、按宿主 `rpcFetchHandler` 复刻信封与状态码，浏览器半 `connection.rpc.call` 完全无感。**给调用方注入 webServer 修不好宿主通道**——出问题的 ctx 是 connection 自己的。单一路径可行的依据：0.1.2-rc.1 与 0.1.6-alpha.2 的 `rpcFetchHandler` / 两个信封 schema / `ENDPOINT_SEGMENT_PATTERN` / `webServer.register` / `match` 逐字一致（已比对 npm 上两版源码），即该契约覆盖全支持范围；结论不能靠读代码拍板，要靠「真 HostConnectionService + 桩 webServer」的本地探针复核。
 
 - **「记住推理级别」是纯监听（不拦截）**：前端**监听**（订阅）模型选择与推理级别选择的投影变化，不是拦截 / hook 宿主的 `directory.select`。前端**没有任何 UI**（不新增任何卡片 / 按钮 / 开关），只做两件事：① 模型变化时从记忆读值并经 `directory.select` 自动恢复；② 级别变化时把记忆写进自有 NS 的 `efforts` 字段。Node 半**只负责持久化与解析**（`parseEfforts` / 迁移 / 快照往返），不自动设置——后端写配置对当前会话无效（只影响新会话），「自动设置」必须走前端 `directory.select`。
 - **`efforts` 是运行时记忆而非用户配置**：结构 `{ provider: { model: level } }` 用嵌套对象而非拼接 `provider/model`（model-id 可能含 `/`，拼接无法还原）；**不放进 `PluginConfigSchema`**，由 `parseSnapshot` 单独**宽松**解析（结构不符回落 `{}`）——记忆坏值若判整段快照非法，会连累配置自愈重写丢配置。`isDirty` 也不比较它，故记忆变化不触发「未保存更改」徽章；卡片「保存」写整段快照时 `efforts` 取**写入当刻的实时值**（卡片不拥有该字段，用草稿里的旧快照会把"开卡后切过模型"的那段记忆覆盖回去）。
-- **`efforts` 由浏览器半经自有 NS 的 settings scope 直写**：与卡片「保存」同一条通道（`['version-5','efforts']` 路径 op），不依赖插件自建 RPC channel——那条 channel 在宿主 0.1.6-alpha.2 上没被挂上（实测 `/api` 返 401、本通道落进 frontend-static fallback 返 405）。写入失败只吞 rejection（级别已在当前会话生效）。
+- **`efforts` 由浏览器半经自有 NS 的 settings scope 直写**：与卡片「保存」同一条通道（`['version-5','efforts']` 路径 op）：它是一次写回即生效、无需回执的记忆写入，用不到 RPC 端点。写入失败只吞 rejection（级别已在当前会话生效）。
 - **自动设置的前置校验**：恢复记忆前必须确认目标模型的 `groups`（catalog）公告该级别，未公告就不改写选择（回落默认）——投喂宿主不支持的级别会被拒；`groups` 未加载时同样不改写。
 - **「provider default」= `undefined` → 清除记忆**：UI 上选「provider default」提交的 `reasoningEffort` 是 `undefined`（省略键），即 `delete efforts[provider][model]`；保存路径统一（存字符串 / 删除），恢复路径统一（仅字符串级别改写）。
 - **`lastAutoSet` 守卫防止自动设置反向触发重复保存**：自动设置 `directory.select(resolved)` 后投影 `next` 会反向变化并被监听器捕获，无守卫会被判成 `effort-change` 再存一次（幂等但多余）。守卫逻辑：设置前记 `pendingAutoSet`，下一次投影变化与它相同则清除标记并跳过。

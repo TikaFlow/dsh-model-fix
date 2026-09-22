@@ -9,6 +9,7 @@ import { run as runLookup } from './lookup.test'
 import { run as runMigrate } from './migrate.test'
 import { run as runReset } from './reset.test'
 import { run as runRestore } from './restore.test'
+import { run as runRpcRoute } from './rpc-route.test'
 import { summary } from './helper'
 
 runCatalog()
@@ -21,4 +22,5 @@ runLookup()
 runMigrate()
 runReset()
 runRestore()
+await runRpcRoute()
 summary()
