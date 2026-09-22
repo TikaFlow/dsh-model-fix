@@ -1,8 +1,9 @@
-import { API_NS, MAX_ATTEMPTS, PLUGIN_NAME } from './constants'
+import { MAX_ATTEMPTS } from './constants'
+import { API_NS, PLUGIN_NAME } from './shared/constants'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import { isPlainObject } from './types'
+import { isPlainObject, providersOf } from './shared/types'
 import { startIgnoreAll, endIgnoreAll } from './guard'
 
 /**
@@ -12,17 +13,8 @@ import { startIgnoreAll, endIgnoreAll } from './guard'
 let backup: Record<string, unknown> | undefined
 
 /**
- * 从 `llm-pi-ai` 的 user 层取 `providers` 段（捕获与恢复共用同一收窄口径，杜绝两处形状错配）。
- * user 非纯对象、无 providers 或 providers 非纯对象一律返回 undefined。
- */
-export function providersOf(user: unknown): Record<string, unknown> | undefined {
-    if (!isPlainObject(user)) return undefined
-    const providers = user.providers
-    return isPlainObject(providers) ? providers : undefined
-}
-
-/**
- * 捕获启动时备份：读 `llm-pi-ai` user 层的 `providers` 段并深拷贝缓存，仅存内存。
+ * 捕获启动时备份：读 `llm-pi-ai` user 层的 `providers` 段（收窄口径见 src/shared/types.ts 的 `providersOf`）
+ * 并深拷贝缓存，仅存内存。
  * **只允许在 apply 最顶部调用一次**——备份的语义是"插件动手前"，晚于任何写回的补捕会存进已被填充的
  * 内容，那种备份比没有备份更危险（静默把改后值当原值恢复）。取不到仅告警，该次运行的恢复明确报错。
  * `backup !== undefined` 早退是为 HMR 重复 apply 时不用改后内容覆盖首启动的备份。

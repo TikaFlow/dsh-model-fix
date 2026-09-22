@@ -1,14 +1,10 @@
 /** src/client/model.ts 纯映射层用例：解码（只读 version-5，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化 */
 
 import { check, stable } from './helper'
-import { API_NS, CONFIG_VERSION as PLUGIN_CONFIG_VERSION, PLUGIN_NS } from '../src/constants'
-import { DEFAULT_CONFIG } from '../src/config'
+import { API_NS, API_NS as PI_AI_NS, CONFIG_VERSION, CONFIG_VERSION as PLUGIN_CONFIG_VERSION, PLUGIN_NS, PLUGIN_NS as MODEL_FIX_NS } from '../src/shared/constants'
+import { DEFAULT_CONFIG, DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '../src/shared/parse'
 import {
-    CONFIG_VERSION,
-    DEFAULT_FLAGS,
     EXCLUDE_ID_PATTERN,
-    MODEL_FIX_NS,
-    PI_AI_NS,
     VERSION_KEY,
     addExclude,
     applyGroup,
@@ -19,7 +15,6 @@ import {
     providerIdsOf,
     removeExclude,
     resolveHits,
-    snapshotFromFlags,
     toggleCell,
 } from '../src/client/model'
 import type { Flags } from '../src/client/model'
@@ -142,10 +137,10 @@ export function run(): void {
     for (const junk of [undefined, null, 42, 'x', [], { foo: 1 }, { 'version-5': null }, { 'version-x': {} }]) {
         check(`decode 垃圾输入兜默认 ${stable(junk)}`, stable(decodeSection(junk)) === stable(DEFAULT_FLAGS), junk)
     }
-    // ---------- snapshotFromFlags：规范形态（configVersion + 三组布尔 + 排除列表 + efforts + userExperience 全显式，无多余键） ----------
+    // ---------- toStored：规范形态（configVersion + 三组布尔 + 排除列表 + efforts + userExperience 全显式，无多余键） ----------
     check(
         'snapshot 规范化为 v5 存储形态',
-        stable(snapshotFromFlags(DEFAULT_FLAGS)) === stable({
+        stable(toStored(DEFAULT_FLAGS)) === stable({
             configVersion: 5,
             autoFill: { reasoning: true, context: true, image: true },
             allowUpdate: { reasoning: false, context: false, image: false },
@@ -154,18 +149,18 @@ export function run(): void {
             efforts: {},
             userExperience: { rememberEfforts: true },
         }),
-        snapshotFromFlags(DEFAULT_FLAGS),
+        toStored(DEFAULT_FLAGS),
     )
-    check('snapshot 含 efforts', stable(snapshotFromFlags(WITH_EFFORTS).efforts) === stable({ 'z-ai': { 'glm-5.2': 'high' } }))
+    check('snapshot 含 efforts', stable(toStored(WITH_EFFORTS).efforts) === stable({ 'z-ai': { 'glm-5.2': 'high' } }))
     check('snapshot 键名为 version-5', VERSION_KEY === 'version-5', VERSION_KEY)
     // 序列化产物与自身解码必须互逆（保存后立即读回不得变化）
-    check('snapshot -> decode 往返一致', stable(decodeSection({ [VERSION_KEY]: snapshotFromFlags(WITH_EXCLUDES) })) === stable(WITH_EXCLUDES), snapshotFromFlags(WITH_EXCLUDES))
+    check('snapshot -> decode 往返一致', stable(decodeSection({ [VERSION_KEY]: toStored(WITH_EXCLUDES) })) === stable(WITH_EXCLUDES), toStored(WITH_EXCLUDES))
     // 带 efforts 的往返一致
-    check('snapshot -> decode 往返含 efforts', stable(decodeSection({ [VERSION_KEY]: snapshotFromFlags(WITH_EFFORTS) })) === stable(WITH_EFFORTS))
+    check('snapshot -> decode 往返含 efforts', stable(decodeSection({ [VERSION_KEY]: toStored(WITH_EFFORTS) })) === stable(WITH_EFFORTS))
     // 带 userExperience false 的往返一致（关掉记住推理级别的存取回路）
     const WITHOUT_REMEMBER: Flags = { ...ALL_ON, userExperience: { rememberEfforts: false } }
-    check('snapshot -> decode 往返含 userExperience false', stable(decodeSection({ [VERSION_KEY]: snapshotFromFlags(WITHOUT_REMEMBER) })) === stable(WITHOUT_REMEMBER))
-    // ---------- 跨半字面量漂移守护（浏览器半禁值导入 Node 半，字面量须两侧同步） ----------
+    check('snapshot -> decode 往返含 userExperience false', stable(decodeSection({ [VERSION_KEY]: toStored(WITHOUT_REMEMBER) })) === stable(WITHOUT_REMEMBER))
+    // ---------- 跨半别名一致性（两半同取 src/shared 单一来源，此处守护别名与正名仍指同一共享项） ----------
     check('MODEL_FIX_NS 与 PLUGIN_NS 一致', MODEL_FIX_NS === PLUGIN_NS, MODEL_FIX_NS)
     check('PI_AI_NS 与 API_NS 一致', PI_AI_NS === API_NS, PI_AI_NS)
     check('CONFIG_VERSION 与 constants 侧一致', CONFIG_VERSION === PLUGIN_CONFIG_VERSION, CONFIG_VERSION)

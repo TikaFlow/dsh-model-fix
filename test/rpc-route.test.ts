@@ -1,7 +1,7 @@
 // rpc-route.ts 纯逻辑测试：endpoint 切分 / 信封解析与构造 / 自注册路由的围栏、状态码与信封往返
 import { check, stable } from './helper'
 import { createChannelRoute, endpointOf, envelopeRpcId, parseClientRequest, serverResponse } from '../src/rpc-route'
-import type { HostHttpRequest, HostHttpResponse, RpcResult } from '../src/types'
+import type { HostHttpRequest, HostHttpResponse, RpcResult } from '../src/shared/types'
 
 const CHANNEL = '/tikaflow-model-fix'
 

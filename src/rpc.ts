@@ -8,7 +8,7 @@
  *   事件流守卫全程打开，避免写回触发填充。
  * 三个端点共用同一守卫做互斥：守卫已开（另一写回在途）时一律拒绝——两个写回端点并发时，
  * 后到者的 finally 会提前解除守卫，令先到者的写回失去保护；填充与写回语义也相互冲突。
- * channel 为插件自有命名空间拼成的绝对前缀，浏览器半以 `/${MODEL_FIX_NS}` 字面量配对（跨半禁值导入，改动须两侧同步）。
+ * channel 为插件自有命名空间拼成的绝对前缀，浏览器半以 `/${MODEL_FIX_NS}` 配对（两侧同取 src/shared/constants.ts 的 `PLUGIN_NS`，改常量即两侧同步）。
  * connection 服务经 ctx.get 断言取得（宿主包未安装为依赖，类型用 src/types 的结构复制；
  * 断言范式与宿主内置插件 ui-settings-general 一致），信任围栏由宿主 connection 统一施加。
  * 路由由本插件自注册而不走宿主 `connection.rpc.handle`：后者在**服务自己的 ctx** 上求值
@@ -16,14 +16,14 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { PLUGIN_NAME, PLUGIN_NS } from './constants'
+import { PLUGIN_NAME, PLUGIN_NS } from './shared/constants'
 import { fix } from './fix'
 import { isIgnoreAll } from './guard'
 import { resetModels } from './reset'
 import { restoreModels } from './restore'
 import { createChannelRoute } from './rpc-route'
 import type { EndpointHandler } from './rpc-route'
-import type { HostRequestRejection, HostWebServerRegister, RpcResult } from './types'
+import type { HostRequestRejection, HostWebServerRegister, RpcResult } from './shared/types'
 
 /** 卡片「强制更新」按钮调用的 endpoint 名 */
 const ENDPOINT_FORCE_UPDATE = 'forceUpdate'

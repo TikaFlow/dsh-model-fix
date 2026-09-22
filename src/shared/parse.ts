@@ -1,7 +1,8 @@
 /**
- * 跨半共享的当前版本（v5）配置解析与默认值（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）。
+ * 跨半共享的当前版本（v5）配置解析、默认值与存储快照物化（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）。
  *
- * 浏览器半 `decodeSection` 与 Node 半 `resolveConfig`/`migrateConfig` 共用此处的解析函数（单一来源）。
+ * 浏览器半 `decodeSection` 与 Node 半 `resolveConfig`/`migrateConfig` 共用此处的解析函数（单一来源）；
+ * `toStored` 为反方向的物化（配置 -> 规范存储快照），Node 半迁移落盘与浏览器半卡片「保存」共用。
  * 语义由 `test/config.test.ts` 与 `test/client-model.test.ts` 共同守护。
  *
  * 解析约定：
@@ -10,8 +11,8 @@
  * - 产物只含 6 个已知键（剥离 configVersion 等运行时不消费的键）；缺省容器均为新对象/新数组，不与 `DEFAULT_CONFIG` 共享引用
  */
 
-import { VERSION_PREFIX } from './constants'
-import type { CompatRules, EffortMemory, FieldRules, PluginConfig, UserExperienceRules } from './types'
+import { CONFIG_VERSION, VERSION_PREFIX } from './constants'
+import type { CompatRules, EffortMemory, FieldRules, PluginConfig, PluginConfigSnapshot, UserExperienceRules } from './types'
 import { isPlainObject } from './types'
 
 /** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，排除列表为空，每模型推理级别记忆为空，记住推理级别开启 */
@@ -150,4 +151,21 @@ export function parseSnapshot(value: unknown): PluginConfig | undefined {
     // efforts 宽松解析（结构不符回落 {}，不让记忆坏值判整段快照非法）
     const efforts = parseEfforts(value.efforts)
     return { allowUpdate, autoFill, compat, excludes, efforts, userExperience }
+}
+
+/**
+ * 运行时配置 -> 规范 v5 存储快照（configVersion + 四组 + excludes + efforts + userExperience 全显式）。
+ * Node 半 migrate（自愈重写/高版本降级落盘）与浏览器半卡片「保存」共用（单一来源）。
+ * 各组浅拷贝、excludes 复制、`efforts` 引用传递（调用方以写入当刻的实时记忆覆盖传入）；产物仅供立即序列化写入。
+ */
+export function toStored(config: PluginConfig): PluginConfigSnapshot {
+    return {
+        configVersion: CONFIG_VERSION,
+        allowUpdate: { ...config.allowUpdate },
+        autoFill: { ...config.autoFill },
+        compat: { ...config.compat },
+        excludes: [...config.excludes],
+        efforts: config.efforts,
+        userExperience: { ...config.userExperience },
+    }
 }

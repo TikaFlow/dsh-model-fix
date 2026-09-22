@@ -1,10 +1,13 @@
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import { CONFIG_VERSION, MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION, PLUGIN_NAME, PLUGIN_NS } from './constants'
-import { DEFAULT_CONFIG, parseSnapshot, parseVersion, resolveConfig, versionKey } from './config'
-import type { PluginConfig, PluginConfigSnapshot, UserExperienceRules, V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot, VersionedSection } from './types'
-import { isPlainObject } from './types'
+import { MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION } from './constants'
+import { CONFIG_VERSION, PLUGIN_NAME, PLUGIN_NS } from './shared/constants'
+import { resolveConfig } from './config'
+import { DEFAULT_CONFIG, parseSnapshot, parseVersion, toStored, versionKey } from './shared/parse'
+import type { PluginConfigSnapshot, UserExperienceRules, VersionedSection } from './shared/types'
+import type { V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot } from './types'
+import { isPlainObject } from './shared/types'
 
 // ---------- 历史版本（v1）迁移源代码：新命名空间版本快照体系内 v1 快照的冻结形态（见 types.ts 历史版本(v1) 段说明），不引用当前版本的可演进定义。 ----------
 
@@ -212,20 +215,7 @@ export function upgradeConfig(config: unknown, fromVersion: number): PluginConfi
     return upgradeTo5(config, fromVersion)
 }
 
-/** 把运行时配置物化为当前版本的存储快照（configVersion 由本函数补，调用方不手写版本号） */
-export function toStored(config: PluginConfig): PluginConfigSnapshot {
-    return {
-        configVersion: CONFIG_VERSION,
-        allowUpdate: config.allowUpdate,
-        autoFill: config.autoFill,
-        compat: config.compat,
-        excludes: config.excludes,
-        efforts: config.efforts,
-        userExperience: config.userExperience,
-    }
-}
-
-/** 全新用户的规范默认快照（与升级链对空输入的结果一致，由 test 守护） */
+/** 全新用户的规范默认快照（与升级链对空输入的结果一致，由 test 守护）；物化函数单一来源在 src/shared/parse.ts 的 `toStored` */
 export const DEFAULT_STORED: PluginConfigSnapshot = toStored(DEFAULT_CONFIG)
 
 /** 收集段内合法版本号（升序）；不按最低支持过滤，低于最低支持的版本交由 pruneOps Phase A 清理 */

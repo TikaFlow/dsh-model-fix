@@ -1,6 +1,6 @@
 // reset.ts 纯函数测试：重置计划（剔除插件填充字段、排除跳过、零变更零 op）
 import { planResetModels } from '../src/reset'
-import type { PluginConfig } from '../src/types'
+import type { PluginConfig } from '../src/shared/types'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { check } from './helper'
 

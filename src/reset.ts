@@ -1,9 +1,11 @@
-import { API_NS, MAX_ATTEMPTS, PLUGIN_NAME, PLUGIN_NS } from './constants'
-import { resolveConfig, DEFAULT_CONFIG } from './config'
+import { MAX_ATTEMPTS } from './constants'
+import { API_NS, PLUGIN_NAME, PLUGIN_NS } from './shared/constants'
+import { resolveConfig } from './config'
+import { DEFAULT_CONFIG } from './shared/parse'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import type { PluginConfig } from './types'
-import { isPlainObject } from './types'
+import type { PluginConfig } from './shared/types'
+import { isPlainObject } from './shared/types'
 import { startIgnoreAll, endIgnoreAll } from './guard'
 
 /** 插件可能填充的模型字段（用户自定义字段不动） */

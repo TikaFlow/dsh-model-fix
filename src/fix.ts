@@ -4,10 +4,12 @@ import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { getCatalog } from './catalog'
 import { planProviderCompat } from './compat'
 import { lookup, toReasoningEfforts } from './lookup'
-import { API_NS, CONFIG_VERSION, DEVELOPER_COMPAT_APIS, MAX_ATTEMPTS, PLUGIN_NAME, PLUGIN_NS } from './constants'
-import { getConfig, versionKey } from './config'
-import { isCapacity, isPlainObject } from './types'
-import type { EffortMemory } from './types'
+import { DEVELOPER_COMPAT_APIS, MAX_ATTEMPTS } from './constants'
+import { API_NS, CONFIG_VERSION, PLUGIN_NAME, PLUGIN_NS } from './shared/constants'
+import { getConfig } from './config'
+import { versionKey } from './shared/parse'
+import { isCapacity } from './types'
+import { isPlainObject, type EffortMemory } from './shared/types'
 
 /** 剔除空 input/compat：两者在 harness 语义上等同缺失，删除无损，操作幂等 */
 function stripEmptyArtifacts(model: Record<string, unknown>): Record<string, unknown> {

@@ -37,7 +37,8 @@ import type {} from './slot-contract'
 import type { ClientRpcCall } from '../shared/types'
 import { Card } from './card'
 import { CARD_NS, en, zh } from './locales'
-import { MODEL_FIX_NS, PI_AI_NS, VERSION_KEY, decodeSection } from './model'
+import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS } from '../shared/constants'
+import { VERSION_KEY, decodeSection } from './model'
 import type { Flags } from './model'
 import { applyEffort, classifyTransition, sameSelection } from './effort'
 import type { ModelDirectoriesLike, SelectionLike, SessionsLike } from './effort'
@@ -45,7 +46,7 @@ import type { ModelDirectoriesLike, SelectionLike, SessionsLike } from './effort
 /** 提供方 scope 的解码占位值：本卡只消费 snapshot.user（原始用户层），value 无用途；decode 必须永不返回 undefined */
 const PROVIDERS_VIEW: readonly unknown[] = []
 
-export const name = 'dsh-model-fix'
+export const name = PLUGIN_NAME
 export const inject = ['slots', 'locale', 'settingsScope', 'connection']
 
 export function apply(ctx: ClientContext): void {
@@ -54,8 +55,8 @@ export function apply(ctx: ClientContext): void {
     const scope = ctx.settingsScope.bind<Flags>({ namespace: MODEL_FIX_NS, decode: decodeSection })
     // 提供方 id 来源：user 层随宿主 settings/invalidation 推送自动更新，卡片订阅即可拿到最新命中状态
     const providersScope = ctx.settingsScope.bind<readonly unknown[]>({ namespace: PI_AI_NS, decode: () => PROVIDERS_VIEW })
-    // 强制更新 / 重置模型 / 恢复备份 RPC：channel 用浏览器半 NS 字面量拼（禁值导入 Node 半 constants），
-    // 与 src/rpc.ts 的 `/${PLUGIN_NS}` 配对（endpoint 名须与 rpc.ts 两侧同步），改动须两侧同步
+    // 强制更新 / 重置模型 / 恢复备份 RPC：channel 与 src/rpc.ts 的 `/${PLUGIN_NS}` 同源
+    // （两侧同取 src/shared/constants.ts 的 PLUGIN_NS，改常量即两侧同步；endpoint 名须与 rpc.ts 两侧同步）
     const rpc = (ctx.get('connection') as { rpc: { call: ClientRpcCall } }).rpc
     const forceUpdate = () => rpc.call(`/${MODEL_FIX_NS}`, 'forceUpdate', {})
     const resetModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'resetModels', {})

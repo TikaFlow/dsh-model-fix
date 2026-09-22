@@ -8,7 +8,7 @@ import {
     sameSelection,
 } from '../src/client/effort'
 import type { GroupLike } from '../src/client/effort'
-import type { EffortMemory } from '../src/types'
+import type { EffortMemory } from '../src/shared/types'
 
 /** 执行本文件的全部用例 */
 export function run(): void {

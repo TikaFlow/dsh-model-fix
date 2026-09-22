@@ -1,12 +1,9 @@
 import z from '@deepseek-ai/schemastery'
-import { CONFIG_VERSION, MIN_SUPPORTED_VERSION } from './constants'
-import type { PluginConfig, VersionedSection } from './types'
-import { isPlainObject } from './types'
+import { MIN_SUPPORTED_VERSION } from './constants'
+import { CONFIG_VERSION } from './shared/constants'
+import type { PluginConfig, VersionedSection } from './shared/types'
+import { isPlainObject } from './shared/types'
 import { DEFAULT_CONFIG, parseSnapshot, parseVersion } from './shared/parse'
-
-// 跨半共享：当前版本配置解析的单一来源在 src/shared/parse.ts；此处 facade 再导出以维持 migrate.ts / reset.ts 等的既有导入路径
-export { DEFAULT_CONFIG, parseSnapshot, parseVersion }
-export { parseEfforts, versionKey } from './shared/parse'
 
 /** 命名空间下的默认段值（版本快照容器） */
 export const DEFAULT_SECTION: VersionedSection = {}

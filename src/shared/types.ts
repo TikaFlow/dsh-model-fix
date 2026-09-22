@@ -1,9 +1,9 @@
 /**
  * 跨半共享的类型声明与纯类型守卫（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）。
- * 浏览器半以 type-only 导入（构建期擦除）；Node 半经 `src/types.ts` facade 再导出本文件的项，
- * 与 Node 专属类型（`ModelEntry` / `CacheRecord` / 冻结历史 v1–v4 / `isCapacity` 等）并存。
+ * 两半均**直连**本层（Node 半 `./shared/types`、浏览器半 `../shared/types`），不经任何 facade 中转；
+ * Node 专属类型（`ModelEntry` / `CacheRecord` / 冻结历史 v1–v4 / `isCapacity` 等）留在 `src/types.ts`。
  *
- * `isPlainObject` 是值导出（两半均用），必须保持纯函数。Connection RPC 契约类型是宿主
+ * `isPlainObject` / `providersOf` 是值导出（两半均用），必须保持纯函数。Connection RPC 契约类型是宿主
  * `@deepseek-ai/dsh-client-connection` / `dsh-host-webserver` 的**结构本地复制**而非依赖：
  * 仅 type-only 使用（运行期服务经 `ctx` 注入取得，不 import 宿主值），宿主契约变化时须同步本段。
  */
@@ -13,6 +13,16 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
     const proto: unknown = Object.getPrototypeOf(value)
     return proto === Object.prototype || proto === null
+}
+
+/**
+ * 从 `llm-pi-ai` 的 user 层收窄取 `providers` 段（Node 半 restore 的捕获/恢复与浏览器半 `providerIdsOf`
+ * 的命中判定共用同一口径，杜绝两处形状错配）。user 非纯对象、无 providers 或 providers 非纯对象一律返回 undefined。
+ */
+export function providersOf(user: unknown): Record<string, unknown> | undefined {
+    if (!isPlainObject(user)) return undefined
+    const providers = user.providers
+    return isPlainObject(providers) ? providers : undefined
 }
 
 /** 按字段分别控制的规则开关 */

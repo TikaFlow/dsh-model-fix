@@ -11,15 +11,15 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | 路径 | 职责（只标非显而易见的部分） |
 | --- | --- |
 | `src/index.ts` | 仅 `export` + `apply` 生命周期编排，业务全部外拆 |
-| `src/shared/` | **跨半共享层**（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`，浏览器半值导入的唯一跨半来源）：`constants.ts`（`API_NS`/`PLUGIN_NS`/`CONFIG_VERSION`/`VERSION_PREFIX`）、`types.ts`（`isPlainObject` + 共用类型与 Connection RPC 契约）、`parse.ts`（`DEFAULT_CONFIG`/`parseSnapshot`/`parseEfforts`/`parseVersion`/`versionKey` + 各组解析函数与行键表） |
-| `src/types.ts` | Node 专属类型：models.dev 目录类型（`ModelEntry`/`CacheRecord`/…）、`isCapacity`、**冻结历史版本(v1-v4) 形态**；facade 再导出 `src/shared/types.ts` 的共用类型与 `isPlainObject` |
-| `src/constants.ts` | Node 专属常量（`CACHE_FILE` 带 `node:path`、`PLUGIN_NAME`、保留上限、重试参数、`CAPACITY_UNLIMITED`、`HINTS`、兼容性落点 `DEVELOPER_COMPAT_APIS` / `DEVELOPER_COMPAT_FIELD`）；facade 再导出 `src/shared/constants.ts` 的 4 个共享常量 |
-| `src/config.ts` / `src/migrate.ts` | `resolveConfig`/配置源 + `SectionSchema`（宽松 dict，installSection 注册用）/ 升级链与 `migrateConfig` 编排；`src/config.ts` facade 再导出 `src/shared/parse.ts` 的 `parseSnapshot`/`DEFAULT_CONFIG` 等 |
+| `src/shared/` | **跨半共享层**（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`，两半值导入的唯一跨半来源，不经任何 facade 中转）：`constants.ts`（`API_NS`/`PLUGIN_NS`/`PLUGIN_NAME`/`CONFIG_VERSION`/`VERSION_PREFIX`）、`types.ts`（`isPlainObject`/`providersOf` + 共用类型与 Connection RPC 契约）、`parse.ts`（`DEFAULT_CONFIG`/`parseSnapshot`/`parseEfforts`/`parseVersion`/`versionKey`/`toStored` + 各组解析函数与行键表） |
+| `src/types.ts` | Node 专属类型：models.dev 目录类型（`ModelEntry`/`CacheRecord`/…）、`isCapacity`、**冻结历史版本(v1-v4) 形态**（共用类型与守卫直连 `src/shared/types.ts`） |
+| `src/constants.ts` | Node 专属常量（`CACHE_FILE` 带 `node:path`、保留上限、重试参数、`CAPACITY_UNLIMITED`、`HINTS`、兼容性落点 `DEVELOPER_COMPAT_APIS` / `DEVELOPER_COMPAT_FIELD`）；共享常量直连 `src/shared/constants.ts` |
+| `src/config.ts` / `src/migrate.ts` | `resolveConfig`/配置源 + `SectionSchema`（宽松 dict，installSection 注册用）/ 升级链与 `migrateConfig` 编排、`DEFAULT_STORED` 规范默认快照（物化函数 `toStored` 单一来源在 `src/shared/parse.ts`，两半直连） |
 | `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
 | `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 两类 op 同批提交；`excludes` 命中的提供方在 provider 循环入口即整条跳过（两类 op 与 force 一起被排除，故不在各分支重复判断）；同一两层循环顺带**重建 `efforts` 记忆**（清除已删除模型/提供方的记忆，`excludes` 命中者在跳过处单独循环其模型同样重建、不产生对该提供方的写回；与旧值相同零写入，不同才以自有 NS 的 revision 写回 `version-N.efforts`，见「设计裁决」） |
 | `src/reset.ts` | 重置模型：仅剔除各非排除 provider 模型上的插件填充字段（`reasoningEfforts`/容量/`input`），配置段原样保留（开关不变，重置后改配置仍按原开关触发填充）；`planResetModels` 零 ctx 可单测，`resetModels` 全程打开事件流守卫（`isIgnoreAll`）防写回反向触发填充 |
 | `src/guard.ts` | 事件流守卫（模块级 `ignoreAll` + `startIgnoreAll`/`endIgnoreAll`/`isIgnoreAll`）：重置与恢复共用的写回保护，`index.ts` 两事件入口最先判定 |
-| `src/restore.ts` | 恢复备份：`captureBackup` 仅在 `apply` 最顶部（先于 `installSection`）读一次 `llm-pi-ai` 的 **`providers` 段**并深拷贝为内存备份（不写盘，重启重建；绝不做延迟补捕，见设计裁决）；`providersOf` 为捕获与恢复共用的收窄口径；`planRestore` 零 ctx 可单测，按**交集**语义只回退「备份与当前都存在」的 provider+model；`restoreModels` 与 reset 同样全程开守卫 |
+| `src/restore.ts` | 恢复备份：`captureBackup` 仅在 `apply` 最顶部（先于 `installSection`）读一次 `llm-pi-ai` 的 **`providers` 段**并深拷贝为内存备份（不写盘，重启重建；绝不做延迟补捕，见设计裁决）；`providersOf` 收窄口径单一来源在 `src/shared/types.ts`（捕获与恢复共用）；`planRestore` 零 ctx 可单测，按**交集**语义只回退「备份与当前都存在」的 provider+model；`restoreModels` 与 reset 同样全程开守卫 |
 | `src/compat.ts` | 兼容性规则 → provider 路由 `compat` 的纯写入计划（添加 / 移除 / 删空整段 unset），零 ctx 依赖故可单测 |
 | `src/rpc.ts` / `src/rpc-route.ts` / `src/refresh.ts` | 三个 RPC 端点（`forceUpdate` 强制更新 / `resetModels` 重置模型 / `restoreModels` 恢复备份，以守卫互斥）/ 自注册 channel 路由（围栏 + 信封，见「设计裁决」）/ 刷新编排（含重试） |
 | `src/client/` | 浏览器半：`index.tsx` 入口（词典/两个 scope/RPC 载体/槽注册/记忆监听子 fiber）、`card.tsx` 卡片（四张布尔瓦片 + 一张排除集合瓦片 + footer 的「强制更新 / 重置模型」两危险键与「恢复备份」次级键；瓦片顺序由本地 `TILE_ORDER` 单一分发，排除集合夹在兼容性与用户体验之间）、`model.ts` 快照↔配置（四组布尔 + `excludes` + `efforts`）与命中判定的纯映射、`effort.ts` 每模型推理级别记忆的纯逻辑（`classifyTransition` / `lookupEffort` / `applyEffort` / `advertisesEffort` / `sameSelection`）、`locales.ts` 中英词典 |
@@ -30,7 +30,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 
 ### 跨半与宿主契约
 
-- **跨半共享层 `src/shared/`**（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）：常量（`API_NS`/`PLUGIN_NS`/`CONFIG_VERSION`/`VERSION_PREFIX`）、类型与守卫（`isPlainObject`/`PluginConfig`/Connection RPC 契约）、当前版本解析（`parseSnapshot`/`parseEfforts`/`parseVersion`/`versionKey`/`DEFAULT_CONFIG`）的单一来源。Node 半（`src/constants.ts`/`src/types.ts`/`src/config.ts`）以 facade 再导出，Node 模块与测试的导入路径不变；浏览器半值导入 `../shared/*`（不能用 Node facade，因 `src/constants.ts` 含 `node:path`）。`tsdown.config.ts` 的**双向**纯度门禁：client 半只放行 `../shared` 的值导入（其余 `../` 抛错，防 `node:path`/schemastery 进浏览器包；type-only 被擦除不受限），node 半禁止依赖 `src/client`（防反向耦合）。provider id 的合法性正则 `EXCLUDE_ID_PATTERN` 仍是宿主 models 页 `ROUTE_PATTERN` 的字面复制（跨仓复制无法消除），升宿主须复核。
+- **跨半共享层 `src/shared/`**（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）：常量（`API_NS`/`PLUGIN_NS`/`PLUGIN_NAME`/`CONFIG_VERSION`/`VERSION_PREFIX`）、类型与守卫（`isPlainObject`/`providersOf`/`PluginConfig`/Connection RPC 契约）、当前版本解析与物化（`parseSnapshot`/`parseEfforts`/`parseVersion`/`versionKey`/`DEFAULT_CONFIG`/`toStored`）的单一来源。两半均**直连**本层（Node 半 `./shared/*`、浏览器半 `../shared/*`），任何半不得中转再导出。`tsdown.config.ts` 的**双向**纯度门禁：client 半只放行 `../shared` 的值导入（其余 `../` 抛错，防 `node:path`/schemastery 进浏览器包；type-only 被擦除不受限），node 半禁止依赖 `src/client`（防反向耦合）。provider id 的合法性正则 `EXCLUDE_ID_PATTERN` 仍是宿主 models 页 `ROUTE_PATTERN` 的字面复制（跨仓复制无法消除），升宿主须复核。
 - 浏览器半 externals 只允许宿主模块表基线那几项，其余一律打进包；基线权威列表在宿主 `packages/client/web/src/platform.ts`，漂移的后果是运行期 `require` 未命中。
 - `package.json` 的 `dsh.client.inject` 是**依赖包图边**（填槽位所有者包），不是 cordis 服务名；服务名只写在 `src/client/index.tsx` 的 `export const inject`。
 - 浏览器半产物必须复刻宿主 client 的闭包工厂契约（`window.__ModuleLoader__.load` + banner/intro/footer 三段）。声明了 `dsh.client` 后，缺 `lib/client.js` 会让宿主**激活期聚合抛错** ⇒ **build 必须先于 link/安装到宿主**。

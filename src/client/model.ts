@@ -6,13 +6,9 @@
  */
 
 import type { PluginConfig } from '../shared/types'
-import { isPlainObject } from '../shared/types'
-import { API_NS as PI_AI_NS, PLUGIN_NS as MODEL_FIX_NS, CONFIG_VERSION } from '../shared/constants'
+import { isPlainObject, providersOf } from '../shared/types'
+import { CONFIG_VERSION } from '../shared/constants'
 import { DEFAULT_CONFIG, FIELD_KEYS, COMPAT_KEYS, USER_EXPERIENCE_KEYS, parseSnapshot, versionKey } from '../shared/parse'
-
-// 公共 API 再导出（卡片、index.tsx 与测试经 ./model 取用，保持既有导入路径）
-export { MODEL_FIX_NS, PI_AI_NS, CONFIG_VERSION }
-export { DEFAULT_CONFIG as DEFAULT_FLAGS }
 
 /** 版本快照键 */
 export const VERSION_KEY = versionKey(CONFIG_VERSION)
@@ -46,19 +42,6 @@ export type Flags = PluginConfig
  */
 export function decodeSection(section: unknown): Flags {
     return isPlainObject(section) ? parseSnapshot(section[VERSION_KEY]) ?? DEFAULT_CONFIG : DEFAULT_CONFIG
-}
-
-/** 配置 -> 规范 v5 存储快照（configVersion + 三组布尔 + 排除列表 + 每模型推理级别记忆 + 用户体验全显式，与宿主 DEFAULT_STORED 形态一致） */
-export function snapshotFromFlags(flags: Flags): Record<string, unknown> {
-    return {
-        configVersion: CONFIG_VERSION,
-        allowUpdate: { ...flags.allowUpdate },
-        autoFill: { ...flags.autoFill },
-        compat: { ...flags.compat },
-        excludes: [...flags.excludes],
-        efforts: flags.efforts,
-        userExperience: { ...flags.userExperience },
-    }
 }
 
 /** 组内布尔对象的视图：组的值类型是 union，类型收窄只在此处发生一次 */
@@ -114,10 +97,7 @@ export function isDirty(draft: Flags, saved: Flags): boolean {
  * 故「命中」判定与本插件真实会跳过的集合零漂移）。非纯对象、无 providers 或 providers 非纯对象一律视为空。
  */
 export function providerIdsOf(user: unknown): string[] {
-    if (!isPlainObject(user)) return []
-    const providers = user.providers
-    if (!isPlainObject(providers)) return []
-    return Object.keys(providers)
+    return Object.keys(providersOf(user) ?? {})
 }
 
 /** 命中的排除项集合：既决定标签的命中高亮，其 size 即 summary 徽标的命中数（未命中项仍生效，只是当前无同名提供方） */

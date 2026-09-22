@@ -1,5 +1,6 @@
 // restore.ts 纯函数测试：providersOf 收窄、恢复计划（交集语义：备份与当前都存在的 provider+model 才恢复）
-import { planRestore, providersOf } from '../src/restore'
+import { planRestore } from '../src/restore'
+import { providersOf } from '../src/shared/types'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { check } from './helper'
 

@@ -30,6 +30,8 @@ import { Button, IconChevronDownOutline14, Modal } from '@deepseek-ai/dsh-client
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RpcResult } from '../shared/types'
+import { PLUGIN_NAME } from '../shared/constants'
+import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '../shared/parse'
 
 /**
  * 排除项删除钮的字形：逐字复刻官方 models 页模型行删除的本地自绘 `IconTrash`（线稿：
@@ -50,7 +52,6 @@ function IconTrash() {
     )
 }
 import {
-    DEFAULT_FLAGS,
     EXCLUDE_ID_PATTERN,
     GROUP_KEYS,
     VERSION_KEY,
@@ -62,7 +63,6 @@ import {
     providerIdsOf,
     removeExclude,
     resolveHits,
-    snapshotFromFlags,
     toggleCell,
 } from './model'
 import type { CardKey } from './locales'
@@ -230,7 +230,7 @@ function ensureStyles(): void {
     }
     const tag = document.createElement('style')
     tag.id = STYLE_ID
-    tag.dataset.plugin = 'dsh-model-fix'
+    tag.dataset.plugin = PLUGIN_NAME
     tag.textContent = STYLE_TEXT
     document.head.appendChild(tag)
     stylesInjected = true
@@ -572,7 +572,7 @@ export function Card(props: CardProps) {
         // efforts 取写入当刻的实时值：它是监听器维护的运行时记忆、卡片不拥有它，用草稿里的旧快照
         // 会把「开卡后切过模型」的那段记忆覆盖回去
         const liveEfforts = scope.getSnapshot().value?.efforts
-        void scope.set(VERSION_KEY, snapshotFromFlags({ ...shown, efforts: liveEfforts ?? shown.efforts }))
+        void scope.set(VERSION_KEY, toStored({ ...shown, efforts: liveEfforts ?? shown.efforts }))
             .then(() => {
                 // 官方 card-form 的范式是写后读回核对：值真被宿主接受才算成功并发提示，
                 // 未落地则保持「未保存」胶囊与展开态，不误报成功

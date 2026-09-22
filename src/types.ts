@@ -1,32 +1,11 @@
 /**
  * Node 半类型定义与纯类型守卫。
  *
- * 跨半共享的类型（`FieldRules`/`CompatRules`/`UserExperienceRules`/`EffortMemory`/`PluginConfig`/
- * `PluginConfigSnapshot`/`VersionedSection`、Connection RPC 契约、`isPlainObject`）单一来源在
- * `src/shared/types.ts`；此处 facade 再导出以维持 Node 侧与测试的既有导入路径。
- * 本文件保留 Node 专属：models.dev 目录类型（`ModelEntry`/`CacheRecord`/…）、`isCapacity`、
- * 冻结历史版本（v1–v4）快照形态。
+ * 本文件只保留 Node 专属：models.dev 目录类型（`ModelEntry`/`CacheRecord`/…）、`isCapacity`、
+ * 冻结历史版本（v1–v4）快照形态。跨半共享类型与守卫单一来源在 `src/shared/types.ts`，两半均直连。
  */
 
 import { CAPACITY_UNLIMITED } from './constants'
-
-// 跨半共享：值（isPlainObject）与类型，单一来源在 src/shared/types.ts
-export { isPlainObject } from './shared/types'
-export type {
-    FieldRules,
-    CompatRules,
-    UserExperienceRules,
-    EffortMemory,
-    PluginConfig,
-    PluginConfigSnapshot,
-    VersionedSection,
-    RpcResult,
-    HostRequestRejection,
-    HostWebServerRegister,
-    HostHttpRequest,
-    HostHttpResponse,
-    ClientRpcCall,
-} from './shared/types'
 
 /** models.dev 单条条目的推理、容量与模态解析结果 */
 export interface ModelEntry {

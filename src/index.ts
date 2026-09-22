@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { readCache, setCatalog } from './catalog'
-import { PLUGIN_NS, API_NS, PLUGIN_NAME } from './constants'
+import { PLUGIN_NS, API_NS, PLUGIN_NAME } from './shared/constants'
 import { DEFAULT_SECTION, SectionSchema, resolveConfig, setConfigSource } from './config'
 import { migrateConfig, selfHealConfig } from './migrate'
 import { refreshIfStale } from './refresh'

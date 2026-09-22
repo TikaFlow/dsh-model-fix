@@ -1,12 +1,6 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// 跨半共享常量（单一来源在 src/shared/constants.ts；此处 facade 再导出以维持 Node 侧与测试的既有导入路径）
-export { API_NS, PLUGIN_NS, CONFIG_VERSION, VERSION_PREFIX } from './shared/constants'
-
-/** 插件名，同时用作日志前缀 */
-export const PLUGIN_NAME = 'dsh-model-fix'
-
 /** 最低支持（可升级读取）的版本；低于此值的版本快照视为已失效（运行时不读取、迁移时清理） */
 export const MIN_SUPPORTED_VERSION = 1
 /**
