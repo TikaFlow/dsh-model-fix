@@ -5,10 +5,11 @@ import { check, stable } from './helper'
 
 /** 执行本文件的全部用例 */
 export function run(): void {
-    // 台阶补的默认值：compat 组自 v3 起存在、excludes 自 v4 起存在、efforts 自 v5 起存在
+    // 台阶补的默认值：compat 组自 v3 起存在、excludes 自 v4 起存在、efforts 与 userExperience 自 v5 起存在
     const COMPAT = { disableDeveloper: true }
     const EXCLUDES: string[] = []
     const EFFORTS: Record<string, Record<string, string>> = {}
+    const USER_EXPERIENCE = { rememberEfforts: true }
 
     // ---------- v1 → v5：先按 v1 冻结 schema 解析（补 image 默认），再经 v2 → v3 补 compat、v3 → v4 补 excludes、v4 → v5 补 efforts ----------
     check('v1 快照沿链升到 v5', stable(upgradeConfig({ configVersion: 1, allowUpdate: { reasoning: true, context: false }, autoFill: { reasoning: false, context: true } }, 1)) === stable({
@@ -18,6 +19,7 @@ export function run(): void {
         compat: COMPAT,
         excludes: EXCLUDES,
         efforts: EFFORTS,
+        userExperience: USER_EXPERIENCE,
     }), upgradeConfig({ configVersion: 1, allowUpdate: { reasoning: true, context: false }, autoFill: { reasoning: false, context: true } }, 1))
     check('v1 快照省略 autoFill 整项落默认', stable(upgradeConfig({ configVersion: 1, allowUpdate: { reasoning: true, context: true } }, 1)) === stable({
         configVersion: 5,
@@ -26,6 +28,7 @@ export function run(): void {
         compat: COMPAT,
         excludes: EXCLUDES,
         efforts: EFFORTS,
+        userExperience: USER_EXPERIENCE,
     }), upgradeConfig({ configVersion: 1, allowUpdate: { reasoning: true, context: true } }, 1))
     check('v1 垃圾输入回 v1 默认再升满链', stable(upgradeConfig('garbage', 1)) === stable({
         configVersion: 5,
@@ -34,6 +37,7 @@ export function run(): void {
         compat: COMPAT,
         excludes: EXCLUDES,
         efforts: EFFORTS,
+        userExperience: USER_EXPERIENCE,
     }), upgradeConfig('garbage', 1))
 
     // ---------- v2 → v5：六布尔原样沿用，补 compat（v2 无该对象）、excludes（v4 起）、efforts（v5 起） ----------
@@ -42,13 +46,14 @@ export function run(): void {
         allowUpdate: { reasoning: true, context: false, image: true },
         autoFill: { reasoning: false, context: true, image: false },
     }
-    check('v2 快照升到 v5 并补 compat / excludes / efforts 默认', stable(upgradeConfig(v2Stored, 2)) === stable({
+    check('v2 快照升到 v5 并补 compat / excludes / efforts / userExperience 默认', stable(upgradeConfig(v2Stored, 2)) === stable({
         configVersion: 5,
         allowUpdate: v2Stored.allowUpdate,
         autoFill: v2Stored.autoFill,
         compat: COMPAT,
         excludes: EXCLUDES,
         efforts: EFFORTS,
+        userExperience: USER_EXPERIENCE,
     }), upgradeConfig(v2Stored, 2))
     check('v2 快照缺字段按整项默认补齐后升 v5', stable(upgradeConfig({ autoFill: { reasoning: true } }, 2)) === stable({
         configVersion: 5,
@@ -57,9 +62,10 @@ export function run(): void {
         compat: COMPAT,
         excludes: EXCLUDES,
         efforts: EFFORTS,
+        userExperience: USER_EXPERIENCE,
     }), upgradeConfig({ autoFill: { reasoning: true } }, 2))
 
-    // ---------- v3 → v5：三组布尔与 compat 原样沿用，补 excludes（v4 起）与 efforts（v5 起） ----------
+    // ---------- v3 → v5：三组布尔与 compat 原样沿用，补 excludes（v4 起）与 efforts / userExperience（v5 起） ----------
     const v3Stored = {
         configVersion: 3,
         allowUpdate: { reasoning: true, context: false, image: false },
@@ -73,6 +79,7 @@ export function run(): void {
         compat: { disableDeveloper: false },
         excludes: EXCLUDES,
         efforts: EFFORTS,
+        userExperience: USER_EXPERIENCE,
     }), upgradeConfig(v3Stored, 3))
     // v3 的 compat 段按 v3 冻结 schema 解析：缺键落 v3 默认，非布尔整段回 v3 默认（不牵连其他组）
     check('v3 输入 compat 非布尔回 v3 默认', stable(upgradeConfig({ autoFill: { reasoning: true }, compat: 'x' }, 3)) === stable({
@@ -82,6 +89,7 @@ export function run(): void {
         compat: COMPAT,
         excludes: EXCLUDES,
         efforts: EFFORTS,
+        userExperience: USER_EXPERIENCE,
     }), upgradeConfig({ autoFill: { reasoning: true }, compat: 'x' }, 3))
     check('v3 垃圾输入回 v3 默认再补 excludes / efforts', stable(upgradeConfig('garbage', 3)) === stable({
         configVersion: 5,
@@ -90,11 +98,12 @@ export function run(): void {
         compat: COMPAT,
         excludes: EXCLUDES,
         efforts: EFFORTS,
+        userExperience: USER_EXPERIENCE,
     }), upgradeConfig('garbage', 3))
-    // 台阶产物形态恒定：即便未来默认演进，v5 台阶补的仍是空对象
-    check('升级产物不携带用户段之外的多余键', Object.keys(upgradeConfig(v3Stored, 3)).sort().join(',') === 'allowUpdate,autoFill,compat,configVersion,efforts,excludes', upgradeConfig(v3Stored, 3))
+    // 台阶产物形态恒定：即便未来默认演进，v5 台阶补的仍是空对象与默认开关
+    check('升级产物不携带用户段之外的多余键', Object.keys(upgradeConfig(v3Stored, 3)).sort().join(',') === 'allowUpdate,autoFill,compat,configVersion,efforts,excludes,userExperience', upgradeConfig(v3Stored, 3))
 
-    // ---------- v4 → v5：三组布尔 + compat + excludes 原样沿用，补 efforts ----------
+    // ---------- v4 → v5：三组布尔 + compat + excludes 原样沿用，补 efforts 与 userExperience ----------
     const v4Stored = {
         configVersion: 4,
         allowUpdate: { reasoning: true, context: false, image: true },
@@ -109,22 +118,25 @@ export function run(): void {
         compat: { disableDeveloper: false },
         excludes: ['acme-gateway'],
         efforts: EFFORTS,
+        userExperience: USER_EXPERIENCE,
     }), upgradeConfig(v4Stored, 4))
-    check('v4 快照省略 efforts 落空对象', stable(upgradeConfig(v4Stored, 4)) === stable({
+    check('v4 快照省略 efforts 落空对象、省略 userExperience 落默认开关', stable(upgradeConfig(v4Stored, 4)) === stable({
         configVersion: 5,
         allowUpdate: v4Stored.allowUpdate,
         autoFill: v4Stored.autoFill,
         compat: { disableDeveloper: false },
         excludes: ['acme-gateway'],
         efforts: {},
+        userExperience: { rememberEfforts: true },
     }), upgradeConfig(v4Stored, 4))
-    check('v4 垃圾输入回 v4 默认再补 efforts', stable(upgradeConfig('garbage', 4)) === stable({
+    check('v4 垃圾输入回 v4 默认再补 efforts / userExperience', stable(upgradeConfig('garbage', 4)) === stable({
         configVersion: 5,
         allowUpdate: { reasoning: false, context: false, image: false },
         autoFill: { reasoning: true, context: true, image: true },
         compat: COMPAT,
         excludes: EXCLUDES,
         efforts: EFFORTS,
+        userExperience: USER_EXPERIENCE,
     }), upgradeConfig('garbage', 4))
 
     // ---------- 守卫：低于最低支持版本的输入由链上台阶拒绝 ----------
@@ -140,12 +152,13 @@ export function run(): void {
     check('DEFAULT_STORED 与升级链空输入一致', stable(DEFAULT_STORED) === stable(upgradeConfig({}, 1)), { DEFAULT_STORED, chain: upgradeConfig({}, 1) })
 
     // toStored：运行时配置 -> 当前版本快照（自愈重写与全新用户直写的唯一构造口）
-    check('toStored 补 configVersion 且含三组布尔与排除列表与 efforts', stable(toStored({
+    check('toStored 补 configVersion 且含三组布尔与排除列表与 efforts 与 userExperience', stable(toStored({
         autoFill: { reasoning: false, context: true, image: false },
         allowUpdate: { reasoning: true, context: false, image: true },
         compat: { disableDeveloper: false },
         excludes: ['acme-gateway'],
         efforts: { 'z-ai': { 'glm-5.2': 'high' } },
+        userExperience: { rememberEfforts: false },
     })) === stable({
         configVersion: 5,
         autoFill: { reasoning: false, context: true, image: false },
@@ -153,13 +166,15 @@ export function run(): void {
         compat: { disableDeveloper: false },
         excludes: ['acme-gateway'],
         efforts: { 'z-ai': { 'glm-5.2': 'high' } },
-    }), toStored({ autoFill: { reasoning: false, context: true, image: false }, allowUpdate: { reasoning: true, context: false, image: true }, compat: { disableDeveloper: false }, excludes: ['acme-gateway'], efforts: { 'z-ai': { 'glm-5.2': 'high' } } }))
+        userExperience: { rememberEfforts: false },
+    }), toStored({ autoFill: { reasoning: false, context: true, image: false }, allowUpdate: { reasoning: true, context: false, image: true }, compat: { disableDeveloper: false }, excludes: ['acme-gateway'], efforts: { 'z-ai': { 'glm-5.2': 'high' } }, userExperience: { rememberEfforts: false } }))
     check('DEFAULT_STORED 即 toStored(默认配置)', stable(DEFAULT_STORED) === stable(toStored({
         autoFill: { reasoning: true, context: true, image: true },
         allowUpdate: { reasoning: false, context: false, image: false },
         compat: { disableDeveloper: true },
         excludes: [],
         efforts: {},
+        userExperience: { rememberEfforts: true },
     })), DEFAULT_STORED)
     check('DEFAULT_STORED 的 configVersion 为当前版本', DEFAULT_STORED.configVersion === 5, DEFAULT_STORED)
 
@@ -177,6 +192,7 @@ export function run(): void {
         compat: { disableDeveloper: false },
         excludes: ['x'],
         efforts: {},
+        userExperience: { rememberEfforts: true },
     }), resolveConfig(healed))
     // 无任何可用快照时自愈为默认（回退语义：不静默保留坏值）
     const allBroken = { 'version-5': 42, 'version-9': { future: true } }

@@ -1,13 +1,13 @@
 /**
- * 浏览器半纯映射层：`tikaflow-model-fix` 版本快照段 <-> 卡片配置（autoFill / allowUpdate / compat 三组布尔 + excludes 列表）。
+ * 浏览器半纯映射层：`tikaflow-model-fix` 版本快照段 <-> 卡片配置（autoFill / allowUpdate / compat / userExperience 四组布尔 + excludes 列表）。
  * 零外部值依赖（不引 src/constants、src/types 的值，避免 node:path 等被打进浏览器包），
  * 只读当前版本快照（Node 半迁移保证其存在；缺失/非法回退默认）。
  */
 
-import type { CompatRules, FieldRules, PluginConfig } from '../types'
+import type { CompatRules, FieldRules, PluginConfig, UserExperienceRules } from '../types'
 
 /** 本插件的配置命名空间（与 src/constants.ts 的 PLUGIN_NS 字面量一致）；
- * 浏览器半另以 `/${MODEL_FIX_NS}` 拼 RPC channel（强制更新 / 重置模型 / 恢复备份 / 记住推理级别四端点），与 src/rpc.ts 的 `/${PLUGIN_NS}` 配对，改动须两侧同步 */
+ * 浏览器半另以 `/${MODEL_FIX_NS}` 拼 RPC channel（强制更新 / 重置模型 / 恢复备份三端点），与 src/rpc.ts 的 `/${PLUGIN_NS}` 配对，改动须两侧同步 */
 export const MODEL_FIX_NS = 'tikaflow-model-fix'
 
 /** 提供方所在的宿主配置命名空间（与 src/constants.ts 的 API_NS 字面量一致）：仅用于读 user 层提供方 id 以判定排除项是否命中 */
@@ -28,24 +28,28 @@ const FIELD_KEYS = ['reasoning', 'context', 'image'] as const
 /** 兼容性规则键（compat 组的行）；后续同组新增兼容性配置在此追加即可，不需要递增 CONFIG_VERSION */
 const COMPAT_KEYS = ['disableDeveloper'] as const
 
+/** 用户体验组的行键；同组新增前端行为开关在此追加即可，不需要递增 CONFIG_VERSION */
+const USER_EXPERIENCE_KEYS = ['rememberEfforts'] as const
+
 /** 组内行键全集（词典键映射与各组行表的类型） */
-export type RowKey = (typeof FIELD_KEYS)[number] | (typeof COMPAT_KEYS)[number]
+export type RowKey = (typeof FIELD_KEYS)[number] | (typeof COMPAT_KEYS)[number] | (typeof USER_EXPERIENCE_KEYS)[number]
 
 /** 模型参数的两个列名（对应快照的 autoFill / allowUpdate 组） */
 type Column = 'autoFill' | 'allowUpdate'
 
-/** 瓦片对应的配置组：两个填充列 + 兼容性组 */
-export type Group = Column | 'compat'
+/** 瓦片对应的配置组：两个填充列 + 兼容性组 + 用户体验组 */
+export type Group = Column | 'compat' | 'userExperience'
 
 /** 各组行键表（渲染顺序与总控共用） */
 export const GROUP_KEYS: Record<Group, readonly RowKey[]> = {
     autoFill: FIELD_KEYS,
     allowUpdate: FIELD_KEYS,
     compat: COMPAT_KEYS,
+    userExperience: USER_EXPERIENCE_KEYS,
 }
 
-/** 全部配置组（= 瓦片渲染顺序，与 COLUMN_KEYS / HINT_KEYS 的枚举一致） */
-export const GROUPS: readonly Group[] = ['autoFill', 'allowUpdate', 'compat']
+/** 全部布尔配置组（脏检测遍历用；瓦片渲染顺序见 card.tsx 的 TILE_ORDER，排除提供方夹在 compat 与 userExperience 之间） */
+export const GROUPS: readonly Group[] = ['autoFill', 'allowUpdate', 'compat', 'userExperience']
 
 /** 全部配置布尔（与 PluginConfig 同形） */
 export type Flags = PluginConfig
@@ -100,13 +104,14 @@ function parseCompat(value: unknown): CompatRules | undefined {
 /** 排除项 id 的合法性规则：逐字复制宿主 models 页新增提供方时的 route id 校验（同一权威规则，两侧不得自行放宽） */
 export const EXCLUDE_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 
-/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性按旧版 API 处理，无排除项，每模型推理级别记忆为空（与 src/config.ts DEFAULT_CONFIG 一致） */
+/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性按旧版 API 处理，无排除项，每模型推理级别记忆为空，记住推理级别开启（与 src/config.ts DEFAULT_CONFIG 一致） */
 export const DEFAULT_FLAGS: Flags = {
     autoFill: { reasoning: true, context: true, image: true },
     allowUpdate: { reasoning: false, context: false, image: false },
     compat: { ...COMPAT_DEFAULTS },
     excludes: [],
     efforts: {},
+    userExperience: { rememberEfforts: true },
 }
 
 /** 解析 excludes 组：整项缺失落空数组；非数组或元素非字符串 => undefined（整段快照非法，镜像 Node 侧 schema 语义） */
@@ -136,6 +141,26 @@ function parseEfforts(value: unknown): Record<string, Record<string, string>> {
     return result
 }
 
+/** 用户体验组的省略字段默认（与 src/config.ts 的 userExperience schema 一致：默认记住推理级别） */
+const USER_EXPERIENCE_DEFAULTS: UserExperienceRules = { rememberEfforts: true }
+
+/** 解析 userExperience 组：整体缺失落默认；非对象、或字段存在但非布尔 => undefined（整段快照非法，镜像 Node 侧 schema 语义） */
+function parseUserExperience(value: unknown): UserExperienceRules | undefined {
+    if (value === undefined) return { ...USER_EXPERIENCE_DEFAULTS }
+    if (!isPlainObject(value)) return
+    const rules = {} as UserExperienceRules
+    for (const key of USER_EXPERIENCE_KEYS) {
+        const field = value[key]
+        if (field === undefined) {
+            rules[key] = USER_EXPERIENCE_DEFAULTS[key]
+            continue
+        }
+        if (typeof field !== 'boolean') return
+        rules[key] = field
+    }
+    return rules
+}
+
 /** 校验并物化当前版本（v5）快照；非法返回 undefined（视为无有效配置） */
 function parseV5(entry: unknown): Flags | undefined {
     if (!isPlainObject(entry)) return
@@ -147,9 +172,11 @@ function parseV5(entry: unknown): Flags | undefined {
     if (!compat) return
     const excludes = parseExcludes(entry.excludes)
     if (!excludes) return
+    const userExperience = parseUserExperience(entry.userExperience)
+    if (!userExperience) return
     // efforts 宽松解析（结构不符回落 {}，不让记忆坏值判整段快照非法）
     const efforts = parseEfforts(entry.efforts)
-    return { allowUpdate, autoFill, compat, excludes, efforts }
+    return { allowUpdate, autoFill, compat, excludes, efforts, userExperience }
 }
 
 /**
@@ -160,7 +187,7 @@ export function decodeSection(section: unknown): Flags {
     return isPlainObject(section) ? parseV5(section[VERSION_KEY]) ?? DEFAULT_FLAGS : DEFAULT_FLAGS
 }
 
-/** 配置 -> 规范 v5 存储快照（configVersion + 三组布尔 + 排除列表 + 每模型推理级别记忆全显式，与宿主 DEFAULT_STORED 形态一致） */
+/** 配置 -> 规范 v5 存储快照（configVersion + 三组布尔 + 排除列表 + 每模型推理级别记忆 + 用户体验全显式，与宿主 DEFAULT_STORED 形态一致） */
 export function snapshotFromFlags(flags: Flags): Record<string, unknown> {
     return {
         configVersion: CONFIG_VERSION,
@@ -169,6 +196,7 @@ export function snapshotFromFlags(flags: Flags): Record<string, unknown> {
         compat: { ...flags.compat },
         excludes: [...flags.excludes],
         efforts: flags.efforts,
+        userExperience: { ...flags.userExperience },
     }
 }
 
@@ -210,7 +238,7 @@ function sameIdList(a: readonly string[], b: readonly string[]): boolean {
     return a.every((id, index) => id === b[index])
 }
 
-/** 三组布尔 + 排除列表逐项比较，判断草稿相对已存配置是否有改动 */
+/** 布尔组 + 排除列表逐项比较，判断草稿相对已存配置是否有改动（userExperience 属布尔组，随 GROUPS 遍历覆盖） */
 export function isDirty(draft: Flags, saved: Flags): boolean {
     for (const group of GROUPS) {
         for (const key of GROUP_KEYS[group]) {

@@ -17,15 +17,18 @@ export type CardKey =
     | 'colAllowUpdate'
     | 'colCompat'
     | 'colExcludes'
+    | 'colUserExperience'
     | 'masterAll'
     | 'hintAutoFill'
     | 'hintAllowUpdate'
     | 'hintCompat'
     | 'hintExcludes'
+    | 'hintUserExperience'
     | 'rowReasoning'
     | 'rowContext'
     | 'rowImage'
     | 'rowDisableDeveloper'
+    | 'rowRememberEfforts'
     | 'excludePlaceholder'
     | 'excludeAdd'
     | 'excludeInvalid'
@@ -78,6 +81,7 @@ export const ROW_KEYS: Record<RowKey, CardKey> = {
     context: 'rowContext',
     image: 'rowImage',
     disableDeveloper: 'rowDisableDeveloper',
+    rememberEfforts: 'rowRememberEfforts',
 }
 
 /** 配置组（瓦片）标题键映射 */
@@ -85,6 +89,7 @@ export const COLUMN_KEYS: Record<Group, CardKey> = {
     autoFill: 'colAutoFill',
     allowUpdate: 'colAllowUpdate',
     compat: 'colCompat',
+    userExperience: 'colUserExperience',
 }
 
 /** 配置组释义键映射（瓦片展开体首行） */
@@ -92,6 +97,7 @@ export const HINT_KEYS: Record<Group, CardKey> = {
     autoFill: 'hintAutoFill',
     allowUpdate: 'hintAllowUpdate',
     compat: 'hintCompat',
+    userExperience: 'hintUserExperience',
 }
 
 export const zh: Record<CardKey, string> = {
@@ -101,15 +107,18 @@ export const zh: Record<CardKey, string> = {
     colAllowUpdate: '允许更新',
     colCompat: '兼容性',
     colExcludes: '排除提供方',
+    colUserExperience: '用户体验',
     masterAll: '全部',
     hintAutoFill: '该参数空缺时自动填充',
     hintAllowUpdate: '按 models.dev 数据同步该参数：空缺时补填，不一致时覆盖',
     hintCompat: '调整与旧版 API 的兼容行为，作用于所有 openai-completions 提供方',
     hintExcludes: '列出的提供方本插件不做任何操作。排除仅在保存后生效，不会撤销此前已写入的内容。',
+    hintUserExperience: '调整插件的交互体验行为，对所有提供方一律生效，不排除任何提供方。',
     rowReasoning: '推理级别',
     rowContext: '上下文与输出',
     rowImage: '图片输入',
     rowDisableDeveloper: '不使用 developer 角色',
+    rowRememberEfforts: '记住推理级别',
     excludePlaceholder: 'acme-gateway',
     excludeAdd: '添加排除的提供方',
     excludeInvalid: '需以小写字母开头，之后可用小写字母、数字和短横线。',
@@ -158,15 +167,18 @@ export const en: Record<CardKey, string> = {
     colAllowUpdate: 'Allow update',
     colCompat: 'Compatibility',
     colExcludes: 'Excluded providers',
+    colUserExperience: 'User experience',
     masterAll: 'all',
     hintAutoFill: 'Auto-fills the parameter when it is missing',
     hintAllowUpdate: 'Syncs the parameter with models.dev data: fills it when missing, overwrites when different',
     hintCompat: 'Adjusts compatibility with older APIs; applies to all openai-completions providers',
     hintExcludes: 'The plugin performs no operation at all on the listed providers. Exclusions take effect only after saving and never revert fields already written.',
+    hintUserExperience: 'Adjusts the plugin interaction experience. Applies to all providers alike; excludes none.',
     rowReasoning: 'Reasoning efforts',
     rowContext: 'Context & output',
     rowImage: 'Image input',
     rowDisableDeveloper: 'Never use the developer role',
+    rowRememberEfforts: 'Remember reasoning efforts',
     excludePlaceholder: 'acme-gateway',
     excludeAdd: 'Add an excluded provider',
     excludeInvalid: 'Start with a lowercase letter; then lowercase letters, digits, and dashes.',

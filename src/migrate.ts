@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { CONFIG_VERSION, MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION, PLUGIN_NAME, PLUGIN_NS } from './constants'
 import { DEFAULT_CONFIG, parseSnapshot, parseVersion, resolveConfig, versionKey } from './config'
-import type { PluginConfig, PluginConfigSnapshot, V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot, VersionedSection } from './types'
+import type { PluginConfig, PluginConfigSnapshot, UserExperienceRules, V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot, VersionedSection } from './types'
 import { isPlainObject } from './types'
 
 // ---------- 历史版本（v1）迁移源代码：新命名空间版本快照体系内 v1 快照的冻结形态（见 types.ts 历史版本(v1) 段说明），不引用当前版本的可演进定义。 ----------
@@ -173,10 +173,11 @@ const V4ConfigSchema: z<Omit<V4PluginConfigSnapshot, 'configVersion'>> = z.objec
 })
 
 /**
- * 每模型推理级别记忆的台阶默认值：v4 无该对象，升级到 v5 时落空对象。
- * 写空字面量而不引用 config.ts 的 DEFAULT_CONFIG.efforts，理由同上（产物形态恒定）。
+ * 每模型推理级别记忆与用户体验规则的台阶默认值：v4 无这两个键，升级到 v5 时落默认。
+ * 写空字面量而不引用 config.ts 的 DEFAULT_CONFIG，理由同上（产物形态恒定）。
  */
 const V5_EFFORTS_DEFAULT: Record<string, Record<string, string>> = {}
+const V5_USER_EXPERIENCE_DEFAULT: UserExperienceRules = { rememberEfforts: true }
 
 /** 升到 v5（当前版本）：低于 v5 的输入先由 upgradeTo4 逐级接力到 v4，再按 v4 冻结 schema 解析（非法整体回退 v4 默认），新增 efforts 对象并落默认 */
 function upgradeTo5(config: unknown, fromVersion: number): PluginConfigSnapshot {
@@ -195,6 +196,7 @@ function upgradeTo5(config: unknown, fromVersion: number): PluginConfigSnapshot 
         compat: { ...parsed.compat },
         excludes: [...parsed.excludes],
         efforts: { ...V5_EFFORTS_DEFAULT },
+        userExperience: { ...V5_USER_EXPERIENCE_DEFAULT },
     }
 }
 
@@ -219,6 +221,7 @@ export function toStored(config: PluginConfig): PluginConfigSnapshot {
         compat: config.compat,
         excludes: config.excludes,
         efforts: config.efforts,
+        userExperience: config.userExperience,
     }
 }
 

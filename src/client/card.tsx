@@ -1,10 +1,10 @@
 /**
  * 模型参数填充卡片（浏览器半）：可折叠卡片，1:1 复刻官方 Web-UI 插件卡（ui-settings-plugins）。
  * header 整块为 `aria-expanded` 按钮（名称 + 描述两行，dirty 时挂「未保存」胶囊；折叠文案只进
- * aria-label，官方同款——视觉只有 chevron，不是死代码）。展开体是四个配置组瓦片（自动填充 /
- * 允许更新 / 兼容性 / 排除提供方），排版照官方「插件列表」项卡：一行两个的栅格、summary 行（组名 +
+ * aria-label，官方同款——视觉只有 chevron，不是死代码）。展开体是五个配置组瓦片（自动填充 /
+ * 允许更新 / 兼容性 / 排除提供方 / 用户体验），排版照官方「插件列表」项卡：一行两个的栅格、summary 行（组名 +
  * 组控件 + 箭头，min-height 52px）、展开体（组释义 + 该组的子控件行，填官方 .cardDetails 的模块底色）。
- * 前三张同形（布尔矩阵：组内任一为开即显示开，点击整组同置）；第四张是动态集合瓦片——summary 的开关位
+ * 前三张与第五张同形（布尔矩阵：组内任一为开即显示开，点击整组同置）；第四张是动态集合瓦片——summary 的开关位
  * 换成「N 命中」计数徽标（0 命中也常驻），展开体为输入框 + 每行一项的标签列表，命中的项（其 id 存在于
  * 宿主 llm-pi-ai 的 user 层，即本插件确会跳过它）转绿并带圆点，未命中项为普通样式但同样生效。
  * 展开态样式
@@ -52,7 +52,6 @@ function IconTrash() {
 import {
     DEFAULT_FLAGS,
     EXCLUDE_ID_PATTERN,
-    GROUPS,
     GROUP_KEYS,
     VERSION_KEY,
     addExclude,
@@ -70,6 +69,9 @@ import type { CardKey } from './locales'
 import type { Flags, Group, RowKey } from './model'
 import type { PluginConfigViewProps } from './slot-contract'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from './locales'
+
+/** 瓦片渲染顺序：自动填充 / 允许更新 / 兼容性 / 排除提供方 / 用户体验（排除提供方之后紧接用户体验） */
+const TILE_ORDER: readonly (Group | 'excludes')[] = ['autoFill', 'allowUpdate', 'compat', 'excludes', 'userExperience']
 
 /** 卡片组件 props（t 由 slots.register 的 locale 席位合成注入；scope/forceUpdate 由入口闭包传入） */
 export interface CardProps {
@@ -682,32 +684,35 @@ export function Card(props: CardProps) {
         <>
             {!ready ? <p className="dsh-mf-line" role="status">{t('loading')}</p> : null}
             {ready && !snap.writable ? <p className="dsh-mf-line dsh-mf-warn" role="status">{t('readOnly')}</p> : null}
-            {/* 三个布尔配置组只差 group：由组枚举与键表派生渲染，保证各瓦片形态始终一致；
-                第四张是动态集合瓦片，形状不同故单独渲染（栅格仍为两列，四张正好补齐 2×2） */}
+            {/* 瓦片按 TILE_ORDER 渲染：四个布尔组（含「用户体验」）由组枚举与键表派生、形态始终一致，
+                「排除提供方」是动态集合瓦片（形状不同）故在此单独分发；顺序 = 自动填充 / 允许更新 /
+                兼容性 / 排除提供方 / 用户体验（排除提供方之后紧接用户体验） */}
             <div className="dsh-mf-items">
-                {GROUPS.map((group) => (
-                    <GroupTile
-                        key={group}
-                        group={group}
+                {TILE_ORDER.map((tile) => tile === 'excludes' ? (
+                    <ExcludesTile
+                        key={tile}
                         t={t}
                         flags={shown}
-                        open={tileOpen === group}
+                        hits={hits}
+                        open={tileOpen === tile}
                         disabled={!canWrite}
-                        onToggle={() => { onTileToggle(group) }}
-                        onMaster={() => { onMaster(group) }}
-                        onCell={(key) => { onCell(group, key) }}
+                        onToggle={() => { onTileToggle(tile) }}
+                        onAdd={onAddExclude}
+                        onRemove={onRemoveExclude}
+                    />
+                ) : (
+                    <GroupTile
+                        key={tile}
+                        group={tile}
+                        t={t}
+                        flags={shown}
+                        open={tileOpen === tile}
+                        disabled={!canWrite}
+                        onToggle={() => { onTileToggle(tile) }}
+                        onMaster={() => { onMaster(tile) }}
+                        onCell={(key) => { onCell(tile, key) }}
                     />
                 ))}
-                <ExcludesTile
-                    t={t}
-                    flags={shown}
-                    hits={hits}
-                    open={tileOpen === 'excludes'}
-                    disabled={!canWrite}
-                    onToggle={() => { onTileToggle('excludes') }}
-                    onAdd={onAddExclude}
-                    onRemove={onRemoveExclude}
-                />
             </div>
             <div className="dsh-mf-footer">
                 <span className="dsh-mf-actions">

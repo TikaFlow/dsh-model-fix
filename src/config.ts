@@ -1,15 +1,16 @@
 import z from '@deepseek-ai/schemastery'
 import { CONFIG_VERSION, MIN_SUPPORTED_VERSION, VERSION_PREFIX } from './constants'
-import type { CompatRules, EffortMemory, FieldRules, PluginConfig, VersionedSection } from './types'
+import type { CompatRules, EffortMemory, FieldRules, PluginConfig, UserExperienceRules, VersionedSection } from './types'
 import { isPlainObject } from './types'
 
-/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，排除列表为空，每模型推理级别记忆为空 */
+/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，排除列表为空，每模型推理级别记忆为空，记住推理级别开启 */
 export const DEFAULT_CONFIG: PluginConfig = {
     allowUpdate: { reasoning: false, context: false, image: false },
     autoFill: { reasoning: true, context: true, image: true },
     compat: { disableDeveloper: true },
     excludes: [],
     efforts: {},
+    userExperience: { rememberEfforts: true },
 }
 
 /** 命名空间下的默认段值（版本快照容器） */
@@ -35,6 +36,14 @@ const compatRules: z<CompatRules> = z.object({
  * （与 fieldRules / compatRules 同一严格度，浏览器半 parseV5 须逐条镜像）。
  */
 const excludesRules: z<string[]> = z.array(z.string()).default([])
+
+/**
+ * 用户体验规则 schema：整项缺失落该项默认；非对象、或字段存在但非布尔判整段快照非法
+ * （与 fieldRules / compatRules 同一严格度，浏览器半 parseV5 须逐条镜像）。
+ */
+const userExperienceRules: z<UserExperienceRules> = z.object({
+    rememberEfforts: z.boolean().default(true),
+})
 
 /**
  * 每模型推理级别记忆的宽松解析：结构不符回落 {}。
@@ -64,6 +73,7 @@ const PluginConfigSchema: z<Omit<PluginConfig, 'efforts'>> = z.object({
     autoFill: fieldRules(true).default({ ...DEFAULT_CONFIG.autoFill }),
     compat: compatRules.default({ ...DEFAULT_CONFIG.compat }),
     excludes: excludesRules.default([...DEFAULT_CONFIG.excludes]),
+    userExperience: userExperienceRules.default({ ...DEFAULT_CONFIG.userExperience }),
 })
 
 /** 命名空间整段的 schema：宽松字典，保证比当前代码更新的版本快照也能通过注册校验 */
@@ -89,7 +99,7 @@ export function parseSnapshot(value: unknown): PluginConfig | undefined {
     try {
         const parsed = PluginConfigSchema(value as unknown as PluginConfig)
         // excludes 复制为新数组：schema 默认实例不与运行时配置共享引用；efforts 宽松解析（结构不符回落 {}）
-        return { allowUpdate: parsed.allowUpdate, autoFill: parsed.autoFill, compat: parsed.compat, excludes: [...parsed.excludes], efforts: parseEfforts(value.efforts) }
+        return { allowUpdate: parsed.allowUpdate, autoFill: parsed.autoFill, compat: parsed.compat, excludes: [...parsed.excludes], efforts: parseEfforts(value.efforts), userExperience: { ...parsed.userExperience } }
     } catch {
         return
     }

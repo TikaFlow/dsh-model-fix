@@ -24,13 +24,14 @@ import {
 } from '../src/client/model'
 import type { Flags } from '../src/client/model'
 
-/** 三组全开的配置（总控与整组置位用例的基准，无排除项，无记忆） */
+/** 三组全开的配置（总控与整组置位用例的基准，无排除项，无记忆，记住推理级别开启） */
 const ALL_ON: Flags = {
     autoFill: { reasoning: true, context: true, image: true },
     allowUpdate: { reasoning: true, context: true, image: true },
     compat: { disableDeveloper: true },
     excludes: [],
     efforts: {},
+    userExperience: { rememberEfforts: true },
 }
 
 /** 带两个排除项的配置（排除列表用例的基准，其中 acme-gateway 在 providerIds 里命中） */
@@ -52,6 +53,7 @@ export function run(): void {
             compat: { disableDeveloper: false },
             excludes: ['acme-gateway'],
             efforts: {},
+            userExperience: { rememberEfforts: true },
         }),
     )
     // ---------- v5 缺 excludes 整项落默认（向后兼容语义） ----------
@@ -63,6 +65,7 @@ export function run(): void {
             compat: { disableDeveloper: true },
             excludes: [],
             efforts: {},
+            userExperience: { rememberEfforts: true },
         }),
     )
     // ---------- v5 缺 compat 整项落默认（v3 时代就有的兼容语义，升级后不变） ----------
@@ -74,6 +77,7 @@ export function run(): void {
             compat: { disableDeveloper: true },
             excludes: ['acme-gateway'],
             efforts: {},
+            userExperience: { rememberEfforts: true },
         }),
     )
     // ---------- v5 带 efforts 正常解析 ----------
@@ -87,8 +91,16 @@ export function run(): void {
             compat: { disableDeveloper: true },
             excludes: [],
             efforts: { 'z-ai': { 'glm-5.2': 'high' } },
+            userExperience: { rememberEfforts: true },
         }),
     )
+    // ---------- userExperience：缺整项落默认、false 原样生效、字段缺省落默认 ----------
+    check('decode 缺 userExperience 落默认 true', stable(decodeSection({ 'version-5': {} })) === stable(DEFAULT_FLAGS))
+    check('decode userExperience false 原样生效', stable(decodeSection({ 'version-5': { userExperience: { rememberEfforts: false } } })) === stable({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: false } }))
+    check('decode userExperience 缺字段落默认 true', stable(decodeSection({ 'version-5': { userExperience: {} } })) === stable(DEFAULT_FLAGS))
+    // ---------- userExperience 非对象 / 字段非布尔 => 整段快照非法（镜像 Node 侧 schema） ----------
+    check('decode userExperience 非对象回退默认', stable(decodeSection({ 'version-5': { userExperience: 'x' } })) === stable(DEFAULT_FLAGS))
+    check('decode userExperience 字段非布尔回退默认', stable(decodeSection({ 'version-5': { userExperience: { rememberEfforts: 'yes' } } })) === stable(DEFAULT_FLAGS))
     // ---------- efforts 宽松解析：结构不符回落 {}，不判整段快照非法 ----------
     check('decode efforts 非对象回落空（快照仍合法）', stable(decodeSection({ 'version-5': { efforts: 'bad' } })) === stable(DEFAULT_FLAGS))
     check('decode efforts 内层非对象回落空', stable(decodeSection({ 'version-5': { efforts: { a: 'bad' } } })) === stable(DEFAULT_FLAGS))
@@ -130,7 +142,7 @@ export function run(): void {
     for (const junk of [undefined, null, 42, 'x', [], { foo: 1 }, { 'version-5': null }, { 'version-x': {} }]) {
         check(`decode 垃圾输入兜默认 ${stable(junk)}`, stable(decodeSection(junk)) === stable(DEFAULT_FLAGS), junk)
     }
-    // ---------- snapshotFromFlags：规范形态（configVersion + 三组布尔 + 排除列表 + efforts 全显式，无多余键） ----------
+    // ---------- snapshotFromFlags：规范形态（configVersion + 三组布尔 + 排除列表 + efforts + userExperience 全显式，无多余键） ----------
     check(
         'snapshot 规范化为 v5 存储形态',
         stable(snapshotFromFlags(DEFAULT_FLAGS)) === stable({
@@ -140,6 +152,7 @@ export function run(): void {
             compat: { disableDeveloper: true },
             excludes: [],
             efforts: {},
+            userExperience: { rememberEfforts: true },
         }),
         snapshotFromFlags(DEFAULT_FLAGS),
     )
@@ -149,6 +162,9 @@ export function run(): void {
     check('snapshot -> decode 往返一致', stable(decodeSection({ [VERSION_KEY]: snapshotFromFlags(WITH_EXCLUDES) })) === stable(WITH_EXCLUDES), snapshotFromFlags(WITH_EXCLUDES))
     // 带 efforts 的往返一致
     check('snapshot -> decode 往返含 efforts', stable(decodeSection({ [VERSION_KEY]: snapshotFromFlags(WITH_EFFORTS) })) === stable(WITH_EFFORTS))
+    // 带 userExperience false 的往返一致（关掉记住推理级别的存取回路）
+    const WITHOUT_REMEMBER: Flags = { ...ALL_ON, userExperience: { rememberEfforts: false } }
+    check('snapshot -> decode 往返含 userExperience false', stable(decodeSection({ [VERSION_KEY]: snapshotFromFlags(WITHOUT_REMEMBER) })) === stable(WITHOUT_REMEMBER))
     // ---------- 跨半字面量漂移守护（浏览器半禁值导入 Node 半，字面量须两侧同步） ----------
     check('MODEL_FIX_NS 与 PLUGIN_NS 一致', MODEL_FIX_NS === PLUGIN_NS, MODEL_FIX_NS)
     check('PI_AI_NS 与 API_NS 一致', PI_AI_NS === API_NS, PI_AI_NS)
@@ -175,12 +191,18 @@ export function run(): void {
             compat: DEFAULT_FLAGS.compat,
             excludes: DEFAULT_FLAGS.excludes,
             efforts: DEFAULT_FLAGS.efforts,
+            userExperience: DEFAULT_FLAGS.userExperience,
         }),
     )
     check(
         'applyGroup compat 整组置关且不动其他组',
         stable(applyGroup(DEFAULT_FLAGS, 'compat', false)) === stable({ ...DEFAULT_FLAGS, compat: { disableDeveloper: false } }),
         applyGroup(DEFAULT_FLAGS, 'compat', false),
+    )
+    // userExperience 组同样走总控/单格派生路径（单行组：总控即该行）
+    check(
+        'applyGroup userExperience 整组置关',
+        stable(applyGroup(DEFAULT_FLAGS, 'userExperience', false)) === stable({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: false } }),
     )
     check('applyGroup 不改入参', DEFAULT_FLAGS.autoFill.reasoning === true && DEFAULT_FLAGS.compat.disableDeveloper === true)
     // ---------- 单格翻转不改其他格、不改入参 ----------
@@ -227,6 +249,9 @@ export function run(): void {
     check('isDirty 排除列表等值不为脏', isDirty(withTwo, { ...withTwo, excludes: ['acme-gateway', 'lab-7'] }) === false)
     // 顺序敏感是有意取舍：草稿只由已存值经增删派生，故不存在"换顺序即脏"的误报路径
     check('isDirty 排除列表换序视为脏', isDirty({ ...withTwo, excludes: ['lab-7', 'acme-gateway'] }, withTwo) === true)
+    // userExperience 是用户配置（区别于 efforts 记忆）：改动要标脏，等值不脏
+    check('isDirty userExperience 不同即为脏', isDirty({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: false } }, DEFAULT_FLAGS) === true)
+    check('isDirty userExperience 等值不为脏', isDirty({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: true } }, DEFAULT_FLAGS) === false)
     // efforts 的变化不标脏（运行时记忆，非用户配置，不应触发"未保存更改"）
     check('isDirty efforts 变化不标脏', isDirty({ ...DEFAULT_FLAGS, efforts: { a: { m: 'high' } } }, DEFAULT_FLAGS) === false)
 }

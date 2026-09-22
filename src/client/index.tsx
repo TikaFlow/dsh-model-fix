@@ -7,6 +7,7 @@
  * → 取宿主 connection 服务的 RPC 载体（「强制更新 / 重置模型 / 恢复备份」三按钮共用，通道 /tikaflow-model-fix）
  * → 起一条可选监听子 fiber（宿主有 sessions / modelDirectories 时）：订阅会话的模型选择投影，
  *   模型变化时经 directory.select 恢复该模型的记忆级别，级别变化时把记忆直写进自有 NS 的 efforts 字段
+ *   （受配置 userExperience.rememberEfforts 开关：关掉时保存与恢复都停止）
  * → 注册卡片到**三个**席位（同一组件、同一 scope）：
  *   ① 「模型」选项卡底部 list 席位 settings.models.footer（与提供方列表同页）；
  *   ② 「插件」→「插件配置」选项卡的 keyed 席位 settings.plugin.item（仅 0.1.2 系列宿主声明；与终端 / Agent 循环 /
@@ -140,7 +141,11 @@ export function apply(ctx: ClientContext): void {
                     return
                 }
                 const dirState = dir.store.getSnapshot()
-                const memory = scope.getSnapshot().value?.efforts ?? {}
+                // 记住推理级别开关（userExperience.rememberEfforts）：关掉时保存与恢复一并停止——
+                // 记忆置空则 classifyTransition 恢复不到旧级别，effort-change 也跳过写入；
+                // 已有记忆保留在配置里，重新打开即恢复生效
+                const rememberEfforts = scope.getSnapshot().value?.userExperience.rememberEfforts ?? true
+                const memory = rememberEfforts ? scope.getSnapshot().value?.efforts ?? {} : {}
                 const transition = classifyTransition(prev, next, memory, dirState.groups)
 
                 if (transition.kind === 'model-change') {
@@ -148,7 +153,7 @@ export function apply(ctx: ClientContext): void {
                         entry.pendingAutoSet = transition.resolved
                         void dir.select(transition.resolved)
                     }
-                } else if (transition.kind === 'effort-change') {
+                } else if (transition.kind === 'effort-change' && rememberEfforts) {
                     void rememberEffort(next.provider, next.model, next.reasoningEffort ?? null)
                 }
             }

@@ -156,6 +156,18 @@ export interface CompatRules {
     disableDeveloper: boolean
 }
 
+/**
+ * 用户体验规则：纯前端行为开关（不写入提供方/模型数据）。
+ * 与填充规则不同，该组作用于会话侧操作、对所有提供方一致，**不支持按提供方排除**（见卡片释义）。
+ */
+export interface UserExperienceRules {
+    /**
+     * 记住每模型上次手动选择的推理级别并在切换模型时自动恢复；
+     * 为 false 时前端既不保存、也不用旧记忆恢复（已有记忆保留在配置里，重新打开即恢复生效）。
+     */
+    rememberEfforts: boolean
+}
+
 // ---------- 历史版本（v4）冻结形态：引入 efforts 之前的快照（三组布尔 + compat + excludes）；与当前 FieldRules / CompatRules 同形，独立声明以冻结形态，不引用当前版本的可演进定义。 ----------
 
 /** 历史版本(v4)：字段规则 schema（与当前 FieldRules 同形，独立声明以冻结形态） */
@@ -201,6 +213,8 @@ export interface PluginConfig {
      * 结构非法时解析侧宽松回落 {}（不让记忆坏值连累配置自愈重写丢配置）。
      */
     efforts: EffortMemory
+    /** 用户体验规则（前端行为开关，不支持按提供方排除） */
+    userExperience: UserExperienceRules
 }
 
 /** 当前版本的存储快照：运行时配置字段 + 显式版本号 */
@@ -211,6 +225,7 @@ export interface PluginConfigSnapshot {
     compat: CompatRules
     excludes: string[]
     efforts: EffortMemory
+    userExperience: UserExperienceRules
 }
 
 /** 命名空间下的整段配置：version-N -> 对应版本的配置快照（保留低版本历史与更高新版本，便于无损回退） */
