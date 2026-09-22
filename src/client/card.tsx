@@ -29,7 +29,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { Button, IconChevronDownOutline14, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { RpcResult } from '../types'
+import type { RpcResult } from '../shared/types'
 
 /**
  * 排除项删除钮的字形：逐字复刻官方 models 页模型行删除的本地自绘 `IconTrash`（线稿：

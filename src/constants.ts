@@ -1,16 +1,12 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// 跨半共享常量（单一来源在 src/shared/constants.ts；此处 facade 再导出以维持 Node 侧与测试的既有导入路径）
+export { API_NS, PLUGIN_NS, CONFIG_VERSION, VERSION_PREFIX } from './shared/constants'
+
 /** 插件名，同时用作日志前缀 */
 export const PLUGIN_NAME = 'dsh-model-fix'
 
-/** 模型配置读写目标命名空间（harness 的 llm-pi-ai）：小写连字符字面量，由 settings 服务在注册/读写时校验 */
-export const API_NS = 'llm-pi-ai'
-/** 自有配置命名空间（带发布者前缀，避免与其他插件抢占通用名字；fix 即填充/修复），由 ctx.settings.installSection 注册 */
-export const PLUGIN_NS = 'tikaflow-model-fix'
-
-/** 当前代码支持的配置版本（新 NS 内的快照版本）；配置 schema 变化时递增，并在 migrate.ts 中追加升级步骤 */
-export const CONFIG_VERSION = 5
 /** 最低支持（可升级读取）的版本；低于此值的版本快照视为已失效（运行时不读取、迁移时清理） */
 export const MIN_SUPPORTED_VERSION = 1
 /**
@@ -18,8 +14,6 @@ export const MIN_SUPPORTED_VERSION = 1
  * 取 1 ⇒ 段内 <=当前版本 的快照合计最多 2 个（当前 + 1 个低版本）；当前版本 5 时段内 olds = {1,2,3,4} 超限，仅保留 v4。
  */
 export const MAX_OLD_SNAPSHOTS = 1
-/** 版本快照键前缀，段内键形如 version-N */
-export const VERSION_PREFIX = 'version-'
 
 /** models.dev 容量字段对"无限/未公布"的哨兵建模值，视为无数据 */
 export const CAPACITY_UNLIMITED = 99_999_999

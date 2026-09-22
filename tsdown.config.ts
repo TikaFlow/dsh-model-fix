@@ -34,6 +34,21 @@ export default defineConfig([
         clean: true,
         // 将 public 目录原样复制
         copy: 'public',
+        plugins: [
+            {
+                // 跨半纯度门禁（对称自守）：Node 半不得值依赖浏览器半（src/client）。
+                // 跨半共享须放 src/shared（双方都可依赖）；type-only 导入被擦除不受限，但 src/client 无 Node 半需消费的类型面，故一律禁。
+                name: 'dsh-node-bundle-purity',
+                resolveId(source: string) {
+                    if (source === './client' || source.startsWith('./client/') || source === '../client' || source.startsWith('../client/')) {
+                        throw new Error(
+                            `node bundle purity: "${source}" 跨半依赖浏览器半（src/client）被禁止；跨半共享须放 src/shared`,
+                        )
+                    }
+                    return null
+                },
+            },
+        ],
     },
     // ---------- 浏览器半：web-ui 卡片（lazy-CJS 工厂产物，格式复刻 harness clientBundle 预设） ----------
     {
@@ -67,9 +82,11 @@ export default defineConfig([
                 name: 'dsh-client-bundle-purity',
                 resolveId(source: string) {
                     if (source.startsWith('../')) {
+                        // 放行跨半共享模块（src/shared，零 Node 依赖）；其余 ../ 仍禁（防止拖入 node:path 等 Node 依赖）
+                        if (source === '../shared' || source.startsWith('../shared/')) return null
                         throw new Error(
                             `client bundle purity: "${source}" 跨半值导入 Node 半源码（会拖入 node:path 等 Node 依赖）；`
-                            + '浏览器半只允许 type-only 导入 ../，跨半协作须以字面量/契约复制维护（改动须两侧同步）',
+                            + '浏览器半只允许 type-only 导入 ../、或值导入 ../shared（跨半共享模块），其余跨半协作须以字面量/契约复制维护',
                         )
                     }
                     if (!source.startsWith('@deepseek-ai/') || isBaseline(source)) return null

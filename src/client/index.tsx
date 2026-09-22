@@ -34,7 +34,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings-models/client'
 // SlotMap 的 'plugins.bundle.config'（0.1.6+）与 'settings.plugin.item'（0.1.2 系列）键声明（本地结构复制）
 import type {} from './slot-contract'
 // Connection RPC call 切片的结构复制（宿主包未装依赖；取服务沿用宿主 ui-settings-general 的 ctx.get 断言范式）
-import type { ClientRpcCall } from '../types'
+import type { ClientRpcCall } from '../shared/types'
 import { Card } from './card'
 import { CARD_NS, en, zh } from './locales'
 import { MODEL_FIX_NS, PI_AI_NS, VERSION_KEY, decodeSection } from './model'

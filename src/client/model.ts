@@ -1,44 +1,24 @@
 /**
  * 浏览器半纯映射层：`tikaflow-model-fix` 版本快照段 <-> 卡片配置（autoFill / allowUpdate / compat / userExperience 四组布尔 + excludes 列表）。
- * 零外部值依赖（不引 src/constants、src/types 的值，避免 node:path 等被打进浏览器包），
- * 只读当前版本快照（Node 半迁移保证其存在；缺失/非法回退默认）。
+ * 跨半共享的常量、类型、解析函数单一来源在 `src/shared/`：浏览器半值导入 `../shared/*`（经 client 纯度门禁放行，
+ * 不引 `src/constants` / `src/types` / `src/config` 的值，避免 `node:path` / schemastery 被打进浏览器包）。
+ * 本文件只保留 UI 层：组的行键表与渲染顺序、快照↔配置的 UI 派生（总控 / 单格 / 脏检测 / 排除项增删 / 命中判定）。
  */
 
-import type { CompatRules, FieldRules, PluginConfig, UserExperienceRules } from '../types'
+import type { PluginConfig } from '../shared/types'
+import { isPlainObject } from '../shared/types'
+import { API_NS as PI_AI_NS, PLUGIN_NS as MODEL_FIX_NS, CONFIG_VERSION } from '../shared/constants'
+import { DEFAULT_CONFIG, FIELD_KEYS, COMPAT_KEYS, USER_EXPERIENCE_KEYS, parseSnapshot, versionKey } from '../shared/parse'
 
-/** 本插件的配置命名空间（与 src/constants.ts 的 PLUGIN_NS 字面量一致）；
- * 浏览器半另以 `/${MODEL_FIX_NS}` 拼 RPC channel（强制更新 / 重置模型 / 恢复备份三端点），与 src/rpc.ts 的 `/${PLUGIN_NS}` 配对，改动须两侧同步 */
-export const MODEL_FIX_NS = 'tikaflow-model-fix'
+// 公共 API 再导出（卡片、index.tsx 与测试经 ./model 取用，保持既有导入路径）
+export { MODEL_FIX_NS, PI_AI_NS, CONFIG_VERSION }
+export { DEFAULT_CONFIG as DEFAULT_FLAGS }
 
-/** 提供方所在的宿主配置命名空间（与 src/constants.ts 的 API_NS 字面量一致）：仅用于读 user 层提供方 id 以判定排除项是否命中 */
-export const PI_AI_NS = 'llm-pi-ai'
-
-/** 当前代码配置版本；与 src/constants.ts 的 CONFIG_VERSION 同步修改 */
-export const CONFIG_VERSION = 5
-
-/** 版本快照键前缀 */
-const VERSION_PREFIX = 'version-'
-
-/** 快照写入的字段键（保存时单字段原子写 version-N，不触碰段内其他键） */
-export const VERSION_KEY = `${VERSION_PREFIX}${CONFIG_VERSION}`
-
-/** 模型参数行对应的字段键（自动填充 / 允许更新两组的行，渲染顺序与总控共用）；对外经 GROUP_KEYS 暴露 */
-const FIELD_KEYS = ['reasoning', 'context', 'image'] as const
-
-/** 兼容性规则键（compat 组的行）；后续同组新增兼容性配置在此追加即可，不需要递增 CONFIG_VERSION */
-const COMPAT_KEYS = ['disableDeveloper'] as const
-
-/** 用户体验组的行键；同组新增前端行为开关在此追加即可，不需要递增 CONFIG_VERSION */
-const USER_EXPERIENCE_KEYS = ['rememberEfforts'] as const
-
-/** 组内行键全集（词典键映射与各组行表的类型） */
-export type RowKey = (typeof FIELD_KEYS)[number] | (typeof COMPAT_KEYS)[number] | (typeof USER_EXPERIENCE_KEYS)[number]
-
-/** 模型参数的两个列名（对应快照的 autoFill / allowUpdate 组） */
-type Column = 'autoFill' | 'allowUpdate'
+/** 版本快照键 */
+export const VERSION_KEY = versionKey(CONFIG_VERSION)
 
 /** 瓦片对应的配置组：两个填充列 + 兼容性组 + 用户体验组 */
-export type Group = Column | 'compat' | 'userExperience'
+export type Group = 'autoFill' | 'allowUpdate' | 'compat' | 'userExperience'
 
 /** 各组行键表（渲染顺序与总控共用） */
 export const GROUP_KEYS: Record<Group, readonly RowKey[]> = {
@@ -51,140 +31,21 @@ export const GROUP_KEYS: Record<Group, readonly RowKey[]> = {
 /** 全部布尔配置组（脏检测遍历用；瓦片渲染顺序见 card.tsx 的 TILE_ORDER，排除提供方夹在 compat 与 userExperience 之间） */
 export const GROUPS: readonly Group[] = ['autoFill', 'allowUpdate', 'compat', 'userExperience']
 
+/** 组内行键全集（词典键映射与各组行表的类型） */
+export type RowKey =
+    | (typeof FIELD_KEYS)[number]
+    | (typeof COMPAT_KEYS)[number]
+    | (typeof USER_EXPERIENCE_KEYS)[number]
+
 /** 全部配置布尔（与 PluginConfig 同形） */
 export type Flags = PluginConfig
-
-/** 判断是否为普通数据对象（与 src/types 同语义的浏览器本地复制，勿改此处以规避值依赖） */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-    const proto: unknown = Object.getPrototypeOf(value)
-    return proto === Object.prototype || proto === null
-}
-
-/**
- * 解析一组字段规则（对象写法的单列）：整体缺失落该项默认；
- * 存在但非对象、或字段存在但非布尔 => 返回 undefined 表示整段快照非法（镜像 schema 抛错语义）。
- */
-function parseRules(value: unknown, dflt: boolean): FieldRules | undefined {
-    if (value === undefined) return { reasoning: dflt, context: dflt, image: dflt }
-    if (!isPlainObject(value)) return
-    const rules = {} as FieldRules
-    for (const key of FIELD_KEYS) {
-        const field = value[key]
-        if (field === undefined) {
-            rules[key] = dflt
-            continue
-        }
-        if (typeof field !== 'boolean') return
-        rules[key] = field
-    }
-    return rules
-}
-
-/** 兼容性规则的省略字段默认（与 src/config.ts 的 compat schema 一致：默认按旧版 API 处理） */
-const COMPAT_DEFAULTS: CompatRules = { disableDeveloper: true }
-
-/** 解析 compat 组：整体缺失落默认；非对象、或字段存在但非布尔 => undefined（整段快照非法） */
-function parseCompat(value: unknown): CompatRules | undefined {
-    if (value === undefined) return { ...COMPAT_DEFAULTS }
-    if (!isPlainObject(value)) return
-    const rules = {} as CompatRules
-    for (const key of COMPAT_KEYS) {
-        const field = value[key]
-        if (field === undefined) {
-            rules[key] = COMPAT_DEFAULTS[key]
-            continue
-        }
-        if (typeof field !== 'boolean') return
-        rules[key] = field
-    }
-    return rules
-}
-
-/** 排除项 id 的合法性规则：逐字复制宿主 models 页新增提供方时的 route id 校验（同一权威规则，两侧不得自行放宽） */
-export const EXCLUDE_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
-
-/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性按旧版 API 处理，无排除项，每模型推理级别记忆为空，记住推理级别开启（与 src/config.ts DEFAULT_CONFIG 一致） */
-export const DEFAULT_FLAGS: Flags = {
-    autoFill: { reasoning: true, context: true, image: true },
-    allowUpdate: { reasoning: false, context: false, image: false },
-    compat: { ...COMPAT_DEFAULTS },
-    excludes: [],
-    efforts: {},
-    userExperience: { rememberEfforts: true },
-}
-
-/** 解析 excludes 组：整项缺失落空数组；非数组或元素非字符串 => undefined（整段快照非法，镜像 Node 侧 schema 语义） */
-function parseExcludes(value: unknown): string[] | undefined {
-    if (value === undefined) return []
-    if (!Array.isArray(value)) return
-    const ids: string[] = []
-    for (const item of value) {
-        if (typeof item !== 'string') return
-        ids.push(item)
-    }
-    return ids
-}
-
-/** 每模型推理级别记忆的宽松解析（与 Node 侧 parseEfforts 同语义）：结构不符回落 {} */
-function parseEfforts(value: unknown): Record<string, Record<string, string>> {
-    if (!isPlainObject(value)) return {}
-    const result: Record<string, Record<string, string>> = {}
-    for (const [provider, models] of Object.entries(value)) {
-        if (!isPlainObject(models)) continue
-        const entry: Record<string, string> = {}
-        for (const [model, level] of Object.entries(models)) {
-            if (typeof level === 'string') entry[model] = level
-        }
-        if (Object.keys(entry).length > 0) result[provider] = entry
-    }
-    return result
-}
-
-/** 用户体验组的省略字段默认（与 src/config.ts 的 userExperience schema 一致：默认记住推理级别） */
-const USER_EXPERIENCE_DEFAULTS: UserExperienceRules = { rememberEfforts: true }
-
-/** 解析 userExperience 组：整体缺失落默认；非对象、或字段存在但非布尔 => undefined（整段快照非法，镜像 Node 侧 schema 语义） */
-function parseUserExperience(value: unknown): UserExperienceRules | undefined {
-    if (value === undefined) return { ...USER_EXPERIENCE_DEFAULTS }
-    if (!isPlainObject(value)) return
-    const rules = {} as UserExperienceRules
-    for (const key of USER_EXPERIENCE_KEYS) {
-        const field = value[key]
-        if (field === undefined) {
-            rules[key] = USER_EXPERIENCE_DEFAULTS[key]
-            continue
-        }
-        if (typeof field !== 'boolean') return
-        rules[key] = field
-    }
-    return rules
-}
-
-/** 校验并物化当前版本（v5）快照；非法返回 undefined（视为无有效配置） */
-function parseV5(entry: unknown): Flags | undefined {
-    if (!isPlainObject(entry)) return
-    const allowUpdate = parseRules(entry.allowUpdate, false)
-    if (!allowUpdate) return
-    const autoFill = parseRules(entry.autoFill, true)
-    if (!autoFill) return
-    const compat = parseCompat(entry.compat)
-    if (!compat) return
-    const excludes = parseExcludes(entry.excludes)
-    if (!excludes) return
-    const userExperience = parseUserExperience(entry.userExperience)
-    if (!userExperience) return
-    // efforts 宽松解析（结构不符回落 {}，不让记忆坏值判整段快照非法）
-    const efforts = parseEfforts(entry.efforts)
-    return { allowUpdate, autoFill, compat, excludes, efforts, userExperience }
-}
 
 /**
  * 解码命名空间整段：只读当前版本快照 version-5（Node 半迁移保证启动后段内必有，见 migrateConfig）；
  * 段非法、快照缺失或非法均回退默认。永不返回 undefined（返回 undefined 会让宿主 scope 永挂 loading）。
  */
 export function decodeSection(section: unknown): Flags {
-    return isPlainObject(section) ? parseV5(section[VERSION_KEY]) ?? DEFAULT_FLAGS : DEFAULT_FLAGS
+    return isPlainObject(section) ? parseSnapshot(section[VERSION_KEY]) ?? DEFAULT_CONFIG : DEFAULT_CONFIG
 }
 
 /** 配置 -> 规范 v5 存储快照（configVersion + 三组布尔 + 排除列表 + 每模型推理级别记忆 + 用户体验全显式，与宿主 DEFAULT_STORED 形态一致） */
@@ -279,3 +140,6 @@ export function removeExclude(flags: Flags, id: string): Flags {
     excludes.splice(index, 1)
     return { ...flags, excludes }
 }
+
+/** 排除项 id 的合法性规则：逐字复制宿主 models 页新增提供方时的 route id 校验（同一权威规则，两侧不得自行放宽） */
+export const EXCLUDE_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
