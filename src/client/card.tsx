@@ -484,6 +484,8 @@ export function Card(props: CardProps) {
     const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
     const [restoreBusy, setRestoreBusy] = useState(false)
     const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
+    // 「记住推理级别」关掉时的确认：是否清空已有记忆（前端直写，不走 RPC）
+    const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
     const saveStarted = useRef(false)
 
     const saved = snap.value
@@ -527,14 +529,26 @@ export function Card(props: CardProps) {
         )
     }
 
+    // 落草稿；「记住推理级别」由开转关且仍有记忆时，立即（不等「保存」）弹确认问是否清空。
+    // 记忆判据取实时值：草稿不拥有 efforts，其中的副本会随监听器的写入变陈旧
+    const commitDraft = (next: Flags) => {
+        setDraft(next)
+        if (
+            groupValue(shown, 'userExperience', 'rememberEfforts') &&
+            !groupValue(next, 'userExperience', 'rememberEfforts') &&
+            Object.keys(snap.value?.efforts ?? {}).length > 0
+        ) {
+            setClearConfirmOpen(true)
+        }
+    }
     const onCell = (group: Group, key: RowKey) => {
         setNotice(null)
-        setDraft(toggleCell(shown, group, key))
+        commitDraft(toggleCell(shown, group, key))
     }
     // 整组总控：组内任一为开则显示开；点击取反并把该组全部行设为同一值（总开关无对应存储，只是批量操作）
     const onMaster = (group: Group) => {
         setNotice(null)
-        setDraft(applyGroup(shown, group, !masterValue(shown, group)))
+        commitDraft(applyGroup(shown, group, !masterValue(shown, group)))
     }
     // 瓦片折叠：官方 toggleRow 同语义——点已开者即收起，否则切到该瓦片
     const onTileToggle = (key: string) => {
@@ -668,6 +682,15 @@ export function Card(props: CardProps) {
                 setRestoreBusy(false)
             })
     }
+    // 清空已有记忆：前端（非 RPC）经自有 NS 的 settings scope 直写 `{}`——与「保存」同一条写通道，
+    // 立即生效、不等「保存」；草稿不动（卡片不拥有 efforts）。失败要显式提示：
+    // 否则开关已关而记忆未清，用户无从察觉
+    const clearEfforts = () => {
+        setClearConfirmOpen(false)
+        void scope.mutate([{ op: 'set', path: [VERSION_KEY, 'efforts'], value: {} }])
+            .then(() => { setNotice({ text: t('clearEffortsDone'), tone: 'success' }) })
+            .catch(() => { setNotice({ text: t('clearEffortsFailed'), tone: 'error' }) })
+    }
 
     // 结果提示挂在条件体之外：折叠不会吞掉在途/已到的结果
     const notices = notice !== null ? (
@@ -800,6 +823,19 @@ export function Card(props: CardProps) {
                 footer={<>
                     <Button variant="outline" autoFocus onClick={() => { setRestoreConfirmOpen(false) }}>{t('forceCancel')}</Button>
                     <Button variant="outline" onClick={runRestore}>{t('restoreGo')}</Button>
+                </>}
+            />
+            {/* 清空记忆确认：此时开关已转为关（草稿），故这里只问记忆去留；确认键上红 tint
+                ——清空即删除类操作，不可恢复；取消键 autoFocus 落在不删数据的「保留」一侧 */}
+            <Modal
+                open={clearConfirmOpen}
+                onClose={() => { setClearConfirmOpen(false) }}
+                title={t('clearEffortsTitle')}
+                closeLabel={t('close')}
+                description={t('clearEffortsConfirm')}
+                footer={<>
+                    <Button variant="outline" autoFocus onClick={() => { setClearConfirmOpen(false) }}>{t('clearEffortsKeep')}</Button>
+                    <Button variant="outline" className="dsh-mf-confirmDanger" onClick={clearEfforts}>{t('clearEffortsGo')}</Button>
                 </>}
             />
         </>

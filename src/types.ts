@@ -163,7 +163,7 @@ export interface CompatRules {
 export interface UserExperienceRules {
     /**
      * 记住每模型上次手动选择的推理级别并在切换模型时自动恢复；
-     * 为 false 时前端既不保存、也不用旧记忆恢复（已有记忆保留在配置里，重新打开即恢复生效）。
+     * 为 false 时前端不再保存新的记忆，但已记住的仍会自动恢复（关闭开关时卡片会询问是否清空，清空后即无记忆可恢复）。
      */
     rememberEfforts: boolean
 }

@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-DSH 插件：为所有非官方（自定义）提供方的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`），数据来自 models.dev；并按兼容性规则为 openai-completions 提供方维护路由级 `compat`（当前一条：不使用 `developer` 角色）。另按提供方维度提供排除（`excludes`：命中的提供方本插件零操作）。每模型独立记住上次手动选择的推理级别，切换模型时自动恢复（`userExperience.rememberEfforts` 可关，关后不保存也不恢复；该组不支持按提供方排除）。
+DSH 插件：为所有非官方（自定义）提供方的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`），数据来自 models.dev；并按兼容性规则为 openai-completions 提供方维护路由级 `compat`（当前一条：不使用 `developer` 角色）。另按提供方维度提供排除（`excludes`：命中的提供方本插件零操作）。每模型独立记住上次手动选择的推理级别，切换模型时自动恢复（`userExperience.rememberEfforts` 可关，关后不再保存新的、已记住的仍会恢复；该组不支持按提供方排除）。
 
 ## 技术栈与目录
 
@@ -124,7 +124,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **备份缺失／当前无 `providers` 段要显式抛错，不能回 0**：`changed: 0` 会被前端显示成「已恢复 0 个模型」，与"确实无可恢复"无法区分，用户只会以为按钮坏了。
 - **RPC channel 由本插件自注册，不用宿主 `connection.rpc.handle`**：`handle` 在**服务自己的 ctx** 上求值 `owner.webServer`（`get rpc() { const owner = this.ctx }`，与调用方 fiber 无关），而 connection 插件的 `inject` 从 0.1.2-rc.1 的 `["webServer","credentials"]` 缩成 ≥0.1.5 的 `["credentials"]`（三版的 `get rpc`/`register` 逐字未变）⇒ `owner.webServer` 抛 `cannot get property "webServer" without inject`，路由从不注册。故改在**本插件自己的子 fiber**（已注入 webServer）上 `webServer.register({kind:'prefix'})`，复用宿主的 `connection.requestRejection` 做围栏、按宿主 `rpcFetchHandler` 复刻信封与状态码，浏览器半 `connection.rpc.call` 完全无感。**给调用方注入 webServer 修不好宿主通道**——出问题的 ctx 是 connection 自己的。单一路径可行的依据：0.1.2-rc.1 与 0.1.6-alpha.2 的 `rpcFetchHandler` / 两个信封 schema / `ENDPOINT_SEGMENT_PATTERN` / `webServer.register` / `match` 逐字一致（已比对 npm 上两版源码），即该契约覆盖全支持范围；结论不能靠读代码拍板，要靠「真 HostConnectionService + 桩 webServer」的本地探针复核。
 
-- **「记住推理级别」是纯监听（不拦截），受「用户体验」瓦片开关控制**：前端**监听**（订阅）模型选择与推理级别选择的投影变化，不是拦截 / hook 宿主的 `directory.select`。UI 只有「用户体验」瓦片里的 `rememberEfforts` 开关（该组不新增别的交互），监听器做两件事：① 模型变化时从记忆读值并经 `directory.select` 自动恢复；② 级别变化时把记忆写进自有 NS 的 `efforts` 字段。`userExperience.rememberEfforts === false` 时**两件事都停止**（传给 `classifyTransition` 的记忆置空即恢复不到旧级别，`effort-change` 分支跳过写入），已有 `efforts` 记忆保留不清空，重新打开即恢复生效。Node 半**只负责持久化、解析与失效清理**（`parseEfforts` / 迁移 / 快照往返 / `fix` 重建记忆），不自动设置——后端写配置对当前会话无效（只影响新会话），「自动设置」必须走前端 `directory.select`。该开关**不读取 `excludes`**：记住推理级别对所有提供方（含被排除的）一律生效，故卡片释义与 README 都写明"不支持排除"。
+- **「记住推理级别」是纯监听（不拦截），受「用户体验」瓦片开关控制**：前端**监听**（订阅）模型选择与推理级别选择的投影变化，不是拦截 / hook 宿主的 `directory.select`。UI 只有「用户体验」瓦片里的 `rememberEfforts` 开关（该组不新增行或瓦片；关闭时追加一个「是否清空已有记忆」的确认弹层），监听器做两件事：① 模型变化时从记忆读值并经 `directory.select` 自动恢复；② 级别变化时把记忆写进自有 NS 的 `efforts` 字段。`userExperience.rememberEfforts === false` 时**只停止②**（`effort-change` 分支跳过写入），①**照常进行**——传给 `classifyTransition` 的记忆始终取真实 `efforts`，不再做"假装没有记忆"的置空 hack；故**「关闭 === 无记忆」不再总是成立**：未清空时旧记忆仍可自动恢复，重新打开即恢复保存。是否清空由卡片交互决定——开关由开转关时**立即**（不等「保存」）弹确认问「是否清空已有记忆」，选清空则经前端 settings scope 直写 `efforts={}`（非 RPC、与「保存」同一条写通道；「有记忆」判据取实时值而非草稿里的副本，因卡片不拥有该字段；清空失败显式报错，避免"开关已关而记忆未清"无从察觉），记忆为空时不弹确认、直接关闭（用户确认）。Node 半**只负责持久化、解析与失效清理**（`parseEfforts` / 迁移 / 快照往返 / `fix` 重建记忆），不自动设置——后端写配置对当前会话无效（只影响新会话），「自动设置」必须走前端 `directory.select`。该开关**不读取 `excludes`**：记住推理级别对所有提供方（含被排除的）一律生效，故卡片释义与 README 都写明"不支持排除"。
 - **`efforts` 是运行时记忆而非用户配置**：结构 `{ provider: { model: level } }` 用嵌套对象而非拼接 `provider/model`（model-id 可能含 `/`，拼接无法还原）；**不放进 `PluginConfigSchema`**，由 `parseSnapshot` 单独**宽松**解析（结构不符回落 `{}`）——记忆坏值若判整段快照非法，会连累配置自愈重写丢配置。`isDirty` 也不比较它，故记忆变化不触发「未保存更改」徽章；卡片「保存」写整段快照时 `efforts` 取**写入当刻的实时值**（卡片不拥有该字段，用草稿里的旧快照会把"开卡后切过模型"的那段记忆覆盖回去）。
 - **`efforts` 由浏览器半经自有 NS 的 settings scope 直写**：与卡片「保存」同一条通道（`['version-5','efforts']` 路径 op）：它是一次写回即生效、无需回执的记忆写入，用不到 RPC 端点。写入失败只吞 rejection（级别已在当前会话生效）。
 - **自动设置的前置校验**：恢复记忆前必须确认目标模型的 `groups`（catalog）公告该级别，未公告就不改写选择（回落默认）——投喂宿主不支持的级别会被拒；`groups` 未加载时同样不改写。
@@ -153,7 +153,7 @@ graph LR
 - `compat` 与两组填充规则平行，键按「规则 → provider 路由 compat 字段」映射（当前仅 `disableDeveloper` → `supportsDeveloperRole: false`）；往该对象加新键不需要递增配置版本。
 - `excludes` 是提供方 id 字符串数组（`providers.<id>` 的 `<id>`，即界面上的「Provider ID / 路由标识」），命中的提供方本插件零操作；非数组或元素非字符串判整段快照非法（与其余组同严格度，浏览器半 `parseV5` 逐条镜像）。
 - `efforts` 是每模型推理级别记忆（运行时自动维护，非用户配置），结构为 `{ "<provider>": { "<model>": "<level>" } }`；宽松解析（结构不符回落 `{}`），不纳入 schema 校验、不参与 `isDirty`。模型/提供方被删除后，对应记忆在下次 `fix` 时自动清除（重建语义，见「设计裁决」）；`excludes` 命中的提供方同样按模型重建（现存模型的记忆保留、已删除模型的记忆一并清除）。
-- `userExperience` 是用户体验组（**前端行为**开关，与 `compat` 同严格度：整项非对象/字段非布尔判整段非法，浏览器半 `parseV5` 镜像），当前仅 `rememberEfforts`（默认 `true`）：关掉后浏览器半既**不保存**、也**不用旧记忆恢复**推理级别（已有 `efforts` 记忆保留不清空，重新打开即恢复生效）；它**不读取 `excludes`**——记住推理级别对所有提供方（含被排除的）一律生效，卡片释义与 README 均写明"不支持排除"。仍属 v5、不升版（经用户确认：同一版本周期内的不同提交，无回退冲突，见「设计裁决」）。
+- `userExperience` 是用户体验组（**前端行为**开关，与 `compat` 同严格度：整项非对象/字段非布尔判整段非法，浏览器半 `parseV5` 镜像），当前仅 `rememberEfforts`（默认 `true`）：关掉后浏览器半**不再保存**推理级别，但**仍用已记住的自动恢复**（卡片在开关关闭时会立即询问是否清空已有记忆，清空后即无记忆可恢复，见「设计裁决」）；它**不读取 `excludes`**——记住推理级别对所有提供方（含被排除的）一律生效，卡片释义与 README 均写明"不支持排除"。仍属 v5、不升版（经用户确认：同一版本周期内的不同提交，无回退冲突，见「设计裁决」）。
 - 也可经 Web 设置的卡片修改（宿主跟随 latest，见「对外纪律」），两种途径写的是同一个东西。
 - 推理级别取值与 harness `ModelThinkingLevel` 一致：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`；提供方与模型列表在 `llm-pi-ai` 命名空间的 `providers` 下。
 

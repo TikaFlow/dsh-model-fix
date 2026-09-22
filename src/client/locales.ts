@@ -65,6 +65,12 @@ export type CardKey =
     | 'restoreGo'
     | 'restoreDone'
     | 'restoreFailed'
+    | 'clearEffortsTitle'
+    | 'clearEffortsConfirm'
+    | 'clearEffortsKeep'
+    | 'clearEffortsGo'
+    | 'clearEffortsDone'
+    | 'clearEffortsFailed'
     | 'loading'
     | 'unavailable'
     | 'readOnly'
@@ -155,6 +161,12 @@ export const zh: Record<CardKey, string> = {
     restoreGo: '确认恢复',
     restoreDone: '已恢复 {count} 个模型。',
     restoreFailed: '恢复失败：{message}',
+    clearEffortsTitle: '清空推理级别记忆',
+    clearEffortsConfirm: '关闭后不再记住新的推理级别，已记住的仍会自动恢复。是否现在清空这些已记住的级别？',
+    clearEffortsKeep: '保留',
+    clearEffortsGo: '清空',
+    clearEffortsDone: '已清空推理级别记忆。',
+    clearEffortsFailed: '清空记忆失败，已记住的级别仍在。',
     loading: '正在读取配置…',
     unavailable: '配置不可用（未检测到插件的宿主服务）',
     readOnly: '当前环境为只读，无法保存',
@@ -215,6 +227,12 @@ export const en: Record<CardKey, string> = {
     restoreGo: 'Restore',
     restoreDone: 'Restored {count} model(s).',
     restoreFailed: 'Restore failed: {message}',
+    clearEffortsTitle: 'Clear remembered efforts',
+    clearEffortsConfirm: 'While turned off, new levels are no longer remembered, but the ones already remembered keep auto-restoring. Clear the remembered levels now?',
+    clearEffortsKeep: 'Keep',
+    clearEffortsGo: 'Clear',
+    clearEffortsDone: 'Remembered efforts cleared.',
+    clearEffortsFailed: 'Failed to clear remembered efforts.',
     loading: 'Loading settings…',
     unavailable: 'Settings unavailable (host plugin service not found)',
     readOnly: 'Read-only environment; cannot save',
