@@ -209,7 +209,10 @@ function upgradeTo5(config: unknown, fromVersion: number): PluginConfigSnapshot 
  * 链上既有函数一律不改，并把上一级台阶的返回类型改指新冻结的 `V(N-1)PluginConfigSnapshot`。
  * 例如当前版本=6：
  *   upgradeConfig = (c, v) => upgradeTo6(c, v)
- *   upgradeTo6 = (c, v) => { const v5 = v < 5 ? upgradeTo5(c, v) : c; return /* 升到 6 的字段 *\/ }
+ *   upgradeTo6 = (c, v) => {
+ *     const v5 = v < 5 ? upgradeTo5(c, v) : c
+ *     // 在此升到 6 的字段并返回 v6 快照
+ *   }
  */
 export function upgradeConfig(config: unknown, fromVersion: number): PluginConfigSnapshot {
     return upgradeTo5(config, fromVersion)

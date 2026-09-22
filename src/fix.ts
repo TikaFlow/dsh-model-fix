@@ -105,17 +105,16 @@ export async function fix(ctx: Context, force = false): Promise<number> {
                 for (let i = 0; i < models.length; i++) {
                     const model = models[i]
                     if (!isPlainObject(model) || model.id === undefined || model.id === null) continue
-                    const record = model
-                    const modelId = String(record.id)
+                    const modelId = String(model.id)
                     // 记忆重建：该模型仍存在才重建其记忆条目（已删除的不重建，即被清除）；
                     const kept = oldEfforts[providerId]?.[modelId]
                     if (kept !== undefined) (newEfforts[providerId] ??= {})[modelId] = kept
-                    const { reasoningEfforts, contextWindow, maxTokens } = record as {
+                    const { reasoningEfforts, contextWindow, maxTokens } = model as {
                         reasoningEfforts?: unknown
                         contextWindow?: unknown
                         maxTokens?: unknown
                     }
-                    const cleaned = stripEmptyArtifacts(record)
+                    const cleaned = stripEmptyArtifacts(model)
                     const entry = lookup(indexed, providerId, modelId)
                     const efforts = toReasoningEfforts(entry)
                     // 图片模态以剔除空数组后的值为准（harness 语义：空数组 = 未声明）
@@ -145,7 +144,7 @@ export async function fix(ctx: Context, force = false): Promise<number> {
                     const imageUpdatable = (force || allowRules.image)
                         && !!inputValue
                         && !deepEqualJson(input, inputValue)
-                    if (cleaned === record && !reasoningFillable && !reasoningUpdatable
+                    if (cleaned === model && !reasoningFillable && !reasoningUpdatable
                         && !contextFillable && !contextUpdatable && !maxTokensFillable && !maxTokensUpdatable
                         && !imageFillable && !imageUpdatable) continue
                     changes++
