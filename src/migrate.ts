@@ -270,8 +270,8 @@ export function pruneOps(
 /**
  * 启动时配置迁移：
  * - 有当前版本快照 → 直接使用（快照本身非法则按当前生效值重写自愈），两阶段清理低版本旧快照：先清低于最低支持版本，再清低于当前版本且超出上限的 excess（高版本快照保留）
- * - 无当前版本 → 段内有最低支持以上的最高旧快照则走升级链；否则视为全新用户，
- *   直接写入规范默认快照（不经升级链），确保后续读取必有当前版本
+ * - 无当前版本 → 段内所有 ≥ 最低支持版本中取最高可解析快照：高版本降级解析（按当前 schema，多余键忽略、efforts 宽松保留）、
+ *   低版本走升级链；均不可解析或段内无版本则视为全新用户，直接写入规范默认快照，确保后续读取必有当前版本
  */
 export async function migrateConfig(ctx: Context): Promise<void> {
     // 可直接读到本命名空间：provider 在 become injectable 前已 publish(load())，且 installSection 的注册
@@ -283,8 +283,8 @@ export async function migrateConfig(ctx: Context): Promise<void> {
     if (versions.includes(CONFIG_VERSION)) {
         const ops: SettingsPathOp[] = []
         // 当前版本快照非法（如用户手改坏）时自愈：不修就会长期停在「文件里是坏值、运行期按
-        // 次高版本或默认执行」的不一致状态（浏览器半同样显示默认），且每次启动都无从纠正。
-        // 重写目标取当前生效值——有可用的旧快照则沿用其语义，否则落默认。
+        // 最高可解析版本或默认执行」的不一致状态（浏览器半同样显示默认），且每次启动都无从纠正。
+        // 重写目标取当前生效值——段内有可用的其余版本快照（含更高版本）则沿用其语义，否则落默认。
         if (!parseSnapshot(section?.[versionKey(CONFIG_VERSION)])) {
             ops.push({ op: 'set', path: [versionKey(CONFIG_VERSION)], value: toStored(resolveConfig(section)) })
             ctx.logger.warn(`${PLUGIN_NAME}: ${versionKey(CONFIG_VERSION)} 快照非法，已按当前生效配置重写`)
@@ -293,20 +293,22 @@ export async function migrateConfig(ctx: Context): Promise<void> {
         if (ops.length > 0) await ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision)
         return
     }
-    if (versions.some((v) => v > CONFIG_VERSION)) {
-        ctx.logger.warn(`${PLUGIN_NAME}: 检测到更高版本的配置快照（可能有新版插件在管配置），本版本仅保留不读取其内容`)
+    // 迁移源：versions 升序，从高到低取首个可解析快照——高版本降级解析、低版本走升级链，全不可解析则落默认
+    const candidates = versions.filter((v) => v >= MIN_SUPPORTED_VERSION)
+    let stored: PluginConfigSnapshot = DEFAULT_STORED
+    let action = '写入默认配置'
+    let resolved = false
+    for (let i = candidates.length - 1; i >= 0; i--) {
+        const v = candidates[i]
+        const parsed = parseSnapshot(section?.[versionKey(v)])
+        if (!parsed) continue
+        stored = v > CONFIG_VERSION ? toStored(parsed) : upgradeConfig(section?.[versionKey(v)], v)
+        action = v > CONFIG_VERSION ? `从段内 ${versionKey(v)} 快照降级解析` : `从段内 ${versionKey(v)} 快照升级`
+        resolved = true
+        break
     }
-    // 迁移源：段内不低于最低支持的最高旧快照；无则视为全新用户，直接落默认
-    const olds = versions.filter((v) => v >= MIN_SUPPORTED_VERSION && v < CONFIG_VERSION)
-    const sourceVersion = olds[olds.length - 1]
-    let stored: PluginConfigSnapshot
-    let action: string
-    if (sourceVersion !== undefined) {
-        stored = upgradeConfig(section?.[versionKey(sourceVersion)], sourceVersion)
-        action = `从段内 ${versionKey(sourceVersion)} 快照升级`
-    } else {
-        stored = DEFAULT_STORED
-        action = '写入默认配置'
+    if (!resolved && versions.some((v) => v > CONFIG_VERSION)) {
+        ctx.logger.warn(`${PLUGIN_NAME}: 检测到更高版本的配置快照但解析失败，已写入默认配置`)
     }
     const ops: SettingsPathOp[] = [
         { op: 'set', path: [versionKey(CONFIG_VERSION)], value: stored },

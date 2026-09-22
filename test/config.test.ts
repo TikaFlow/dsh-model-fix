@@ -36,7 +36,7 @@ export function run(): void {
         userExperience: { rememberEfforts: true },
     }), resolveConfig({ 'version-5': v5Entry }))
     // 兼容语义：v4 无 efforts，经当前 schema 解析后落该项默认（等价于「无记忆」）
-    check('取次高版本（v4）快照并补 efforts 默认', stable(resolveConfig({ 'version-4': v5Entry })) === stable({
+    check('取最高可解析版本（v4）快照并补 efforts 默认', stable(resolveConfig({ 'version-4': v5Entry })) === stable({
         autoFill: { reasoning: true, context: false, image: false },
         allowUpdate: { reasoning: false, context: false, image: true },
         compat: { disableDeveloper: false },
@@ -51,7 +51,7 @@ export function run(): void {
         allowUpdate: { reasoning: false, context: false, image: true },
         compat: { disableDeveloper: false },
     }
-    check('取次高版本（v3）快照并补 excludes / efforts 默认', stable(resolveConfig({ 'version-3': v3Entry })) === stable({
+    check('取最高可解析版本（v3）快照并补 excludes / efforts 默认', stable(resolveConfig({ 'version-3': v3Entry })) === stable({
         autoFill: { reasoning: true, context: false, image: false },
         allowUpdate: { reasoning: false, context: false, image: true },
         compat: { disableDeveloper: false },
@@ -115,7 +115,26 @@ export function run(): void {
         userExperience: { rememberEfforts: true },
     }), resolveConfig({ 'version-1': { configVersion: 1, autoFill: { reasoning: false, context: false } } }))
     check('低于最低支持版本的快照被忽略回默认', stable(resolveConfig({ 'version-0': { allowUpdate: true } })) === DEFAULT_STABLE, resolveConfig({ 'version-0': { allowUpdate: true } }))
-    check('仅更高版本回默认', stable(resolveConfig({ 'version-9': { whatever: true } })) === DEFAULT_STABLE, resolveConfig({ 'version-9': { whatever: true } }))
+    // 降级兼容语义：无当前版本时，取段内最高版本快照按当前 schema 解析（多余键忽略、缺失字段落默认）
+    check('仅更高版本降级解析保留配置', stable(resolveConfig({ 'version-9': { autoFill: { reasoning: false, context: true, image: false }, compat: { disableDeveloper: false }, excludes: ['x'] } })) === stable({
+        autoFill: { reasoning: false, context: true, image: false },
+        allowUpdate: { reasoning: false, context: false, image: false },
+        compat: { disableDeveloper: false },
+        excludes: ['x'],
+        efforts: {},
+        userExperience: { rememberEfforts: true },
+    }), resolveConfig({ 'version-9': { autoFill: { reasoning: false, context: true, image: false }, compat: { disableDeveloper: false }, excludes: ['x'] } }))
+    check('仅更高版本降级解析保留 efforts 记忆', stable(resolveConfig({ 'version-9': { efforts: { 'z-ai': { 'glm-5.2': 'high' } } } }).efforts) === stable({ 'z-ai': { 'glm-5.2': 'high' } }), resolveConfig({ 'version-9': { efforts: { 'z-ai': { 'glm-5.2': 'high' } } } }).efforts)
+    check('仅更高版本且全缺省降级得默认', stable(resolveConfig({ 'version-9': { whatever: true } })) === DEFAULT_STABLE, resolveConfig({ 'version-9': { whatever: true } }))
+    // 当前版本优先于更高版本：即使高版本先被遍历成为候选，命中当前版本即提前返回
+    check('当前版本与更高版本并存仍取当前版本', stable(resolveConfig({ 'version-9': { autoFill: { reasoning: false, context: false, image: false } }, 'version-5': v5Entry })) === stable({
+        autoFill: { reasoning: true, context: false, image: false },
+        allowUpdate: { reasoning: false, context: false, image: true },
+        compat: { disableDeveloper: false },
+        excludes: ['acme-gateway', 'lab-7'],
+        efforts: {},
+        userExperience: { rememberEfforts: true },
+    }), resolveConfig({ 'version-9': { autoFill: { reasoning: false, context: false, image: false } }, 'version-5': v5Entry }))
     check('非法快照回默认', stable(resolveConfig({ 'version-4': 'garbage' })) === DEFAULT_STABLE, resolveConfig({ 'version-4': 'garbage' }))
     check('段为数组/非对象回默认', stable(resolveConfig([])) === DEFAULT_STABLE, resolveConfig([]))
 

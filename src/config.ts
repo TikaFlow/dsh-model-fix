@@ -106,15 +106,16 @@ export function parseSnapshot(value: unknown): PluginConfig | undefined {
 }
 
 /**
- * 从版本快照段解析运行时配置：优先当前版本；否则取 ≤ 当前且 ≥ 最低支持的最高版本；
- * 均不可用时回退默认配置（更高版本快照超出本代码理解范围，由写入它的版本负责）。
+ * 从版本快照段解析运行时配置：优先当前版本；否则取所有版本中 ≥ 最低支持的最高可解析快照
+ * （含更高版本——按当前 schema 解析，多余键忽略、缺失字段落默认）；均不可用时回退默认配置。
+ * 用于自愈重写取「当前生效值」与运行期配置源；高版本快照读取后不清理，仍供再升级无损。
  */
 export function resolveConfig(section: unknown): PluginConfig {
     if (!isPlainObject(section)) return DEFAULT_CONFIG
     let best: { version: number; config: PluginConfig } | undefined
     for (const [key, value] of Object.entries(section)) {
         const version = parseVersion(key)
-        if (version === undefined || version < MIN_SUPPORTED_VERSION || version > CONFIG_VERSION) continue
+        if (version === undefined || version < MIN_SUPPORTED_VERSION) continue
         const config = parseSnapshot(value)
         if (!config) continue
         if (version === CONFIG_VERSION) return config

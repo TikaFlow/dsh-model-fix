@@ -179,14 +179,14 @@ export function run(): void {
     check('DEFAULT_STORED 的 configVersion 为当前版本', DEFAULT_STORED.configVersion === 5, DEFAULT_STORED)
 
     // 自愈重写（migrateConfig 中当前版本快照非法时的动作）：重写目标取「当前生效值」，故重写前后
-    // 行为必须一致；有可用旧快照时沿用其语义，绝不把用户的次高版本静默抹成默认
+    // 行为必须一致；有可用旧快照时沿用其语义，绝不把段内仍可用的快照静默抹成默认
     const brokenV5WithV4 = {
         'version-5': { autoFill: 'garbage' },
         'version-4': { configVersion: 4, autoFill: { reasoning: false, context: false, image: true }, allowUpdate: { reasoning: true, context: true, image: false }, compat: { disableDeveloper: false }, excludes: ['x'] },
     }
     const healed = { 'version-5': toStored(resolveConfig(brokenV5WithV4)) }
     check('自愈后生效配置不变', stable(resolveConfig(healed)) === stable(resolveConfig(brokenV5WithV4)), { healed, before: resolveConfig(brokenV5WithV4) })
-    check('自愈沿用次高版本语义（未落默认）', stable(resolveConfig(healed)) === stable({
+    check('自愈沿用可用旧快照语义（未落默认）', stable(resolveConfig(healed)) === stable({
         autoFill: { reasoning: false, context: false, image: true },
         allowUpdate: { reasoning: true, context: true, image: false },
         compat: { disableDeveloper: false },
@@ -194,9 +194,19 @@ export function run(): void {
         efforts: {},
         userExperience: { rememberEfforts: true },
     }), resolveConfig(healed))
-    // 无任何可用快照时自愈为默认（回退语义：不静默保留坏值）
-    const allBroken = { 'version-5': 42, 'version-9': { future: true } }
+    // 无任何可用快照时自愈为默认（回退语义：不静默保留坏值；更高版本垃圾快照同样不计）
+    const allBroken = { 'version-5': 42, 'version-9': 42 }
     check('无任何可用快照时自愈为默认', stable(resolveConfig({ 'version-5': toStored(resolveConfig(allBroken)) })) === stable(resolveConfig(allBroken)), resolveConfig(allBroken))
+    // v5 非法但段内有可用更高版本快照：自愈沿用高版本降级解析的当前生效值（而非落默认）
+    const v9Valid = { 'version-5': 42, 'version-9': { autoFill: { reasoning: false, context: false, image: false } } }
+    check('v5 非法时自愈用更高版本降级值', stable(resolveConfig({ 'version-5': toStored(resolveConfig(v9Valid)) })) === stable({
+        autoFill: { reasoning: false, context: false, image: false },
+        allowUpdate: { reasoning: false, context: false, image: false },
+        compat: COMPAT,
+        excludes: EXCLUDES,
+        efforts: EFFORTS,
+        userExperience: USER_EXPERIENCE,
+    }), resolveConfig({ 'version-5': toStored(resolveConfig(v9Valid)) }))
 
     // parseEfforts：宽松解析（结构不符回落 {}，不判整段快照非法）
     check('parseEfforts 正常嵌套', stable(parseEfforts({ 'z-ai': { 'glm-5.2': 'high' } })) === stable({ 'z-ai': { 'glm-5.2': 'high' } }))
@@ -208,8 +218,8 @@ export function run(): void {
     // pruneOps：两阶段清理——先淘汰低于最低支持版本（Phase A），再淘汰低于当前版本且超出保留上限的 excess（Phase B）；
     // 等于/高于当前版本永不清理
     check('当前与高版本不参与清理', pruneOps([5, 6, 7, 8]).length === 0, pruneOps([5, 6, 7, 8]))
-    check('olds 超限淘汰最低（<=当前版本共保留 3 个）', pruneOps([1, 2, 3]).length === 1 && stable(pruneOps([1, 2, 3])) === stable([{ op: 'unset', path: ['version-1'] }]), pruneOps([1, 2, 3]))
-    check('olds 未超限不清理', pruneOps([2, 3]).length === 0, pruneOps([2, 3]))
+    check('olds 超限淘汰最低（<=当前版本共保留 2 个）', pruneOps([1, 2, 3]).length === 2 && stable(pruneOps([1, 2, 3])) === stable([{ op: 'unset', path: ['version-1'] }, { op: 'unset', path: ['version-2'] }]), pruneOps([1, 2, 3]))
+    check('olds 未超限不清理', pruneOps([3]).length === 0, pruneOps([3]))
     check('Phase A 清理低于最低支持版本', stable(pruneOps([1, 2, 3, 4], 6, 4, 3)) === stable([
         { op: 'unset', path: ['version-1'] }, { op: 'unset', path: ['version-2'] }, { op: 'unset', path: ['version-3'] },
     ]), pruneOps([1, 2, 3, 4], 6, 4, 3))

@@ -64,7 +64,7 @@ export async function resetModels(ctx: Context): Promise<number> {
                 ? (apiDescriptor.user as { providers?: Record<string, unknown> } | undefined)?.providers
                 : undefined
             if (!isPlainObject(providers)) return 0
-            // 当前生效配置（损坏快照回退次高版本/默认，excludes 一并生效）
+            // 当前生效配置（损坏快照回退最高可解析版本/默认，excludes 一并生效）
             const configDescriptor = descriptors.find((d) => d.ns === PLUGIN_NS)
             const config = configDescriptor ? resolveConfig(configDescriptor.user) : DEFAULT_CONFIG
             const { modelOps, changed } = planResetModels(config, providers)

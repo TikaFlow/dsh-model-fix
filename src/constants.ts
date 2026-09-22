@@ -15,9 +15,9 @@ export const CONFIG_VERSION = 5
 export const MIN_SUPPORTED_VERSION = 1
 /**
  * 低于当前版本的旧快照保留上限，超出在启动时从最低版本清理（等于或高于当前版本的快照始终保留，供无损回退）。
- * 取 2 ⇒ 段内 <=当前版本 的快照合计最多 3 个（当前 + 2 个低版本）；当前版本 5 时段内 olds = {1,2,3,4} 超限，v1、v2 即被清理。
+ * 取 1 ⇒ 段内 <=当前版本 的快照合计最多 2 个（当前 + 1 个低版本）；当前版本 5 时段内 olds = {1,2,3,4} 超限，仅保留 v4。
  */
-export const MAX_OLD_SNAPSHOTS = 2
+export const MAX_OLD_SNAPSHOTS = 1
 /** 版本快照键前缀，段内键形如 version-N */
 export const VERSION_PREFIX = 'version-'
 
