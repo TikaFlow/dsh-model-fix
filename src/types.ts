@@ -156,6 +156,32 @@ export interface CompatRules {
     disableDeveloper: boolean
 }
 
+// ---------- 历史版本（v4）冻结形态：引入 efforts 之前的快照（三组布尔 + compat + excludes）；与当前 FieldRules / CompatRules 同形，独立声明以冻结形态，不引用当前版本的可演进定义。 ----------
+
+/** 历史版本(v4)：字段规则 schema（与当前 FieldRules 同形，独立声明以冻结形态） */
+export interface V4FieldRules {
+    reasoning: boolean
+    context: boolean
+    image: boolean
+}
+
+/** 历史版本(v4)：兼容性规则 schema（与当前 CompatRules 同形，独立声明以冻结形态） */
+export interface V4CompatRules {
+    disableDeveloper: boolean
+}
+
+/** 历史版本(v4)：配置快照（freeze；不引用当前版本的可演进定义） */
+export interface V4PluginConfigSnapshot {
+    configVersion: number
+    allowUpdate: V4FieldRules
+    autoFill: V4FieldRules
+    compat: V4CompatRules
+    excludes: string[]
+}
+
+/** 每模型推理级别记忆：provider id → model id → harness ModelThinkingLevel 字符串 */
+export type EffortMemory = Record<string, Record<string, string>>
+
 /** 当前运行时配置（仅对象写法） */
 export interface PluginConfig {
     /** 开启后以 models.dev 最新数据为准更新已有配置 */
@@ -170,6 +196,11 @@ export interface PluginConfig {
      * 此前已写入的模型参数与路由 compat 一律保留、不撤销（插件无字段来源记录，无从区分插件写入与用户手写）。
      */
     excludes: string[]
+    /**
+     * 每模型推理级别记忆：provider → model → 级别。运行时记忆而非用户配置，
+     * 结构非法时解析侧宽松回落 {}（不让记忆坏值连累配置自愈重写丢配置）。
+     */
+    efforts: EffortMemory
 }
 
 /** 当前版本的存储快照：运行时配置字段 + 显式版本号 */
@@ -179,6 +210,7 @@ export interface PluginConfigSnapshot {
     autoFill: FieldRules
     compat: CompatRules
     excludes: string[]
+    efforts: EffortMemory
 }
 
 /** 命名空间下的整段配置：version-N -> 对应版本的配置快照（保留低版本历史与更高新版本，便于无损回退） */

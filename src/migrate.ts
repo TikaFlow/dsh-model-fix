@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { CONFIG_VERSION, MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION, PLUGIN_NAME, PLUGIN_NS } from './constants'
 import { DEFAULT_CONFIG, parseSnapshot, parseVersion, resolveConfig, versionKey } from './config'
-import type { PluginConfig, PluginConfigSnapshot, V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, VersionedSection } from './types'
+import type { PluginConfig, PluginConfigSnapshot, V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot, VersionedSection } from './types'
 import { isPlainObject } from './types'
 
 // ---------- 历史版本（v1）迁移源代码：新命名空间版本快照体系内 v1 快照的冻结形态（见 types.ts 历史版本(v1) 段说明），不引用当前版本的可演进定义。 ----------
@@ -122,8 +122,8 @@ function upgradeTo3(config: unknown, fromVersion: number): V3PluginConfigSnapsho
  */
 const V4_EXCLUDES_DEFAULT: readonly string[] = []
 
-/** 升到 v4（当前版本）：低于 v4 的输入先由 upgradeTo3 逐级接力到 v3，再按 v3 冻结 schema 解析（非法整体回退 v3 默认），新增 excludes 数组并落默认 */
-function upgradeTo4(config: unknown, fromVersion: number): PluginConfigSnapshot {
+/** 升到 v4：低于 v4 的输入先由 upgradeTo3 逐级接力到 v3，再按 v3 冻结 schema 解析（非法整体回退 v3 默认），新增 excludes 数组并落默认 */
+function upgradeTo4(config: unknown, fromVersion: number): V4PluginConfigSnapshot {
     const v3 = fromVersion < 3 ? upgradeTo3(config, fromVersion) : config
     let parsed: Omit<V3PluginConfigSnapshot, 'configVersion'>
     try {
@@ -142,16 +142,72 @@ function upgradeTo4(config: unknown, fromVersion: number): PluginConfigSnapshot 
     }
 }
 
+// ---------- 历史版本（v4）迁移源代码：v4 快照的冻结形态（见 types.ts 历史版本(v4) 段说明），不引用当前版本的可演进定义。 ----------
+
+/** 历史版本(v4)：字段规则 schema（与当前 FieldRules 同形，独立声明以冻结形态），dflt 为省略字段的默认值 */
+const v4FieldRules = (dflt: boolean): z<V4FieldRules> => z.object({
+    reasoning: z.boolean().default(dflt),
+    context: z.boolean().default(dflt),
+    image: z.boolean().default(dflt),
+})
+
+/** 历史版本(v4)：兼容性规则 schema（与当前 CompatRules 同形，独立声明以冻结形态） */
+const v4CompatRules: z<V4CompatRules> = z.object({
+    disableDeveloper: z.boolean().default(true),
+})
+
+/** 历史版本(v4)：默认配置——解析失败兜底与 schema 整项缺省的唯一来源 */
+const V4_BASE: Omit<V4PluginConfigSnapshot, 'configVersion'> = {
+    allowUpdate: { reasoning: false, context: false, image: false },
+    autoFill: { reasoning: true, context: true, image: true },
+    compat: { disableDeveloper: true },
+    excludes: [],
+}
+
+/** 历史版本(v4)：配置 schema（仅对象写法，configVersion 等多余键被 schema 忽略；默认取 V4_BASE 的展开副本） */
+const V4ConfigSchema: z<Omit<V4PluginConfigSnapshot, 'configVersion'>> = z.object({
+    allowUpdate: v4FieldRules(false).default({ ...V4_BASE.allowUpdate }),
+    autoFill: v4FieldRules(true).default({ ...V4_BASE.autoFill }),
+    compat: v4CompatRules.default({ ...V4_BASE.compat }),
+    excludes: z.array(z.string()).default([...V4_BASE.excludes]),
+})
+
+/**
+ * 每模型推理级别记忆的台阶默认值：v4 无该对象，升级到 v5 时落空对象。
+ * 写空字面量而不引用 config.ts 的 DEFAULT_CONFIG.efforts，理由同上（产物形态恒定）。
+ */
+const V5_EFFORTS_DEFAULT: Record<string, Record<string, string>> = {}
+
+/** 升到 v5（当前版本）：低于 v5 的输入先由 upgradeTo4 逐级接力到 v4，再按 v4 冻结 schema 解析（非法整体回退 v4 默认），新增 efforts 对象并落默认 */
+function upgradeTo5(config: unknown, fromVersion: number): PluginConfigSnapshot {
+    const v4 = fromVersion < 4 ? upgradeTo4(config, fromVersion) : config
+    let parsed: Omit<V4PluginConfigSnapshot, 'configVersion'>
+    try {
+        parsed = V4ConfigSchema((isPlainObject(v4) ? v4 : {}) as unknown as Omit<V4PluginConfigSnapshot, 'configVersion'>)
+    } catch {
+        parsed = V4_BASE
+    }
+    // 产物版本固定为 5（本函数形态恒定），故不引用 CONFIG_VERSION
+    return {
+        configVersion: 5,
+        allowUpdate: parsed.allowUpdate,
+        autoFill: parsed.autoFill,
+        compat: { ...parsed.compat },
+        excludes: [...parsed.excludes],
+        efforts: { ...V5_EFFORTS_DEFAULT },
+    }
+}
+
 /**
  * 配置版本迁移入口：只调用最新一级台阶，产物即当前 CONFIG_VERSION 的快照形态。
  * 新版本发布时：新增 `upgradeToN`（它负责把更低版本经 `upgradeToN-1` 接力上来），把本函数改指它，
  * 链上既有函数一律不改，并把上一级台阶的返回类型改指新冻结的 `V(N-1)PluginConfigSnapshot`。
- * 例如当前版本=5：
- *   upgradeConfig = (c, v) => upgradeTo5(c, v)
- *   upgradeTo5 = (c, v) => { const v4 = v < 4 ? upgradeTo4(c, v) : c; return /* 升到 5 的字段 *\/ }
+ * 例如当前版本=6：
+ *   upgradeConfig = (c, v) => upgradeTo6(c, v)
+ *   upgradeTo6 = (c, v) => { const v5 = v < 5 ? upgradeTo5(c, v) : c; return /* 升到 6 的字段 *\/ }
  */
 export function upgradeConfig(config: unknown, fromVersion: number): PluginConfigSnapshot {
-    return upgradeTo4(config, fromVersion)
+    return upgradeTo5(config, fromVersion)
 }
 
 /** 把运行时配置物化为当前版本的存储快照（configVersion 由本函数补，调用方不手写版本号） */
@@ -162,6 +218,7 @@ export function toStored(config: PluginConfig): PluginConfigSnapshot {
         autoFill: config.autoFill,
         compat: config.compat,
         excludes: config.excludes,
+        efforts: config.efforts,
     }
 }
 

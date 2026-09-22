@@ -552,8 +552,11 @@ export function Card(props: CardProps) {
         setNotice(null)
         setSubmitting(true)
         // 写入成功由宿主回推新 value（dirty 自动归 false，触发上面的自动收起），此处留一行弱提示；
-        // 失败时 scope 内部已重读恢复，胶囊与展开态即传达「未落盘」，不另发提示
-        void scope.set(VERSION_KEY, snapshotFromFlags(shown))
+        // 失败时 scope 内部已重读恢复，胶囊与展开态即传达「未落盘」，不另发提示。
+        // efforts 取写入当刻的实时值：它是监听器维护的运行时记忆、卡片不拥有它，用草稿里的旧快照
+        // 会把「开卡后切过模型」的那段记忆覆盖回去
+        const liveEfforts = scope.getSnapshot().value?.efforts
+        void scope.set(VERSION_KEY, snapshotFromFlags({ ...shown, efforts: liveEfforts ?? shown.efforts }))
             .then(() => {
                 // 官方 card-form 的范式是写后读回核对：值真被宿主接受才算成功并发提示，
                 // 未落地则保持「未保存」胶囊与展开态，不误报成功

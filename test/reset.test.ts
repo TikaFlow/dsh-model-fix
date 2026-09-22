@@ -9,6 +9,7 @@ const base: PluginConfig = {
     allowUpdate: { reasoning: false, context: true, image: false },
     compat: { disableDeveloper: true },
     excludes: ['acme-gateway'],
+    efforts: {},
 }
 
 /** 取 modelOps 中 path 匹配的第一条 set op 的 value（provider 级 models 数组） */

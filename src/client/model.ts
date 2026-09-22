@@ -7,14 +7,14 @@
 import type { CompatRules, FieldRules, PluginConfig } from '../types'
 
 /** 本插件的配置命名空间（与 src/constants.ts 的 PLUGIN_NS 字面量一致）；
- * 浏览器半另以 `/${MODEL_FIX_NS}` 拼 RPC channel（强制更新 / 重置模型 / 恢复备份三端点），与 src/rpc.ts 的 `/${PLUGIN_NS}` 配对，改动须两侧同步 */
+ * 浏览器半另以 `/${MODEL_FIX_NS}` 拼 RPC channel（强制更新 / 重置模型 / 恢复备份 / 记住推理级别四端点），与 src/rpc.ts 的 `/${PLUGIN_NS}` 配对，改动须两侧同步 */
 export const MODEL_FIX_NS = 'tikaflow-model-fix'
 
 /** 提供方所在的宿主配置命名空间（与 src/constants.ts 的 API_NS 字面量一致）：仅用于读 user 层提供方 id 以判定排除项是否命中 */
 export const PI_AI_NS = 'llm-pi-ai'
 
 /** 当前代码配置版本；与 src/constants.ts 的 CONFIG_VERSION 同步修改 */
-export const CONFIG_VERSION = 4
+export const CONFIG_VERSION = 5
 
 /** 版本快照键前缀 */
 const VERSION_PREFIX = 'version-'
@@ -100,12 +100,13 @@ function parseCompat(value: unknown): CompatRules | undefined {
 /** 排除项 id 的合法性规则：逐字复制宿主 models 页新增提供方时的 route id 校验（同一权威规则，两侧不得自行放宽） */
 export const EXCLUDE_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 
-/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性按旧版 API 处理，无排除项（与 src/config.ts DEFAULT_CONFIG 一致） */
+/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性按旧版 API 处理，无排除项，每模型推理级别记忆为空（与 src/config.ts DEFAULT_CONFIG 一致） */
 export const DEFAULT_FLAGS: Flags = {
     autoFill: { reasoning: true, context: true, image: true },
     allowUpdate: { reasoning: false, context: false, image: false },
     compat: { ...COMPAT_DEFAULTS },
     excludes: [],
+    efforts: {},
 }
 
 /** 解析 excludes 组：整项缺失落空数组；非数组或元素非字符串 => undefined（整段快照非法，镜像 Node 侧 schema 语义） */
@@ -120,8 +121,23 @@ function parseExcludes(value: unknown): string[] | undefined {
     return ids
 }
 
-/** 校验并物化当前版本（v4）快照；非法返回 undefined（视为无有效配置） */
-function parseV4(entry: unknown): Flags | undefined {
+/** 每模型推理级别记忆的宽松解析（与 Node 侧 parseEfforts 同语义）：结构不符回落 {} */
+function parseEfforts(value: unknown): Record<string, Record<string, string>> {
+    if (!isPlainObject(value)) return {}
+    const result: Record<string, Record<string, string>> = {}
+    for (const [provider, models] of Object.entries(value)) {
+        if (!isPlainObject(models)) continue
+        const entry: Record<string, string> = {}
+        for (const [model, level] of Object.entries(models)) {
+            if (typeof level === 'string') entry[model] = level
+        }
+        if (Object.keys(entry).length > 0) result[provider] = entry
+    }
+    return result
+}
+
+/** 校验并物化当前版本（v5）快照；非法返回 undefined（视为无有效配置） */
+function parseV5(entry: unknown): Flags | undefined {
     if (!isPlainObject(entry)) return
     const allowUpdate = parseRules(entry.allowUpdate, false)
     if (!allowUpdate) return
@@ -131,18 +147,20 @@ function parseV4(entry: unknown): Flags | undefined {
     if (!compat) return
     const excludes = parseExcludes(entry.excludes)
     if (!excludes) return
-    return { allowUpdate, autoFill, compat, excludes }
+    // efforts 宽松解析（结构不符回落 {}，不让记忆坏值判整段快照非法）
+    const efforts = parseEfforts(entry.efforts)
+    return { allowUpdate, autoFill, compat, excludes, efforts }
 }
 
 /**
- * 解码命名空间整段：只读当前版本快照 version-4（Node 半迁移保证启动后段内必有，见 migrateConfig）；
+ * 解码命名空间整段：只读当前版本快照 version-5（Node 半迁移保证启动后段内必有，见 migrateConfig）；
  * 段非法、快照缺失或非法均回退默认。永不返回 undefined（返回 undefined 会让宿主 scope 永挂 loading）。
  */
 export function decodeSection(section: unknown): Flags {
-    return isPlainObject(section) ? parseV4(section[VERSION_KEY]) ?? DEFAULT_FLAGS : DEFAULT_FLAGS
+    return isPlainObject(section) ? parseV5(section[VERSION_KEY]) ?? DEFAULT_FLAGS : DEFAULT_FLAGS
 }
 
-/** 配置 -> 规范 v4 存储快照（configVersion + 三组布尔 + 排除列表全显式，与宿主 DEFAULT_STORED 形态一致） */
+/** 配置 -> 规范 v5 存储快照（configVersion + 三组布尔 + 排除列表 + 每模型推理级别记忆全显式，与宿主 DEFAULT_STORED 形态一致） */
 export function snapshotFromFlags(flags: Flags): Record<string, unknown> {
     return {
         configVersion: CONFIG_VERSION,
@@ -150,6 +168,7 @@ export function snapshotFromFlags(flags: Flags): Record<string, unknown> {
         autoFill: { ...flags.autoFill },
         compat: { ...flags.compat },
         excludes: [...flags.excludes],
+        efforts: flags.efforts,
     }
 }
 

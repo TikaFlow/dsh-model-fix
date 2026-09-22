@@ -15,6 +15,7 @@
 - 兼容性（默认开）：为所有 `api: openai-completions` 的提供方路由写入 `compat.supportsDeveloperRole: false`（不使用 `developer` 角色）；关闭该开关则移除此字段
 - 排除提供方：列出的提供方本插件完全不动（填充、更新、兼容性写入、强制更新都跳过），等效于对它关闭插件
 - 更新模型参数：按 models.dev 当前值立即覆盖一遍
+- 记住推理级别：每模型独立记住上次手动选择的推理级别，切换模型时自动恢复；选择「provider default」时清除记忆
 - 可视化设置：见下文
 - 开箱即用：启动即以内置缓存填充（离线可用），数据随后自动保持最新
 
@@ -71,6 +72,10 @@ dsh plugin --profile web add github:TikaFlow/dsh-model-fix
 
 无需任何操作，进入 DSH 后插件即自动生效：支持推理级别的模型会自动填充推理级别，缺失上下文的模型会自动补全 `contextWindow` / `maxTokens`，数据源标明支持图片的模型会补全 `input: ["text", "image"]`。默认还会为所有 `api: openai-completions` 的提供方写入路由级 `compat.supportsDeveloperRole: false`。某个提供方不想被接管，就把它的 id 加进「排除提供方」（见下文）。
 
+### 记住推理级别
+
+每个模型独立记住你上次手动选择的推理级别。切换模型后自动恢复该模型的记忆值；如果你选择了「provider default」（即 `defaultEffort`），则清除该模型的记忆，下次切换回来仍为默认。
+
 ### 配置
 
 **图形界面（推荐）**：见 [可视化设置](#可视化设置)
@@ -79,7 +84,7 @@ dsh plugin --profile web add github:TikaFlow/dsh-model-fix
 
 ```yaml
 tikaflow-model-fix:
-  version-4:
+  version-5:
     autoFill:
       reasoning: true   # 填充缺失的推理级别档位；默认 true
       context: true     # 填充缺失的 contextWindow/maxTokens；默认 true
@@ -91,6 +96,7 @@ tikaflow-model-fix:
     compat:
       disableDeveloper: true  # 写入 compat.supportsDeveloperRole: false；默认 true
     excludes: []        # 排除的提供方 id 列表；默认空
+    efforts: {}         # 每模型推理级别记忆（运行时自动维护，无需手动编辑）
 ```
 
 注意 `compat` 与其余开关不同：**开启即写入、关闭即移除**。关闭期间该字段由你自己管理。

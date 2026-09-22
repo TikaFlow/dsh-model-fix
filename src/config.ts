@@ -1,14 +1,15 @@
 import z from '@deepseek-ai/schemastery'
 import { CONFIG_VERSION, MIN_SUPPORTED_VERSION, VERSION_PREFIX } from './constants'
-import type { CompatRules, FieldRules, PluginConfig, VersionedSection } from './types'
+import type { CompatRules, EffortMemory, FieldRules, PluginConfig, VersionedSection } from './types'
 import { isPlainObject } from './types'
 
-/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，排除列表为空 */
+/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，排除列表为空，每模型推理级别记忆为空 */
 export const DEFAULT_CONFIG: PluginConfig = {
     allowUpdate: { reasoning: false, context: false, image: false },
     autoFill: { reasoning: true, context: true, image: true },
     compat: { disableDeveloper: true },
     excludes: [],
+    efforts: {},
 }
 
 /** 命名空间下的默认段值（版本快照容器） */
@@ -31,15 +32,34 @@ const compatRules: z<CompatRules> = z.object({
 
 /**
  * 排除列表 schema：整项缺失落空数组；非数组或元素非字符串判整段快照非法
- * （与 fieldRules / compatRules 同一严格度，浏览器半 parseV4 须逐条镜像）。
+ * （与 fieldRules / compatRules 同一严格度，浏览器半 parseV5 须逐条镜像）。
  */
 const excludesRules: z<string[]> = z.array(z.string()).default([])
+
+/**
+ * 每模型推理级别记忆的宽松解析：结构不符回落 {}。
+ * efforts 是运行时记忆而非用户配置——不放进 PluginConfigSchema（schema 只管用户配置字段），
+ * 单独宽松解析：记忆坏值不能让整段快照判非法（否则配置自愈重写会连累丢配置）。
+ */
+export function parseEfforts(value: unknown): EffortMemory {
+    if (!isPlainObject(value)) return {}
+    const result: EffortMemory = {}
+    for (const [provider, models] of Object.entries(value)) {
+        if (!isPlainObject(models)) continue
+        const entry: Record<string, string> = {}
+        for (const [model, level] of Object.entries(models)) {
+            if (typeof level === 'string') entry[model] = level
+        }
+        if (Object.keys(entry).length > 0) result[provider] = entry
+    }
+    return result
+}
 
 /**
  * 当前版本配置 schema：仅对象写法（不接受布尔简写，杜绝语法二义性）；字段整体缺失时落该项默认（取 DEFAULT_CONFIG，
  * 展开为新对象以免 schema 默认与运行时常量共享引用）。
  */
-const PluginConfigSchema: z<PluginConfig> = z.object({
+const PluginConfigSchema: z<Omit<PluginConfig, 'efforts'>> = z.object({
     allowUpdate: fieldRules(false).default({ ...DEFAULT_CONFIG.allowUpdate }),
     autoFill: fieldRules(true).default({ ...DEFAULT_CONFIG.autoFill }),
     compat: compatRules.default({ ...DEFAULT_CONFIG.compat }),
@@ -68,8 +88,8 @@ export function parseSnapshot(value: unknown): PluginConfig | undefined {
     if (!isPlainObject(value)) return
     try {
         const parsed = PluginConfigSchema(value as unknown as PluginConfig)
-        // excludes 复制为新数组：schema 默认实例不与运行时配置共享引用
-        return { allowUpdate: parsed.allowUpdate, autoFill: parsed.autoFill, compat: parsed.compat, excludes: [...parsed.excludes] }
+        // excludes 复制为新数组：schema 默认实例不与运行时配置共享引用；efforts 宽松解析（结构不符回落 {}）
+        return { allowUpdate: parsed.allowUpdate, autoFill: parsed.autoFill, compat: parsed.compat, excludes: [...parsed.excludes], efforts: parseEfforts(value.efforts) }
     } catch {
         return
     }

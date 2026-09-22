@@ -1,4 +1,4 @@
-/** src/client/model.ts 纯映射层用例：解码（只读 version-4，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化 */
+/** src/client/model.ts 纯映射层用例：解码（只读 version-5，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化 */
 
 import { check, stable } from './helper'
 import { API_NS, CONFIG_VERSION as PLUGIN_CONFIG_VERSION, PLUGIN_NS } from '../src/constants'
@@ -24,69 +24,94 @@ import {
 } from '../src/client/model'
 import type { Flags } from '../src/client/model'
 
-/** 三组全开的配置（总控与整组置位用例的基准，无排除项） */
+/** 三组全开的配置（总控与整组置位用例的基准，无排除项，无记忆） */
 const ALL_ON: Flags = {
     autoFill: { reasoning: true, context: true, image: true },
     allowUpdate: { reasoning: true, context: true, image: true },
     compat: { disableDeveloper: true },
     excludes: [],
+    efforts: {},
 }
 
 /** 带两个排除项的配置（排除列表用例的基准，其中 acme-gateway 在 providerIds 里命中） */
 const WITH_EXCLUDES: Flags = { ...ALL_ON, excludes: ['acme-gateway', 'lab-7'] }
 
+/** 带推理级别记忆的配置（efforts 用例基准） */
+const WITH_EFFORTS: Flags = { ...ALL_ON, efforts: { 'z-ai': { 'glm-5.2': 'high' } } }
+
 /** 执行本文件的全部用例 */
 export function run(): void {
-    // ---------- decodeSection：v4 正常解析 ----------
+    // ---------- decodeSection：v5 正常解析 ----------
     check(
-        'decode 完整 v4 快照',
+        'decode 完整 v5 快照',
         stable(decodeSection({
-            'version-4': { configVersion: 4, autoFill: { reasoning: false, context: true, image: false }, allowUpdate: { reasoning: true, context: false, image: false }, compat: { disableDeveloper: false }, excludes: ['acme-gateway'] },
+            'version-5': { configVersion: 5, autoFill: { reasoning: false, context: true, image: false }, allowUpdate: { reasoning: true, context: false, image: false }, compat: { disableDeveloper: false }, excludes: ['acme-gateway'] },
         })) === stable({
             autoFill: { reasoning: false, context: true, image: false },
             allowUpdate: { reasoning: true, context: false, image: false },
             compat: { disableDeveloper: false },
             excludes: ['acme-gateway'],
+            efforts: {},
         }),
     )
-    // ---------- v4 缺 excludes 整项落默认（向后兼容语义） ----------
+    // ---------- v5 缺 excludes 整项落默认（向后兼容语义） ----------
     check(
         'decode 缺 excludes 落空数组',
-        stable(decodeSection({ 'version-4': { autoFill: { reasoning: false }, allowUpdate: { reasoning: true } } })) === stable({
+        stable(decodeSection({ 'version-5': { autoFill: { reasoning: false }, allowUpdate: { reasoning: true } } })) === stable({
             autoFill: { reasoning: false, context: true, image: true },
             allowUpdate: { reasoning: true, context: false, image: false },
             compat: { disableDeveloper: true },
             excludes: [],
+            efforts: {},
         }),
     )
-    // ---------- v4 缺 compat 整项落默认（v3 时代就有的兼容语义，升级后不变） ----------
+    // ---------- v5 缺 compat 整项落默认（v3 时代就有的兼容语义，升级后不变） ----------
     check(
         'decode 缺 compat 落默认 true',
-        stable(decodeSection({ 'version-4': { excludes: ['acme-gateway'] } })) === stable({
+        stable(decodeSection({ 'version-5': { excludes: ['acme-gateway'] } })) === stable({
             autoFill: { reasoning: true, context: true, image: true },
             allowUpdate: { reasoning: false, context: false, image: false },
             compat: { disableDeveloper: true },
             excludes: ['acme-gateway'],
+            efforts: {},
         }),
     )
+    // ---------- v5 带 efforts 正常解析 ----------
+    check(
+        'decode 含 efforts 快照',
+        stable(decodeSection({
+            'version-5': { autoFill: { reasoning: true }, efforts: { 'z-ai': { 'glm-5.2': 'high' } } },
+        })) === stable({
+            autoFill: { reasoning: true, context: true, image: true },
+            allowUpdate: { reasoning: false, context: false, image: false },
+            compat: { disableDeveloper: true },
+            excludes: [],
+            efforts: { 'z-ai': { 'glm-5.2': 'high' } },
+        }),
+    )
+    // ---------- efforts 宽松解析：结构不符回落 {}，不判整段快照非法 ----------
+    check('decode efforts 非对象回落空（快照仍合法）', stable(decodeSection({ 'version-5': { efforts: 'bad' } })) === stable(DEFAULT_FLAGS))
+    check('decode efforts 内层非对象回落空', stable(decodeSection({ 'version-5': { efforts: { a: 'bad' } } })) === stable(DEFAULT_FLAGS))
+    check('decode efforts 混合保留合法项', stable(decodeSection({ 'version-5': { efforts: { a: { m: 'high', bad: 42 } } } })) === stable({ ...DEFAULT_FLAGS, efforts: { a: { m: 'high' } } }))
+    check('decode efforts 缺失回落空', stable(decodeSection({ 'version-5': {} })) === stable(DEFAULT_FLAGS))
     // ---------- 组非对象 / 字段类型非法 => 整段快照非法，回退默认（镜像 Node 侧 schema 抛错语义） ----------
-    check('decode compat 非对象回退默认', stable(decodeSection({ 'version-4': { compat: 'x' } })) === stable(DEFAULT_FLAGS))
-    check('decode compat 字段非布尔回退默认', stable(decodeSection({ 'version-4': { compat: { disableDeveloper: 'yes' } } })) === stable(DEFAULT_FLAGS))
-    check('decode excludes 非数组回退默认', stable(decodeSection({ 'version-4': { excludes: 'acme-gateway' } })) === stable(DEFAULT_FLAGS))
-    check('decode excludes 元素非字符串回退默认', stable(decodeSection({ 'version-4': { excludes: ['ok', 42] } })) === stable(DEFAULT_FLAGS))
-    check('decode excludes 空数组合法且区别于缺失', stable(decodeSection({ 'version-4': { excludes: [] } })) === stable(DEFAULT_FLAGS))
+    check('decode compat 非对象回退默认', stable(decodeSection({ 'version-5': { compat: 'x' } })) === stable(DEFAULT_FLAGS))
+    check('decode compat 字段非布尔回退默认', stable(decodeSection({ 'version-5': { compat: { disableDeveloper: 'yes' } } })) === stable(DEFAULT_FLAGS))
+    check('decode excludes 非数组回退默认', stable(decodeSection({ 'version-5': { excludes: 'acme-gateway' } })) === stable(DEFAULT_FLAGS))
+    check('decode excludes 元素非字符串回退默认', stable(decodeSection({ 'version-5': { excludes: ['ok', 42] } })) === stable(DEFAULT_FLAGS))
+    check('decode excludes 空数组合法且区别于缺失', stable(decodeSection({ 'version-5': { excludes: [] } })) === stable(DEFAULT_FLAGS))
     check(
         'decode 字段非布尔非法回退默认',
         stable(decodeSection({
             'version-3': { configVersion: 3, autoFill: { reasoning: false, context: false }, allowUpdate: { reasoning: true, context: true } },
-            'version-4': { autoFill: { reasoning: 'yes' } },
+            'version-5': { autoFill: { reasoning: 'yes' } },
         })) === stable(DEFAULT_FLAGS),
     )
-    // ---------- 只读 version-4：段内仅有低版本快照（迁移未完成/失败）不读取，回默认 ----------
+    // ---------- 只读 version-5：段内仅有低版本快照（迁移未完成/失败）不读取，回默认 ----------
     check(
-        'decode 段内仅有 v3 回默认',
+        'decode 段内仅有 v4 回默认',
         stable(decodeSection({
-            'version-3': { configVersion: 3, autoFill: { reasoning: true, context: false }, allowUpdate: { reasoning: false, context: true }, compat: { disableDeveloper: false } },
+            'version-4': { configVersion: 4, autoFill: { reasoning: true, context: false }, allowUpdate: { reasoning: false, context: true }, compat: { disableDeveloper: false }, excludes: [] },
         })) === stable(DEFAULT_FLAGS),
     )
     check(
@@ -101,25 +126,29 @@ export function run(): void {
         stable(decodeSection({ 'version-9': { autoFill: { reasoning: true, context: true, image: true } } })) === stable(DEFAULT_FLAGS),
     )
     // ---------- 非对象段与垃圾输入一律兜默认，永不 undefined ----------
-    check('decode 段为布尔回退默认', stable(decodeSection({ 'version-4': true })) === stable(DEFAULT_FLAGS))
-    for (const junk of [undefined, null, 42, 'x', [], { foo: 1 }, { 'version-4': null }, { 'version-x': {} }]) {
+    check('decode 段为布尔回退默认', stable(decodeSection({ 'version-5': true })) === stable(DEFAULT_FLAGS))
+    for (const junk of [undefined, null, 42, 'x', [], { foo: 1 }, { 'version-5': null }, { 'version-x': {} }]) {
         check(`decode 垃圾输入兜默认 ${stable(junk)}`, stable(decodeSection(junk)) === stable(DEFAULT_FLAGS), junk)
     }
-    // ---------- snapshotFromFlags：规范形态（configVersion + 三组布尔 + 排除列表全显式，无多余键） ----------
+    // ---------- snapshotFromFlags：规范形态（configVersion + 三组布尔 + 排除列表 + efforts 全显式，无多余键） ----------
     check(
-        'snapshot 规范化为 v4 存储形态',
+        'snapshot 规范化为 v5 存储形态',
         stable(snapshotFromFlags(DEFAULT_FLAGS)) === stable({
-            configVersion: 4,
+            configVersion: 5,
             autoFill: { reasoning: true, context: true, image: true },
             allowUpdate: { reasoning: false, context: false, image: false },
             compat: { disableDeveloper: true },
             excludes: [],
+            efforts: {},
         }),
         snapshotFromFlags(DEFAULT_FLAGS),
     )
-    check('snapshot 键名为 version-4', VERSION_KEY === 'version-4', VERSION_KEY)
+    check('snapshot 含 efforts', stable(snapshotFromFlags(WITH_EFFORTS).efforts) === stable({ 'z-ai': { 'glm-5.2': 'high' } }))
+    check('snapshot 键名为 version-5', VERSION_KEY === 'version-5', VERSION_KEY)
     // 序列化产物与自身解码必须互逆（保存后立即读回不得变化）
     check('snapshot -> decode 往返一致', stable(decodeSection({ [VERSION_KEY]: snapshotFromFlags(WITH_EXCLUDES) })) === stable(WITH_EXCLUDES), snapshotFromFlags(WITH_EXCLUDES))
+    // 带 efforts 的往返一致
+    check('snapshot -> decode 往返含 efforts', stable(decodeSection({ [VERSION_KEY]: snapshotFromFlags(WITH_EFFORTS) })) === stable(WITH_EFFORTS))
     // ---------- 跨半字面量漂移守护（浏览器半禁值导入 Node 半，字面量须两侧同步） ----------
     check('MODEL_FIX_NS 与 PLUGIN_NS 一致', MODEL_FIX_NS === PLUGIN_NS, MODEL_FIX_NS)
     check('PI_AI_NS 与 API_NS 一致', PI_AI_NS === API_NS, PI_AI_NS)
@@ -145,6 +174,7 @@ export function run(): void {
             allowUpdate: DEFAULT_FLAGS.allowUpdate,
             compat: DEFAULT_FLAGS.compat,
             excludes: DEFAULT_FLAGS.excludes,
+            efforts: DEFAULT_FLAGS.efforts,
         }),
     )
     check(
@@ -197,4 +227,6 @@ export function run(): void {
     check('isDirty 排除列表等值不为脏', isDirty(withTwo, { ...withTwo, excludes: ['acme-gateway', 'lab-7'] }) === false)
     // 顺序敏感是有意取舍：草稿只由已存值经增删派生，故不存在"换顺序即脏"的误报路径
     check('isDirty 排除列表换序视为脏', isDirty({ ...withTwo, excludes: ['lab-7', 'acme-gateway'] }, withTwo) === true)
+    // efforts 的变化不标脏（运行时记忆，非用户配置，不应触发"未保存更改"）
+    check('isDirty efforts 变化不标脏', isDirty({ ...DEFAULT_FLAGS, efforts: { a: { m: 'high' } } }, DEFAULT_FLAGS) === false)
 }
