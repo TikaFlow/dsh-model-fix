@@ -15,7 +15,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | `src/constants.ts` | 命名空间、版本与保留上限、重试参数、`CAPACITY_UNLIMITED`、提供方提示表 `HINTS`、兼容性落点 `DEVELOPER_COMPAT_APIS` / `DEVELOPER_COMPAT_FIELD` |
 | `src/config.ts` / `src/migrate.ts` | 当前 schema 与 `resolveConfig` / 升级链与 `migrateConfig` 编排 |
 | `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
-| `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 两类 op 同批提交；`excludes` 命中的提供方在 provider 循环入口即整条跳过（两类 op 与 force 一起被排除，故不在各分支重复判断） |
+| `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 两类 op 同批提交；`excludes` 命中的提供方在 provider 循环入口即整条跳过（两类 op 与 force 一起被排除，故不在各分支重复判断）；同一两层循环顺带**重建 `efforts` 记忆**（清除已删除模型/提供方的记忆，`excludes` 命中者在跳过处单独循环其模型同样重建、不产生对该提供方的写回；与旧值相同零写入，不同才以自有 NS 的 revision 写回 `version-N.efforts`，见「设计裁决」） |
 | `src/reset.ts` | 重置模型：仅剔除各非排除 provider 模型上的插件填充字段（`reasoningEfforts`/容量/`input`），配置段原样保留（开关不变，重置后改配置仍按原开关触发填充）；`planResetModels` 零 ctx 可单测，`resetModels` 全程打开事件流守卫（`isIgnoreAll`）防写回反向触发填充 |
 | `src/guard.ts` | 事件流守卫（模块级 `ignoreAll` + `startIgnoreAll`/`endIgnoreAll`/`isIgnoreAll`）：重置与恢复共用的写回保护，`index.ts` 两事件入口最先判定 |
 | `src/restore.ts` | 恢复备份：`captureBackup` 仅在 `apply` 最顶部（先于 `installSection`）读一次 `llm-pi-ai` 的 **`providers` 段**并深拷贝为内存备份（不写盘，重启重建；绝不做延迟补捕，见设计裁决）；`providersOf` 为捕获与恢复共用的收窄口径；`planRestore` 零 ctx 可单测，按**交集**语义只回退「备份与当前都存在」的 provider+model；`restoreModels` 与 reset 同样全程开守卫 |
@@ -106,10 +106,10 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **兼容性规则「开启即添加、关闭即移除」，与模型参数的取向相反**：模型参数关闭只是不写、存量原地保留；`compat` 是本插件接管的路由字段，关掉开关若还留着旧值就等于开关没生效。因此默认 `disableDeveloper: true` 一升级就会给所有 openai-completions 路由写 `supportsDeveloperRole: false`，并覆盖用户手写的同字段——要自行管理 provider 的 compat 就把这一项关掉。
 - **compat 只写路由级、不写模型级**：宿主里模型级字段优先于路由级，写模型级会与用户逐模型的取值打架；且 `fix` 的模型整段写回已负责清理空 `compat`，两类 op 各管各的路径。
 - **compat 只发给 `api === 'openai-completions'` 的路由**：宿主按协议 gate 消费 compat，其他协议写了被静默跳过 ⇒ 主动过滤避免无意义写入与脏段；路由没有 `api`（协议靠内置目录推断）一律不碰。
-- **`force` 与 compat 无关**：兼容性规则不来自 models.dev，强制更新只绕过 `allowUpdate` 覆盖模型参数；`fix` 的返回值也仍只计模型变更数，保持 RPC 与「强制更新」反馈的契约。
-- **`excludes` 是"零操作排除"而非"撤销"**：命中的提供方在 provider 循环入口即跳过，模型写回、路由 compat、`force` 全部不作用（等效对该提供方关闭插件）。它**只有预防性**——已写入的模型参数与 `compat.supportsDeveloperRole` 原地保留（插件无字段来源记录，分不清插件写的与用户手写的，做"清除"必然误删），故瓦片释义与 README 都必须写明"仅对保存之后的行为生效"。要保护新提供方的正确顺序是**先加排除、再建提供方**（新建即触发一次填充，晚一步来不及）。
+- **`force` 与 compat 无关**：兼容性规则不来自 models.dev，强制更新只绕过 `allowUpdate` 覆盖模型参数；`fix` 的返回值也仍只计模型变更数（记忆清理同样不计入），保持 RPC 与「强制更新」反馈的契约。
+- **`excludes` 是"零操作排除"而非"撤销"**：命中的提供方在 provider 循环入口即跳过，模型写回、路由 compat、`force` 全部不作用（等效对该提供方关闭插件）。它**只有预防性**——已写入的模型参数与 `compat.supportsDeveloperRole` 原地保留（插件无字段来源记录，分不清插件写的与用户手写的，做"清除"必然误删），故瓦片释义与 README 都必须写明"仅对保存之后的行为生效"。要保护新提供方的正确顺序是**先加排除、再建提供方**（新建即触发一次填充，晚一步来不及）。`efforts` 记忆清理**不豁免**排除提供方：跳过处不写回该提供方，但会**单独循环其模型**做同样的按模型重建——已删除模型的记忆条目一并清除（清理的是插件自有数据，不产生对该提供方的任何写回）；浏览器半只能为当前可选的现存模型写入记忆，故按模型重建不会误删正在使用的偏好。
 - **必须允许填入不存在的 id**：这是本功能的正用场景（先写 id 再建提供方），故不做任何"仅可选现有项"的控件（含 `<datalist>` 约束性候选）；UI 用「命中」样式表达"当前确有同名提供方、排除正在生效"，未命中为普通样式且**不得画成错误色**（0 命中/未命中都是正常态）。命中判据取 `llm-pi-ai` 的 **user 层 `providers` 键**——与 `fix` 遍历的同一份数据，零漂移；宿主目录里"已声明未配置"的提供方不算命中（本插件从不写它们）。
-- **不自动清理失效 id；顺序沿用录入、去重分层各管一段**：`fix` 在 `providers` 缺失/非对象时早退，早期顺手 prune 会清空用户列表，且给 `fix` 加"顺带写自己配置"的第二写入面（`fix` 的写回批次是 `llm-pi-ai`，excludes 根本进不去）⇒ fix 只管排除匹配、永不写自有 NS。列表顺序是用户录入意图，草稿只由已存值经增删派生 ⇒ 脏检测用顺序敏感的逐位比较，不需要排序。去重分两层：**录入端**当场提示「已在列表中」并拒绝写入（不静默改写用户输入）；**onChange 自愈**（`migrate.ts` 的 `selfHealConfig` 套用 `dedupeExcludesOp`，handler 里先自愈再 fix）兜住手改 `settings.yaml` 的重复——守卫即终止条件：仅当 `Set` 收窄后**变短**才产出定向路径 op（保留首次出现），无重复零写入，故自愈写回引发的再次 onChange 不再产生任何写入，链条一轮收敛。`parseSnapshot`/浏览器半 `parseV5` 均原样保留数组（去重只发生在写回 op）。id 用 `Set.has` **精确匹配**不归一化（与 `lookup` 的"宁可漏不错配"一致）。
+- **不自动清理失效 id；顺序沿用录入、去重分层各管一段**：`fix` 在 `providers` 缺失/非对象时早退，早期顺手 prune 会清空用户列表，且给 `fix` 加"顺带写自己配置"的第二写入面（excludes 根本进不去 `fix` 的写回批次）⇒ `fix` 的写回**不碰自有 NS 的配置键**——`efforts` 记忆清理是唯一例外（见「模型变化后自动清理已删除模型的记忆」：只写 `version-N.efforts` 单字段、不涉 `excludes` 等配置键）。列表顺序是用户录入意图，草稿只由已存值经增删派生 ⇒ 脏检测用顺序敏感的逐位比较，不需要排序。去重分两层：**录入端**当场提示「已在列表中」并拒绝写入（不静默改写用户输入）；**onChange 自愈**（`migrate.ts` 的 `selfHealConfig` 套用 `dedupeExcludesOp`，handler 里先自愈再 fix）兜住手改 `settings.yaml` 的重复——守卫即终止条件：仅当 `Set` 收窄后**变短**才产出定向路径 op（保留首次出现），无重复零写入，故自愈写回引发的再次 onChange 不再产生任何写入，链条一轮收敛。`parseSnapshot`/浏览器半 `parseV5` 均原样保留数组（去重只发生在写回 op）。id 用 `Set.has` **精确匹配**不归一化（与 `lookup` 的"宁可漏不错配"一致）。
 - **图片模态只缓存正向信息**（支持图片才写 `true`，纯文本省略字段）：缓存体积是发布包大小主因；纯文本模型本就不声明，行为与未声明一致。数据源里的 `pdf`/`video`/`audio` 忽略不写（宿主 `input` 只接受 `text`/`image`）。
 - **容量哨兵**：`CAPACITY_UNLIMITED = 99999999` 是 models.dev 对"无限/未公布"的建模，媒体模型还会给 0——两者一律视为"无该字段"（写 0 会被宿主 schema 拒绝并连累整批）。
 - **id 匹配宁可漏不错配**：精确 → 词干 → 前缀三级，词干/前缀**多命中即判无命中**；无分隔符的短 id 只走精确。跨提供方同源模型靠 `HINTS`（模型名前缀 → 官方提供方）优先命中。
@@ -124,13 +124,14 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **备份缺失／当前无 `providers` 段要显式抛错，不能回 0**：`changed: 0` 会被前端显示成「已恢复 0 个模型」，与"确实无可恢复"无法区分，用户只会以为按钮坏了。
 - **RPC channel 由本插件自注册，不用宿主 `connection.rpc.handle`**：`handle` 在**服务自己的 ctx** 上求值 `owner.webServer`（`get rpc() { const owner = this.ctx }`，与调用方 fiber 无关），而 connection 插件的 `inject` 从 0.1.2-rc.1 的 `["webServer","credentials"]` 缩成 ≥0.1.5 的 `["credentials"]`（三版的 `get rpc`/`register` 逐字未变）⇒ `owner.webServer` 抛 `cannot get property "webServer" without inject`，路由从不注册。故改在**本插件自己的子 fiber**（已注入 webServer）上 `webServer.register({kind:'prefix'})`，复用宿主的 `connection.requestRejection` 做围栏、按宿主 `rpcFetchHandler` 复刻信封与状态码，浏览器半 `connection.rpc.call` 完全无感。**给调用方注入 webServer 修不好宿主通道**——出问题的 ctx 是 connection 自己的。单一路径可行的依据：0.1.2-rc.1 与 0.1.6-alpha.2 的 `rpcFetchHandler` / 两个信封 schema / `ENDPOINT_SEGMENT_PATTERN` / `webServer.register` / `match` 逐字一致（已比对 npm 上两版源码），即该契约覆盖全支持范围；结论不能靠读代码拍板，要靠「真 HostConnectionService + 桩 webServer」的本地探针复核。
 
-- **「记住推理级别」是纯监听（不拦截）**：前端**监听**（订阅）模型选择与推理级别选择的投影变化，不是拦截 / hook 宿主的 `directory.select`。前端**没有任何 UI**（不新增任何卡片 / 按钮 / 开关），只做两件事：① 模型变化时从记忆读值并经 `directory.select` 自动恢复；② 级别变化时把记忆写进自有 NS 的 `efforts` 字段。Node 半**只负责持久化与解析**（`parseEfforts` / 迁移 / 快照往返），不自动设置——后端写配置对当前会话无效（只影响新会话），「自动设置」必须走前端 `directory.select`。
+- **「记住推理级别」是纯监听（不拦截）**：前端**监听**（订阅）模型选择与推理级别选择的投影变化，不是拦截 / hook 宿主的 `directory.select`。前端**没有任何 UI**（不新增任何卡片 / 按钮 / 开关），只做两件事：① 模型变化时从记忆读值并经 `directory.select` 自动恢复；② 级别变化时把记忆写进自有 NS 的 `efforts` 字段。Node 半**只负责持久化、解析与失效清理**（`parseEfforts` / 迁移 / 快照往返 / `fix` 重建记忆），不自动设置——后端写配置对当前会话无效（只影响新会话），「自动设置」必须走前端 `directory.select`。
 - **`efforts` 是运行时记忆而非用户配置**：结构 `{ provider: { model: level } }` 用嵌套对象而非拼接 `provider/model`（model-id 可能含 `/`，拼接无法还原）；**不放进 `PluginConfigSchema`**，由 `parseSnapshot` 单独**宽松**解析（结构不符回落 `{}`）——记忆坏值若判整段快照非法，会连累配置自愈重写丢配置。`isDirty` 也不比较它，故记忆变化不触发「未保存更改」徽章；卡片「保存」写整段快照时 `efforts` 取**写入当刻的实时值**（卡片不拥有该字段，用草稿里的旧快照会把"开卡后切过模型"的那段记忆覆盖回去）。
 - **`efforts` 由浏览器半经自有 NS 的 settings scope 直写**：与卡片「保存」同一条通道（`['version-5','efforts']` 路径 op）：它是一次写回即生效、无需回执的记忆写入，用不到 RPC 端点。写入失败只吞 rejection（级别已在当前会话生效）。
 - **自动设置的前置校验**：恢复记忆前必须确认目标模型的 `groups`（catalog）公告该级别，未公告就不改写选择（回落默认）——投喂宿主不支持的级别会被拒；`groups` 未加载时同样不改写。
 - **「provider default」= `undefined` → 清除记忆**：UI 上选「provider default」提交的 `reasoningEffort` 是 `undefined`（省略键），即 `delete efforts[provider][model]`；保存路径统一（存字符串 / 删除），恢复路径统一（仅字符串级别改写）。
 - **`lastAutoSet` 守卫防止自动设置反向触发重复保存**：自动设置 `directory.select(resolved)` 后投影 `next` 会反向变化并被监听器捕获，无守卫会被判成 `effort-change` 再存一次（幂等但多余）。守卫逻辑：设置前记 `pendingAutoSet`，下一次投影变化与它相同则清除标记并跳过。
-- **`efforts` 跨 reset/restore 保留**：两个操作只动 `llm-pi-ai` 的模型字段，记忆在自有 NS，互不相干——重置/恢复模型不应清掉用户记住的推理级别偏好。
+- **`efforts` 跨 reset/restore 保留**：两个操作只动 `llm-pi-ai` 的模型字段，记忆在自有 NS，互不相干——重置/恢复模型不应清掉用户记住的推理级别偏好（两操作全程开守卫短路 `fix`，故记忆清理也不会在其中触发）。
+- **模型变化后自动清理已删除模型的记忆（重建语义，落在 `fix`）**：`fix` 复用其 provider 两层循环重建 `efforts`——以旧记忆为基线，只把「当前 `llm-pi-ai` 里仍存在的 provider+model」的条目重建进 `newEfforts`；已删除的模型/提供方**不重建即被清除**（不存在 = 删除，故无需另遍历记忆）。`excludes` 命中的提供方在跳过处**单独循环其模型**同样按模型重建（零操作排除只管不写回该提供方；记忆是插件自有数据，见上）。重建结果与旧值经 `deepEqualJson` 相同则**零写入**——这是 `fix` 写自有 NS 触发 `onChange → fix` 再入后的收敛条件（第二轮同值零写入即停；`deepEqualJson` 对象比较按键成员判定、不看键序，重建产生的键序变化不会造成多余写入）；不同才以自有 NS 的 revision 写回 `['version-N','efforts']`（与浏览器半记忆直写同一路径，revision 与 `llm-pi-ai` 各自独立）。记忆写回**先于模型写回且独立容错**：自带 try/catch 只告警不抛出、不参与重试环——清理失败不影响填充主流程；随后 `ops` 为空即早退返回（清理已在早退前执行），`ops` 非空再以重试环提交 `llm-pi-ai` 批次。`providers` 缺失/非对象沿用早退**不清理**（不可枚举即不判删），自有 NS 描述缺失时跳过清理。清理只动 `efforts` 单字段、不计返回值，故 RPC 契约与 `force` 语义不变。
 
 ## 数据流骨架
 
@@ -151,7 +152,7 @@ graph LR
 - 自有命名空间 `tikaflow-model-fix`（由本插件注册），仅对象写法，如 `tikaflow-model-fix: { version-5: { autoFill: { reasoning: true, context: false, image: true }, compat: { disableDeveloper: true }, excludes: [ "acme-gateway" ], efforts: { "z-ai": { "glm-5.2": "high" } } } }`；首次启动或版本升级时自动写入当前版本快照。
 - `compat` 与两组填充规则平行，键按「规则 → provider 路由 compat 字段」映射（当前仅 `disableDeveloper` → `supportsDeveloperRole: false`）；往该对象加新键不需要递增配置版本。
 - `excludes` 是提供方 id 字符串数组（`providers.<id>` 的 `<id>`，即界面上的「Provider ID / 路由标识」），命中的提供方本插件零操作；非数组或元素非字符串判整段快照非法（与其余组同严格度，浏览器半 `parseV5` 逐条镜像）。
-- `efforts` 是每模型推理级别记忆（运行时自动维护，非用户配置），结构为 `{ "<provider>": { "<model>": "<level>" } }`；宽松解析（结构不符回落 `{}`），不纳入 schema 校验、不参与 `isDirty`。
+- `efforts` 是每模型推理级别记忆（运行时自动维护，非用户配置），结构为 `{ "<provider>": { "<model>": "<level>" } }`；宽松解析（结构不符回落 `{}`），不纳入 schema 校验、不参与 `isDirty`。模型/提供方被删除后，对应记忆在下次 `fix` 时自动清除（重建语义，见「设计裁决」）；`excludes` 命中的提供方同样按模型重建（现存模型的记忆保留、已删除模型的记忆一并清除）。
 - 也可经 Web 设置的卡片修改（宿主跟随 latest，见「对外纪律」），两种途径写的是同一个东西。
 - 推理级别取值与 harness `ModelThinkingLevel` 一致：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`；提供方与模型列表在 `llm-pi-ai` 命名空间的 `providers` 下。
 

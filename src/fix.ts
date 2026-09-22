@@ -4,9 +4,10 @@ import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { getCatalog } from './catalog'
 import { planProviderCompat } from './compat'
 import { lookup, toReasoningEfforts } from './lookup'
-import { API_NS, DEVELOPER_COMPAT_APIS, MAX_ATTEMPTS, PLUGIN_NAME } from './constants'
-import { getConfig } from './config'
+import { API_NS, CONFIG_VERSION, DEVELOPER_COMPAT_APIS, MAX_ATTEMPTS, PLUGIN_NAME, PLUGIN_NS } from './constants'
+import { getConfig, versionKey } from './config'
 import { isCapacity, isPlainObject } from './types'
+import type { EffortMemory } from './types'
 
 /** 剔除空 input/compat：两者在 harness 语义上等同缺失，删除无损，操作幂等 */
 function stripEmptyArtifacts(model: Record<string, unknown>): Record<string, unknown> {
@@ -35,7 +36,8 @@ function isSettingsConflict(error: unknown): boolean {
 }
 
 /**
- * 遍历提供方写回变更，一次 mutate 内提交两类 op（模型参数与路由兼容性，二者互不影响）：
+ * 遍历提供方计算变更并写回：模型参数与路由兼容性两类 op 在 llm-pi-ai 的**同一批 mutate** 内提交
+ * （二者互不影响），记忆清理另起自有 NS 的独立 mutate：
  * - 模型参数：缺失推理级别/容量/图片模态且有目录数据则填充（受 autoFill 对应字段控制），
  *   allowUpdate（force 时单次绕过，不落存储）开启则按目录最新值同步——含缺失补写与已有覆盖
  *   （旧值缺失经 deepEqualJson 判为不一致，属设计裁决，见 AGENTS.md「设计裁决」），并剔除空 input/compat。
@@ -43,16 +45,25 @@ function isSettingsConflict(error: unknown): boolean {
  *   未变更元素原样保留）；数据无档位不删除已有配置。
  * - 路由 compat：按 compat 规则组为 openai-completions 路由添加或**移除**字段（与模型填充不同，关闭即移除，
  *   见 src/compat.ts），只写路由级、不写模型级。
- * - 提供方排除：`excludes` 命中的 providerId 在循环入口即整条跳过，两类 op 与 force 一律不作用其上
+ * - 提供方排除：`excludes` 命中的 providerId 在循环入口即整条跳过，填充/compat/force 一律不作用其上
  *   （等效于对该提供方关闭插件；预防性——已写入的值原地保留，见 AGENTS.md 设计裁决）。
- * 返回变更模型数（不含路由 compat 计数，保持 RPC 契约）；写回失败（冲突重试用尽等）
+ * - 记忆清理：同一两层循环顺带**重建** `efforts` 记忆——只保留「当前 llm-pi-ai 里仍存在的
+ *   provider + model」的记忆条目，已删除的模型/提供方不重建即被清除（无需另遍历记忆）；
+ *   `excludes` 命中的提供方同样在跳过处**单独循环其模型**按模型重建（不写回该提供方，
+ *   但已删除模型的记忆条目一并清除，见 AGENTS.md 设计裁决）。重建结果与旧值经 `deepEqualJson`
+ *   相同则零写入，不同才以自有 NS 的 revision 写回 `version-N.efforts`（独立于 llm-pi-ai 的写回批次，
+ *   且先于模型写回、失败仅告警不影响主流程）。
+ * 返回变更模型数（不含路由 compat 计数与记忆清理，保持 RPC 契约）；写回失败（冲突重试用尽等）
  * 先告警再抛出，由调用方决定后续处理（RPC 转失败结果回传，事件侧吞掉 rejection）。
  */
 export async function fix(ctx: Context, force = false): Promise<number> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         // 冲突重试时重读，获取最新 revision
-        const descriptor = ctx.settings.describe().find((d) => d.ns === API_NS)
+        const descriptors = ctx.settings.describe()
+        const descriptor = descriptors.find((d) => d.ns === API_NS)
         if (!descriptor) return 0
+        // 自有 NS 描述：记忆清理写回的 revision 围栏（与 llm-pi-ai 各自独立；描述缺失即跳过清理）
+        const own = descriptors.find((d) => d.ns === PLUGIN_NS)
         const providers = (descriptor.user as { providers?: Record<string, unknown> } | undefined)?.providers
         if (!isPlainObject(providers)) return 0
         const cfg = getConfig()
@@ -62,12 +73,26 @@ export async function fix(ctx: Context, force = false): Promise<number> {
         // 提供方级排除：命中的 id 整条跳过（模型写回与路由 compat 都不作用其上）
         const excludes = new Set(cfg.excludes)
         const indexed = getCatalog()
+        // 记忆清理 = 重建：旧记忆为基线，只保留循环里仍存在的 provider+model 条目，不存在的即被清除。
+        const oldEfforts = cfg.efforts
+        const newEfforts: EffortMemory = {}
         const ops: SettingsPathOp[] = []
         let changes = 0
         let compatChanges = 0
         let excluded = 0
         for (const [providerId, provider] of Object.entries(providers)) {
             if (excludes.has(providerId)) {
+                // 已排除的提供方不执行填充，但要单独重建其记忆，逻辑与下方相同
+                const models = isPlainObject(provider) ? provider.models : undefined
+                if (Array.isArray(models)) {
+                    for (let i = 0; i < models.length; i++) {
+                        const model = models[i]
+                        if (!isPlainObject(model) || model.id === undefined || model.id === null) continue
+                        const modelId = String(model.id)
+                        const kept = oldEfforts[providerId]?.[modelId]
+                        if (kept !== undefined) (newEfforts[providerId] ??= {})[modelId] = kept
+                    }
+                }
                 excluded++
                 continue
             }
@@ -79,13 +104,17 @@ export async function fix(ctx: Context, force = false): Promise<number> {
                     const model = models[i]
                     if (!isPlainObject(model) || model.id === undefined || model.id === null) continue
                     const record = model
+                    const modelId = String(record.id)
+                    // 记忆重建：该模型仍存在才重建其记忆条目（已删除的不重建，即被清除）；
+                    const kept = oldEfforts[providerId]?.[modelId]
+                    if (kept !== undefined) (newEfforts[providerId] ??= {})[modelId] = kept
                     const { reasoningEfforts, contextWindow, maxTokens } = record as {
                         reasoningEfforts?: unknown
                         contextWindow?: unknown
                         maxTokens?: unknown
                     }
                     const cleaned = stripEmptyArtifacts(record)
-                    const entry = lookup(indexed, providerId, String(record.id))
+                    const entry = lookup(indexed, providerId, modelId)
                     const efforts = toReasoningEfforts(entry)
                     // 图片模态以剔除空数组后的值为准（harness 语义：空数组 = 未声明）
                     const input = cleaned.input
@@ -141,6 +170,17 @@ export async function fix(ctx: Context, force = false): Promise<number> {
                 }
             }
         }
+
+        try { // 重建记忆不影响主流程
+            const effortsChanged = own !== undefined && !deepEqualJson(newEfforts, oldEfforts)
+            if (own && effortsChanged) {
+                await ctx.settings.mutate(PLUGIN_NS, [{ op: 'set', path: [versionKey(CONFIG_VERSION), 'efforts'], value: newEfforts }], own.revision)
+                ctx.logger.info(`${PLUGIN_NAME}: 已重建推理级别记忆`)
+            }
+        } catch (error) {
+            ctx.logger.error(`${PLUGIN_NAME}: ${error instanceof Error ? error.message : String(error)}`)
+        }
+
         if (ops.length === 0) return 0
         try {
             await ctx.settings.mutate(API_NS, ops, descriptor.revision)

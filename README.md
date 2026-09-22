@@ -72,10 +72,6 @@ dsh plugin --profile web add github:TikaFlow/dsh-model-fix
 
 无需任何操作，进入 DSH 后插件即自动生效：支持推理级别的模型会自动填充推理级别，缺失上下文的模型会自动补全 `contextWindow` / `maxTokens`，数据源标明支持图片的模型会补全 `input: ["text", "image"]`。默认还会为所有 `api: openai-completions` 的提供方写入路由级 `compat.supportsDeveloperRole: false`。某个提供方不想被接管，就把它的 id 加进「排除提供方」（见下文）。
 
-### 记住推理级别
-
-每个模型独立记住你上次手动选择的推理级别。切换模型后自动恢复该模型的记忆值；如果你选择了「provider default」（即 `defaultEffort`），则清除该模型的记忆，下次切换回来仍为默认。
-
 ### 配置
 
 **图形界面（推荐）**：见 [可视化设置](#可视化设置)
