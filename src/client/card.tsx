@@ -1,43 +1,32 @@
 /**
- * 模型参数填充卡片（浏览器半）：可折叠卡片，1:1 复刻官方 Web-UI 插件卡（ui-settings-plugins）。
- * header 整块为 `aria-expanded` 按钮（名称 + 描述两行，dirty 时挂「未保存」胶囊；折叠文案只进
- * aria-label，官方同款——视觉只有 chevron，不是死代码）。展开体是五个配置组瓦片（自动填充 /
- * 允许更新 / 兼容性 / 排除提供方 / 用户体验），排版照官方「插件列表」项卡：一行两个的栅格、summary 行（组名 +
- * 组控件 + 箭头，min-height 52px）、展开体（组释义 + 该组的子控件行，填官方 .cardDetails 的模块底色）。
- * 前三张与第五张同形（布尔矩阵：组内任一为开即显示开，点击整组同置）；第四张是动态集合瓦片——summary 的开关位
- * 换成「N 命中」计数徽标（0 命中也常驻），展开体为输入框 + 每行一项的标签列表，命中的项（其 id 存在于
- * 宿主 llm-pi-ai 的 user 层，即本插件确会跳过它）转绿并带圆点，未命中项为普通样式但同样生效。
- * 展开态样式
- * 完全跟随官方（`data-open` 驱动）：描边由 l4 换最浅的 l1 并叠两层柔光、summary 行保留淡底、
- * 箭头 180° 旋转。瓦片默认收起、同时只展开一个（官方手风琴语义——各瓦片展开高度不同，
- * 同时展开两列底部会参差）。
- * 正文下方为 footer（强制更新 · 重置模型 · 恢复备份 左｜放弃修改 · 保存 右）。
- * 全卡分隔线：外层摘要↔正文 1 条 + 每个展开中的瓦片 1 条 + footer 1 条，均官方同值 0.5px --dsw-alias-border-l2。
- * 本地暂存（draft）：单格/总控/增删排除项只改草稿，点「保存」才经 settingsScope 原子写当前版本快照键；
- * 草稿跨折叠存活（收起时靠 header 胶囊告知未落盘），「放弃修改」即草稿归 null 回随已存值；
- * 保存被宿主确认落地（dirty 归 false）后自动收起并留一行弱提示，写失败保持展开与草稿可重试。
- * 结果反馈一律走卡片内联状态行（挂在 header 之后、条件展开体之外，故折叠不丢在途结果），
- * 不用宿主 Toast——官方设置面零 Toast 调用，成功走自动收起/绿字提示、失败走行内红字。
- * 另有一种无外壳形态：插件管理页「已安装」组里本 bundle 详情页索取的 view:'page'，把同一份
- * notices / body / confirms 直排进 .dsh-mf-page，标题 / 简介 / 面包屑 / 开关由页面自绘。
- * 「强制更新 / 重置模型」（危险按钮，贴最左）与「恢复备份」（discard 次级样式，紧随其后）均弹宿主
- * Modal 二次确认（官方删除确认同款：outline 按钮 + 取消键 autoFocus；仅危险两键的确认键上红色 tint），
- * 确认后经 Connection RPC 请求 Node 半 force 填充 / 剔除插件填充的模型参数 / 回退启动时备份的共有模型。
+ * 模型参数填充卡片（浏览器半）：1:1 复刻官方 Web-UI 插件卡的可折叠卡片；另有无外壳的 view:'page'
+ * 形态（插件详情页索取，标题/简介/面包屑/开关由页面自绘）。展开体为五张瓦片（顺序由 TILE_ORDER
+ * 单一分发）：布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 / 用户体验）+ 动态集合瓦片（排除提供方，
+ * summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）。瓦片手风琴：默认收起、同时只开一个。
+ * footer 左侧强制更新 / 重置模型（危险键）/ 恢复备份（次级键）、右侧放弃修改 / 保存；三把写回键弹
+ * 宿主 Modal 二次确认后经 Connection RPC 请求 Node 半。
+ * 编辑只改本地草稿，「保存」才经 settingsScope 原子写当前版本快照键（efforts 取写入当刻实时值，
+ * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
+ * 结果反馈一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）；不用宿主 Toast（官方设置面零调用）。
  */
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { Button, IconChevronDownOutline14, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
+// primitives 由宿主模块表注入；chevron 图标随宿主代际改名（见 CHEVRON_DOWN）
+import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RpcResult } from '../shared/types'
 import { PLUGIN_NAME } from '../shared/constants'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '../shared/parse'
 
-/**
- * 排除项删除钮的字形：逐字复刻官方 models 页模型行删除的本地自绘 `IconTrash`（线稿：
- * 14×14 / viewBox 16 / stroke 1.3 / round cap+join / currentColor / aria-hidden）。
- * 不用 primitives 的 `IconTrashOutline16`——实心填充桶在同尺寸下墨量大得多；宿主那个线稿版本不导出，故本地复制。
- */
+/** 瓦片 chevron：宿主 0.1.7 起该组件改名（旧名 IconChevronDownOutline14 已删除），按当前宿主实有符号取用（props 两代同形）。 */
+type ChevronIcon = (props: { size?: number; className?: string }) => ReactElement
+const CHEVRON_DOWN: ChevronIcon =
+    primitives.IconChevronDownOutline14
+    ?? (primitives as typeof primitives & { IconChevronDownOutlineRegular?: ChevronIcon }).IconChevronDownOutlineRegular
+const { Button, Modal } = primitives
+
+/** 排除项删除钮：复刻官方 models 页自绘线稿 IconTrash（primitives 只有实心桶 IconTrashOutline16，观感更重且线稿版不导出）。 */
 function IconTrash() {
     return (
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -85,16 +74,9 @@ export interface CardProps {
     resetModels: () => Promise<RpcResult<unknown>>
     /** 恢复备份 RPC：回退启动时备份（交集 provider+model）到当前配置；返回被恢复的模型数 */
     restoreModels: () => Promise<RpcResult<unknown>>
-    /**
-     * 根元素：模型页 footer 席位是普通块（默认 div）；插件配置席位把卡片渲在 `<ul>` 内，
-     * 官方 PluginCard 即 `<li>`，故该席位传 'li'（列表样式由 .dsh-mf-card 自清）。
-     */
+    /** 根元素：插件配置席位把卡片渲在 `<ul>` 内须为 li（官方 PluginCard 同形；列表样式由 .dsh-mf-card 自清） */
     as?: 'div' | 'li'
-    /**
-     * 插件详情页（plugins.bundle.config 席位）索取的视图：该席位按宿主契约只传 `page`，
-     * 页面自绘面包屑 / 标题 / 简介 / 开关，我们只出不带外壳的配置体；两个 settings 席位不传，
-     * 走可折叠卡片。
-     */
+    /** 插件详情页（plugins.bundle.config 席位）传 'page'：只出不带外壳的配置体，标题/简介/开关由页面自绘 */
     view?: PluginConfigViewProps['view']
 }
 
@@ -107,21 +89,14 @@ interface Notice {
 const STYLE_ID = 'dsh-model-fix-card-css'
 
 /**
- * 内嵌样式表（类名 dsh-mf- 前缀防撞）。取值逐条照搬官方，两层各按其同类组件：
- * 外层卡＝ui-settings-plugins 的 PluginCard（0.5px border-l4 + 16px 圆角 + bg-layer-3，展开态
- * 描边 label-dimmed、底 bg-layer-2；胶囊/开关/按钮亦出自该包）；内层瓦片＝ui-settings-plugin-inventory
- * 的插件列表项卡（栅格 repeat(2,minmax(0,1fr)) gap 10、14px 圆角、elevation 发丝描边、展开态
- * data-open 三变化）。本卡是可展开的设置卡，与 provider 行（.rowCard，不可展开的列表行）不是同类
- * 组件，取值一律照官方同类组件。宿主无 Switch 原语、插件卡 footer 亦不自用
- * Button 原语，故两处皆自绘复刻。
- * 颜色一律只用宿主 --dsw-alias-* 令牌（主题插件改色时与官方同步变化），字面量仅作令牌缺失时的
- * 浅色守卫，且取 design-platform.css 真值（label-primary/brand-primary 浅色下即近黑，非品牌蓝）；
- * 官方源码里的 --dsw-alias-label-error、--dsw-alias-bg-layer-4 属未定义令牌，禁止照抄。
+ * 内嵌样式表（类名 dsh-mf- 前缀防撞）。取值逐条照官方同类组件：外层卡＝ui-settings-plugins 的
+ * PluginCard；内层瓦片＝ui-settings-plugin-inventory 的插件列表项卡（本卡是可展开的设置卡，
+ * 与不可展开的 provider 行 .rowCard 非同类，不作基准）。颜色一律只用 --dsw-alias-* 令牌，
+ * 字面量仅作令牌缺失时的浅色守卫（取宿主主题 design-platform.css 真值）；官方源码引用但主题
+ * 未定义的令牌（label-error、bg-layer-4）禁止照抄。
  */
 const STYLE_TEXT = [
-    // 外壳逐字照官方插件卡 .card（0.5px border-l4 + 16px 圆角 + bg-layer-3 底 + list-style:none；
-    // hover/展开换 label-dimmed 描边，展开态底改 bg-layer-2——官方即"正在编辑的那张"表达）。
-    // 不写 max-width：宽度由宿主所在 section 约束（模型页 720 / 插件配置页 760），官方卡同样不写
+    // 外壳逐字照官方插件卡 .card；不写 max-width（宽度由所在 section 约束，官方同样不写）
     '.dsh-mf-card{list-style:none;border:0.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:16px;background:var(--dsw-alias-bg-layer-3,#fff);transition:border-color .16s, background .16s}',
     '.dsh-mf-card:hover{border-color:var(--dsw-alias-label-dimmed,#e1e5ee)}',
     '.dsh-mf-cardOpen{border-color:var(--dsw-alias-label-dimmed,#e1e5ee);background:var(--dsw-alias-bg-layer-2,#fff)}',
@@ -135,11 +110,9 @@ const STYLE_TEXT = [
     '.dsh-mf-chevron{flex:none;color:var(--dsw-alias-label-tertiary,#81858c);transition:transform .16s}',
     '.dsh-mf-chevronOpen{transform:rotate(180deg)}',
     '.dsh-mf-pending{flex:none;border-radius:999px;corner-shape:round;padding:1px 8px;font-size:11px;line-height:17px;font-weight:500;white-space:nowrap;background:var(--dsw-alias-bg-module-platform,#f5f6f7);color:var(--dsw-alias-label-secondary,#61666b)}',
-    // 展开体：左右内缩 16px 与 header 的 padding 对齐；顶部 0.5px 分隔线隔开外层摘要与正文，
-    // 12px 上边距撑开与瓦片的距离（官方由子项 .permission 的 padding:12px 0 提供，我们以容器 padding 等效实现）
+    // 展开体：左右内缩与 header 对齐；顶部 0.5px 分隔线隔开摘要与正文，12px 上边距撑开与瓦片的距离
     '.dsh-mf-body{margin:0 16px;padding:12px 0 8px;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));display:flex;flex-direction:column;gap:12px}',
-    // 插件详情页的形态容器：页面已自绘标题 / 简介 / 面包屑，故不画外壳；落在页面 .detailSection
-    // （官方 flex 列 + 12px 间距）之内，故按同一组取值排布子项；状态提示在该形态下不写卡片内的 16px 侧缩进
+    // 插件详情页形态容器：页面已自绘标题/简介/面包屑故不画外壳；落在页面 .detailSection（flex 列 + 12px 间距）内
     '.dsh-mf-page{display:flex;flex-direction:column;gap:12px}',
     '.dsh-mf-page .dsh-mf-notice{padding:0}',
     // 状态行：内联承载一切结果反馈（官方设置面无 Toast）
@@ -148,10 +121,8 @@ const STYLE_TEXT = [
     '.dsh-mf-noticeError{color:var(--dsw-alias-state-error-primary,#ec1313)}',
     '.dsh-mf-line{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-warn{color:var(--dsw-alias-state-warn-label,#dd8629)}',
-    // 配置组瓦片：栅格、项卡外壳、描边/阴影、行与展开体逐条照官方「插件列表」项卡
-    // （ui-settings-plugin-inventory）。描边用官方同一套 elevation 令牌链（0.5px 发丝画在
-    // box-shadow 里、组件 border:0），并在字面兜底里原样复刻该链的计算结果——宿主定义了令牌
-    // 即与官方同源同源换色，未定义（更旧宿主）也得到同一观感。
+    // 配置组瓦片：栅格、项卡外壳、描边/阴影、行与展开体逐条照官方「插件列表」项卡（ui-settings-plugin-inventory）。
+    // 描边用官方 elevation 令牌链（0.5px 发丝画在 box-shadow 里），字面兜底复刻其计算结果——有令牌即同源换色，无令牌同观感
     '.dsh-mf-items{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:10px}',
     '.dsh-mf-item{min-width:0;overflow:hidden;border:0;border-radius:14px;background:var(--dsw-alias-bg-layer-3,#fff);box-shadow:var(--dsw-elevation-stroke,0 0 0 0.5px var(--dsw-alias-border-l4,rgba(0,0,0,.16)))}',
     // 展开态（官方 data-open 驱动）：描边换最浅的 l1 并叠两层柔光，summary 行保留淡底
@@ -159,8 +130,7 @@ const STYLE_TEXT = [
     '.dsh-mf-item[data-open="true"]>.dsh-mf-itemHead{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
     '.dsh-mf-itemHead{box-sizing:border-box;position:relative;display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:52px;padding:12px 14px;color:var(--dsw-alias-label-primary,#0f1115)}',
     '.dsh-mf-itemHead:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
-    // 整行折叠按钮：透明覆盖层承担点击与键盘（hover/展开底色画在行容器上）；
-    // 尾区抬 z-index 并关掉自身 pointer-events、只放开开关本体——整行可点而开关不被吞，也不产生 button 套 button
+    // 整行折叠按钮：透明覆盖层承担点击与键盘；尾区抬 z-index 关掉 pointer-events、只放开开关本体（无 button 嵌套）
     '.dsh-mf-itemToggle{position:absolute;inset:0;padding:0;border:none;border-radius:14px;background:none;cursor:pointer}',
     '.dsh-mf-itemTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:20px;font-weight:600}',
     '.dsh-mf-itemTrailing{position:relative;z-index:1;display:inline-flex;flex:none;align-items:center;gap:7px;pointer-events:none;color:var(--dsw-alias-label-tertiary,#81858c)}',
@@ -171,12 +141,9 @@ const STYLE_TEXT = [
     '.dsh-mf-itemBody{border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));padding:10px 14px 12px;display:grid;gap:6px;background:var(--dsw-alias-bg-module-platform,#f5f6f7)}',
     '.dsh-mf-itemHint{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-itemRow{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,#0f1115)}',
-    // 「排除提供方」瓦片专用：命中/未命中状态胶囊与小绿点照官方「插件列表」项卡的状态徽章体系
-    // （ui-settings-plugin-inventory 的 .configTag + data-kind 与 .statusDot，语义同为"启用中/未启用"）：
-    // 胶囊 min-height 20px / 圆角 5 / 1px 6px / 11-16 / inline-flex，未命中=默认 bg-layer-1 + label-secondary，
-    // 命中=color-mix(state-success-primary 10%, transparent) 底 + state-success-primary 文字（无边框）；
-    // 绿点 7×7 / border-radius 999 / corner-shape round。输入框照 ModelsSection 的 .input；
-    // 删除钮照同页 .iconButton（28×28 / 6px 圆角 / hover 抬色），字形照同页行删除的自绘线稿 IconTrash。
+    // 「排除提供方」瓦片：状态胶囊与小绿点照官方「插件列表」项卡的 .configTag/.statusDot 体系
+    // （命中=success 10% 底 + 同色文字无边框，未命中=bg-layer-1 + label-secondary；点 7×7、在胶囊外）；
+    // 输入框照 ModelsSection 的 .input，删除钮照同页 .iconButton、字形照其自绘线稿 IconTrash
     '.dsh-mf-count{flex:none;border-radius:5px;padding:1px 6px;font-size:11px;line-height:16px;white-space:nowrap;min-height:20px;display:inline-flex;align-items:center;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-secondary,#61666b)}',
     '.dsh-mf-count[data-hit="true"]{background:color-mix(in srgb, var(--dsw-alias-state-success-primary,#22c55e) 10%, transparent);color:var(--dsw-alias-state-success-primary,#22c55e)}',
     '.dsh-mf-input{box-sizing:border-box;width:100%;height:32px;padding:0 10px;border:0.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#0f1115);font:inherit;font-size:14px;line-height:22px}',
@@ -184,8 +151,7 @@ const STYLE_TEXT = [
     '.dsh-mf-input::placeholder{color:var(--dsw-alias-label-dimmed,#e1e5ee)}',
     '.dsh-mf-input:disabled{opacity:.6;cursor:default}',
     '.dsh-mf-fieldError{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313)}',
-    // 一行一项：状态点在胶囊**外**（官方 trailing 是 [PhaseDot][StateTag] 两个兄弟节点），行距对齐官方 7px；
-    // 删除钮用官方 .rowActions 的 margin-left:auto 贴右成列（连续点击目标不漂移）
+    // 一行一项：状态点在胶囊外（官方 trailing 是 [PhaseDot][StateTag] 兄弟节点）；删除钮 margin-left:auto 贴右成列
     '.dsh-mf-tagRow{position:relative;display:flex;align-items:center;gap:7px;min-width:0}',
     '.dsh-mf-tag{min-width:0;display:inline-flex;align-items:center;gap:6px;border-radius:5px;padding:1px 6px;font-size:11px;line-height:16px;min-height:20px;white-space:nowrap;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-secondary,#61666b)}',
     '.dsh-mf-tag[data-hit="true"]{background:color-mix(in srgb, var(--dsw-alias-state-success-primary,#22c55e) 10%, transparent);color:var(--dsw-alias-state-success-primary,#22c55e)}',
@@ -258,12 +224,8 @@ function Switch(props: { checked: boolean; disabled: boolean; aria: string; onCh
     )
 }
 
-/**
- * 配置组瓦片（官方「插件列表」项卡同款）：summary 为组名 + 整组开关 + 折叠箭头，
- * 展开体为组释义 + 该组的子开关行（行键取 GROUP_KEYS，故新增组只是多一张同形瓦片）。
- * 整行可点由 `.dsh-mf-itemToggle` 覆盖层承担，开关在其上层独占点击区（故不存在 button 嵌套）；
- * 可访问名用 aria-labelledby 指向可见标题。文案与可访问名一律由 group + 词典键在此派生。
- */
+/** 配置组瓦片（官方「插件列表」项卡同款）：summary 为组名 + 整组开关 + 折叠箭头，展开体为组释义 + 子开关行；
+ * 整行可点由 .dsh-mf-itemToggle 覆盖层承担（无 button 嵌套），可访问名用 aria-labelledby 指向可见标题。 */
 function GroupTile(props: {
     group: Group
     t: CardProps['t']
@@ -298,7 +260,7 @@ function GroupTile(props: {
                             onChange={props.onMaster}
                         />
                     </span>
-                    <IconChevronDownOutline14 size={12} className="dsh-mf-itemChevron" />
+                    <CHEVRON_DOWN size={12} className="dsh-mf-itemChevron" />
                 </span>
             </div>
             {open ? (
@@ -321,14 +283,9 @@ function GroupTile(props: {
     )
 }
 
-/**
- * 「排除提供方」瓦片：形状与 GroupTile 不同是必然的——排除项是动态集合而非布尔矩阵，
- * 既没有「整组开关」的合法语义，也不能塞进 RowKey。
- * summary 尾区为「N 命中」计数徽标（命中 = 该 id 存在于宿主 llm-pi-ai 的 user 层，即本插件确会跳过它；
- * **0 命中也常驻**——未命中同样是生效状态，绝不能画成错误色）。
- * 展开体自上而下：组释义、输入框、校验错误行、每行一项的标签列表（标签贴左、删除钮贴右成列）。
- * 只能手填：正确用法就是先写尚未创建的提供方 id、再新建该提供方，故不提供任何"仅可选现有项"的控件。
- */
+/** 「排除提供方」瓦片：动态集合而非布尔矩阵（无整组开关语义）；summary 尾区为「N 命中」徽标，
+ * 命中 = 该 id 存在于宿主 llm-pi-ai 的 user 层（0 命中也常驻、不得画成错误色）。
+ * 只能手填——正用场景就是先写尚未创建的提供方 id 再新建该提供方，故不做"仅可选现有项"控件。 */
 function ExcludesTile(props: {
     t: CardProps['t']
     flags: Flags
@@ -386,7 +343,7 @@ function ExcludesTile(props: {
                     <span className="dsh-mf-count" data-hit={props.hits.size > 0 ? 'true' : undefined}>
                         {t('excludeHits', { count: props.hits.size })}
                     </span>
-                    <IconChevronDownOutline14 size={12} className="dsh-mf-itemChevron" />
+                    <CHEVRON_DOWN size={12} className="dsh-mf-itemChevron" />
                 </span>
             </div>
             {open ? (
@@ -471,9 +428,7 @@ export function Card(props: CardProps) {
     const [submitting, setSubmitting] = useState(false)
     // 折叠态为卡片本地状态（读姿而非配置），默认收起，与官方插件卡一致；草稿跨折叠存活
     const [open, setOpen] = useState(false)
-    // 四个配置组瓦片的折叠态：沿用官方「插件列表」的手风琴语义（同时只开一个、默认全收起，
-    // 状态按行键 string 而非列名存，与官方 expanded: string | null 同形）——各瓦片展开后高度
-    // 不同，同时展开会让两列底部参差，官方因此单选
+    // 瓦片折叠态：官方手风琴语义（同时只开一个、默认全收起；各瓦片展开高度不同，同开两列底部参差）
     const [tileOpen, setTileOpen] = useState<string | null>(null)
     // 内联结果提示：常驻至下一次操作（官方 .savedNotice 无定时器，故不设自动淡出）
     const [notice, setNotice] = useState<Notice | null>(null)
@@ -496,8 +451,7 @@ export function Card(props: CardProps) {
     // 命中集合按草稿算（编辑中即所见即所得），未命中项同样生效，只是当前无同名提供方
     const hits = useMemo(() => resolveHits(shown.excludes, providerIds), [shown.excludes, providerIds])
 
-    // 保存成功后自动收起：等宿主确认写入落地（submitting 结束且 dirty 归 false）再收，
-    // 写失败时草稿与 dirty 保留，故保持展开可原地重试；用户任何时刻手动开合不受此约束
+    // 保存成功（submitting 结束且 dirty 归 false）后自动收起；写失败保留草稿与展开态可重试
     useEffect(() => {
         if (submitting) {
             saveStarted.current = true
@@ -511,8 +465,7 @@ export function Card(props: CardProps) {
     // 插件详情页形态：该席位按宿主契约只传 view:'page'，标题与简介由页面自绘
     const pageView = props.view === 'page'
 
-    // 配置服务不可用：卡片形态保留外壳的静态形态（无展开语义），保留可发现性便于排查；
-    // 插件详情页只给一行说明，行间距由 .dsh-mf-page 的容器 gap 提供
+    // 配置服务不可用：保留静态外壳（无展开语义）便于发现与排查
     if (snap.status === 'unavailable') {
         if (pageView) {
             return <p className="dsh-mf-line" role="status">{t('unavailable')}</p>
@@ -529,8 +482,7 @@ export function Card(props: CardProps) {
         )
     }
 
-    // 落草稿；「记住推理级别」由开转关且仍有记忆时，立即（不等「保存」）弹确认问是否清空。
-    // 记忆判据取实时值：草稿不拥有 efforts，其中的副本会随监听器的写入变陈旧
+    // 落草稿；「记住推理级别」由开转关且仍有记忆时立即弹确认。记忆判据取实时值（草稿不拥有 efforts）
     const commitDraft = (next: Flags) => {
         setDraft(next)
         if (
@@ -567,15 +519,12 @@ export function Card(props: CardProps) {
         if (!canWrite || !dirty || submitting) return
         setNotice(null)
         setSubmitting(true)
-        // 写入成功由宿主回推新 value（dirty 自动归 false，触发上面的自动收起），此处留一行弱提示；
-        // 失败时 scope 内部已重读恢复，胶囊与展开态即传达「未落盘」，不另发提示。
-        // efforts 取写入当刻的实时值：它是监听器维护的运行时记忆、卡片不拥有它，用草稿里的旧快照
-        // 会把「开卡后切过模型」的那段记忆覆盖回去
+        // 写入成功由宿主回推新 value（dirty 自动归 false，触发自动收起）；失败由 scope 重读恢复，保持 dirty 可重试。
+        // efforts 取写入当刻的实时值：卡片不拥有该字段，用草稿副本会把「开卡后切过模型」的记忆覆盖回去
         const liveEfforts = scope.getSnapshot().value?.efforts
         void scope.set(VERSION_KEY, toStored({ ...shown, efforts: liveEfforts ?? shown.efforts }))
             .then(() => {
-                // 官方 card-form 的范式是写后读回核对：值真被宿主接受才算成功并发提示，
-                // 未落地则保持「未保存」胶囊与展开态，不误报成功
+                // 官方 card-form 范式：写后读回核对，未落地不算成功（保持「未保存」态，不误报）
                 const latest = scope.getSnapshot().value
                 if (latest !== undefined && !isDirty(shown, latest)) {
                     setNotice({ text: t('saveDone'), tone: 'success' })
@@ -594,8 +543,7 @@ export function Card(props: CardProps) {
         setNotice(null)
         setDraft(null)
     }
-    // 危险操作：点按钮先弹宿主 Modal 二次确认；确认后经 RPC 触发 Node 半单次 force 填充。
-    // 不依赖 canWrite/dirty（不改配置本身，只按目录覆盖写回模型字段）
+    // 危险操作先弹 Modal 二次确认；不依赖 canWrite/dirty（不改配置，只按目录覆盖写回模型字段）
     const onForce = () => {
         if (!ready || forceBusy || resetBusy || restoreBusy || submitting) return
         setNotice(null)
@@ -624,8 +572,7 @@ export function Card(props: CardProps) {
                 setForceBusy(false)
             })
     }
-    // 重置模型：与强制更新同形（危险键 + 二次确认 Modal），确认后经 RPC 剔除插件曾填充的模型参数。
-    // 配置段原样保留，开关不变——重置后修改配置仍按原开关触发填充（竞态防护由 Node 半事件流守卫负责）
+    // 重置模型：与强制更新同形（危险键 + 二次确认）；配置段零写入（开关不变），竞态防护由 Node 半事件流守卫负责
     const onReset = () => {
         if (!ready || resetBusy || restoreBusy || submitting) return
         setNotice(null)
@@ -653,8 +600,7 @@ export function Card(props: CardProps) {
                 setResetBusy(false)
             })
     }
-    // 恢复备份：与重置同形（次级样式 + 二次确认 Modal），确认后经 RPC 把启动时备份的共有 provider+model 回退。
-    // 仅回退「备份与当前都存在」的 provider+model，启动后新增的 provider/model 保留不动。
+    // 恢复备份：与重置同形（次级样式 + 二次确认），仅回退「备份与当前都存在」的 provider+model
     const onRestore = () => {
         if (!ready || restoreBusy || resetBusy || submitting) return
         setNotice(null)
@@ -682,9 +628,8 @@ export function Card(props: CardProps) {
                 setRestoreBusy(false)
             })
     }
-    // 清空已有记忆：前端（非 RPC）经自有 NS 的 settings scope 直写 `{}`——与「保存」同一条写通道，
-    // 立即生效、不等「保存」；草稿不动（卡片不拥有 efforts）。失败要显式提示：
-    // 否则开关已关而记忆未清，用户无从察觉
+    // 清空记忆：前端经自有 NS 的 settings scope 直写（与「保存」同一条写通道，立即生效、草稿不动）；
+    // 失败要显式提示——否则开关已关而记忆未清，无从察觉
     const clearEfforts = () => {
         setClearConfirmOpen(false)
         void scope.mutate([{ op: 'set', path: [VERSION_KEY, 'efforts'], value: {} }])
@@ -707,9 +652,7 @@ export function Card(props: CardProps) {
         <>
             {!ready ? <p className="dsh-mf-line" role="status">{t('loading')}</p> : null}
             {ready && !snap.writable ? <p className="dsh-mf-line dsh-mf-warn" role="status">{t('readOnly')}</p> : null}
-            {/* 瓦片按 TILE_ORDER 渲染：四个布尔组（含「用户体验」）由组枚举与键表派生、形态始终一致，
-                「排除提供方」是动态集合瓦片（形状不同）故在此单独分发；顺序 = 自动填充 / 允许更新 /
-                兼容性 / 排除提供方 / 用户体验（排除提供方之后紧接用户体验） */}
+            {/* 四个布尔组由组枚举与键表派生，「排除提供方」形状不同单独分发；顺序见 TILE_ORDER */}
             <div className="dsh-mf-items">
                 {TILE_ORDER.map((tile) => tile === 'excludes' ? (
                     <ExcludesTile
@@ -785,9 +728,7 @@ export function Card(props: CardProps) {
             </div>
         </>
     )
-    // 二次确认弹层：宿主 Modal + Button 原语（官方同页删除 provider 即用此组合，portal/遮罩/Escape
-    // 由组件自带）；危险确认键按官方 .deleteConfirm 上红 tint，取消键 autoFocus（与官方一致：
-    // 焦点落在可安全退出的那一侧）
+    // 二次确认弹层：宿主 Modal + Button 原语（官方同页删除 provider 同款）；取消键 autoFocus——焦点落在可安全退出的一侧
     const confirms = (
         <>
             <Modal
@@ -812,8 +753,7 @@ export function Card(props: CardProps) {
                     <Button variant="outline" className="dsh-mf-confirmDanger" onClick={runReset}>{t('resetGo')}</Button>
                 </>}
             />
-            {/* 恢复备份的二次确认：确认键不上红 tint——该按钮取次级（discard）样式，
-                操作只把共有模型回退到启动时取值、不删用户任何东西，红色与语义不符 */}
+            {/* 恢复确认键不上红 tint：操作不删用户任何东西，红色与语义不符 */}
             <Modal
                 open={restoreConfirmOpen}
                 onClose={() => { setRestoreConfirmOpen(false) }}
@@ -825,8 +765,7 @@ export function Card(props: CardProps) {
                     <Button variant="outline" onClick={runRestore}>{t('restoreGo')}</Button>
                 </>}
             />
-            {/* 清空记忆确认：此时开关已转为关（草稿），故这里只问记忆去留；确认键上红 tint
-                ——清空即删除类操作，不可恢复；取消键 autoFocus 落在不删数据的「保留」一侧 */}
+            {/* 清空记忆确认：只问记忆去留（开关此时已转关）；确认键上红 tint——清空即删除类操作 */}
             <Modal
                 open={clearConfirmOpen}
                 onClose={() => { setClearConfirmOpen(false) }}
@@ -867,7 +806,7 @@ export function Card(props: CardProps) {
                 </span>
                 {/* 胶囊挂在 header：收起态也要说明卡里存着未落盘的编辑 */}
                 {dirty ? <span className="dsh-mf-pending">{t('unsaved')}</span> : null}
-                <IconChevronDownOutline14 className={open ? 'dsh-mf-chevron dsh-mf-chevronOpen' : 'dsh-mf-chevron'} />
+                <CHEVRON_DOWN className={open ? 'dsh-mf-chevron dsh-mf-chevronOpen' : 'dsh-mf-chevron'} />
             </button>
             {notices}
             {open ? <div className="dsh-mf-body">{body}</div> : null}

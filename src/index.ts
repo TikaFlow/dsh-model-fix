@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { readCache, setCatalog } from './catalog'
 import { PLUGIN_NS, API_NS, PLUGIN_NAME } from './shared/constants'
 import { DEFAULT_SECTION, SectionSchema, resolveConfig, setConfigSource } from './config'
@@ -12,54 +13,89 @@ import { captureBackup } from './restore'
 export const name = PLUGIN_NAME
 export const inject = ['settings', 'connection']
 
+/**
+ * 0.1.7+ 宿主的 Config schema 面：宽松任意值（「比当前代码更新的版本快照」也能通过注册校验）+
+ * 根 `.volatile()`（纯 schema 元数据）——后者使宿主把整段作为实时引用注入 apply 第二参（每次 `.get()` 取当前值）；
+ * 旧宿主 schemastery 无 `.volatile` 即按原样解析，行为不变。
+ */
+const LooseConfig = z.any() as z & { volatile?: () => z }
+export const Config: typeof SectionSchema =
+    typeof LooseConfig.volatile === 'function' ? LooseConfig.volatile() : LooseConfig
+
 /** 吞掉 fix 写回失败的 rejection（失败日志已在 fix 内告警，避免未处理拒绝） */
 const swallowFixError = (): void => {}
 
-export function apply(ctx: Context) {
-    // 插件级卸载标记：启动链与事件驱动的异步续体都据此中止，卸载后不触碰已销毁上下文
-    let disposed = false
-    // 捕获 llm-pi-ai 的 providers 段内存备份（「恢复备份」的回退基准），仅此一次。放 apply 最顶部：
-    // 此刻 describe() 已含 API_NS（inject 声明了 settings，注册与文档装载都先于 apply），且严格早于
-    // 一切写回路径（installSection 的 attach 会经 onChange 起异步 fix）——备份必须早于插件第一次写入，
-    // 否则备份的就是被填充过的内容，恢复会把改后值当原值写回，比没有备份更糟。
-    captureBackup(ctx)
-    // 注册自有配置命名空间：段为版本快照容器，setSource 解析出运行时配置，onChange 响应配置变更
+/** 自有段变更：先自愈（排除列表去重，有重复才写，自愈写回再触发一轮零写入而收敛）再重新填充；
+ * 重置/恢复写回期间（守卫开启）整条链短路，防止把刚删的字段重新填回。 */
+function refillAfterOwnChange(ctx: Context): void {
+    if (isIgnoreAll()) return
+    void selfHealConfig(ctx)
+        .catch((error: unknown) => {
+            ctx.logger.warn(`${PLUGIN_NAME}: 排除列表自愈失败（不影响后续填充）：${error instanceof Error ? error.message : String(error)}`)
+        })
+        .then(() => fix(ctx))
+        .catch(swallowFixError)
+}
+
+/** llm-pi-ai 段变更：重新填充；距上次成功拉取超过保鲜窗口（如长期不重启）时再拉取（结算后再填充一次），无常驻定时器；守卫同上 */
+function refillAfterApiChange(ctx: Context, disposed: () => boolean): void {
+    if (isIgnoreAll()) return
+    fix(ctx)
+        .finally(() => {
+            if (disposed()) return
+            refreshIfStale(ctx, disposed)
+        })
+        .catch(swallowFixError)
+}
+
+// ---------- 两个宿主代际的接线：全部差异仅此两函数（配置源 + 段变更事件） ----------
+
+/** 0.1.6 及更早宿主：installSection 注册命名空间，段变更走 settings/updated
+ * （attach 同步触发的一次 onChange 时目录未就绪，fix 空转无害）。 */
+function wireLegacyHost(ctx: Context, disposed: () => boolean): void {
     ctx.settings.installSection(ctx, PLUGIN_NS, SectionSchema, DEFAULT_SECTION, {
         setSource: (current) => { setConfigSource(() => resolveConfig(current())) },
-        // 配置变化先自愈（手改文件的重复排除项，有重复才写、否则零写入）再重新填充；
-        // 自愈写回会再触发一次 onChange，此时长度已相等、零写入而收敛。
-        // attach 也会同步触发一次 onChange（目录未就绪，fix 空转无害）；启动的有效填充由 effect 负责。
-        // 事件流守卫：重置/恢复写回期间（ignoreAll 为 true）整条链短路，
-        // 防止把刚改动掉的字段重新填回；普通配置变更事件照常处理（排除列表去重等自愈不受影响）。
-        onChange: () => {
-            if (isIgnoreAll()) return
-            void selfHealConfig(ctx)
-                .catch((error: unknown) => {
-                    ctx.logger.warn(`${PLUGIN_NAME}: 排除列表自愈失败（不影响后续填充）：${error instanceof Error ? error.message : String(error)}`)
-                })
-                .then(() => fix(ctx))
-                .catch(swallowFixError)
-        },
+        onChange: () => refillAfterOwnChange(ctx),
     })
-    // llm-pi-ai 模型配置变更后重新填充；距上次成功拉取超过保鲜窗口（如长期不重启）时
-    // 拉取最新数据（结算后再填充一次）——事件驱动刷新，无常驻定时器
     ctx.on('settings/updated', (ns) => {
-        // 重置期间所有 settings/updated 一律短路（含重置自身写回、并发到达的事件）
-        if (isIgnoreAll()) return
         if (ns !== API_NS) return
-        fix(ctx)
-            .finally(() => {
-                if (disposed) return
-                refreshIfStale(ctx, () => disposed)
-            })
-            .catch(swallowFixError)
+        refillAfterApiChange(ctx, disposed)
     })
+}
+
+/** 0.1.7+ 宿主：配置源取 apply 第二参的实时引用——.get() 必须在工厂内、不得在 apply 时刻取走，
+ * 否则卡片保存后的新值读不进来；段变更走 settings/document-updated（0.1.7 唯一段级事件），按 ns 分流。 */
+function wireModernHost(ctx: Context, config: unknown, disposed: () => boolean): void {
+    setConfigSource(() => resolveConfig(readVolatile(config)))
+    ctx.on('settings/document-updated', (ns) => {
+        if (ns === PLUGIN_NS) refillAfterOwnChange(ctx)
+        else if (ns === API_NS) refillAfterApiChange(ctx, disposed)
+    })
+}
+
+/** 实时取当前段：根 volatile 下 config 为引用包装，.get() 每次返回最新解析值 */
+function readVolatile(config: unknown): unknown {
+    const value = config as { get?: () => unknown }
+    return typeof value?.get === 'function' ? value.get() : config
+}
+
+/** 入口：单一编排体（备份 → 代际接线 → RPC → 启动链）；代际差异收敛在两个 wire 函数，
+ * 按 installSection 是否存在同步分叉（反向调用在对方宿主上同步失败，必须分叉）。 */
+export function apply(ctx: Context, config?: unknown): void {
+    // 插件级卸载标记：启动链与事件驱动的异步续体都据此中止，卸载后不触碰已销毁上下文
+    let disposed = false
+    // 备份仅此一次，且必须早于一切写回（两代接线都会起异步 fix）——晚了备份的就是被填充过的内容；
+    // 此刻注册与文档装载都先于 apply，describe() 已含 API_NS，必可读
+    captureBackup(ctx)
+    if (typeof (ctx.settings as { installSection?: unknown }).installSection === 'function') {
+        wireLegacyHost(ctx, () => disposed)
+    } else {
+        wireModernHost(ctx, config, () => disposed)
+    }
     // 浏览器半「强制更新 / 重置模型 / 恢复备份」RPC channel（结果经 RpcResult 回传卡片）
     installRpc(ctx)
-    // 首轮：配置迁移 → 缓存读取 → 填充 → 异步刷新，统一由 effect 管理
-    // （命名空间注册与文档装载都在本插件可注入 settings 之前完成，故可直接迁移，无需等待就绪）
-    // 卸载时置位，在途结果不触碰已卸载的上下文；迁移失败仅告警、按当前生效配置继续。
-    // 刷新统一走 refreshIfStale（ts 初始 0 必过期 ⇒ 启动必拉取），与事件路径共用同一入口与守卫
+    // 首轮：迁移 → 缓存 → 填充 → 异步刷新（refreshIfStale 的 ts 初始 0 必过期 ⇒ 启动必拉取），
+    // 与事件路径共用同一入口与守卫；卸载置位后在途结果不触碰已销毁上下文
     ctx.effect(() => {
         void migrateConfig(ctx)
             .catch((error) => {
@@ -67,15 +103,14 @@ export function apply(ctx: Context) {
                 ctx.logger.warn(`${PLUGIN_NAME}: 配置迁移失败，使用当前生效配置继续：${error instanceof Error ? error.message : String(error)}`)
             })
             .then(() => {
-                // 卸载后不再发起无人消费的缓存文件读取
+                // 卸载后不再读缓存
                 if (disposed) return
                 return readCache()
             })
             .then((cached) => {
                 if (disposed) return
                 if (cached) setCatalog(cached)
-                // 先用缓存（若有）填充，让配置即刻生效；完成后再拉取最新数据，避免两次写入并发冲突。
-                // 与事件路径同构：fix → refreshIfStale →（拉取结算后）fix
+                // 先用缓存填充即刻生效，再异步刷新（与事件路径同构：fix → refreshIfStale → 拉取结算后再 fix）
                 fix(ctx)
                     .finally(() => {
                         if (disposed) return
