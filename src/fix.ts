@@ -7,6 +7,7 @@ import { lookup, toReasoningEfforts } from '@/lookup'
 import { DEVELOPER_COMPAT_APIS, MAX_ATTEMPTS } from '@/constants'
 import { API_NS, CONFIG_VERSION, PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
 import { getConfig } from '@/config'
+import { queueTask } from '@/host'
 import { versionKey } from '@/shared/parse'
 import { isCapacity } from '@/types'
 import { isPlainObject, type EffortMemory } from '@/shared/types'
@@ -175,7 +176,7 @@ export async function fix(ctx: Context, force = false): Promise<number> {
         try { // 重建记忆不影响主流程
             const effortsChanged = own !== undefined && !deepEqualJson(newEfforts, oldEfforts)
             if (own && effortsChanged) {
-                await ctx.settings.mutate(PLUGIN_NS, [{ op: 'set', path: [versionKey(CONFIG_VERSION), 'efforts'], value: newEfforts }], own.revision)
+                await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, [{ op: 'set', path: [versionKey(CONFIG_VERSION), 'efforts'], value: newEfforts }], own.revision))
                 ctx.logger.info(`${PLUGIN_NAME}: 已重建推理级别记忆`)
             }
         } catch (error) {
@@ -184,7 +185,7 @@ export async function fix(ctx: Context, force = false): Promise<number> {
 
         if (ops.length === 0) return 0
         try {
-            await ctx.settings.mutate(API_NS, ops, descriptor.revision)
+            await queueTask(ctx, () => ctx.settings.mutate(API_NS, ops, descriptor.revision))
             ctx.logger.info(`${PLUGIN_NAME}: 已变更 ${changes} 个模型（补充/同步推理级别、容量字段、图片模态、清理空字段）、${compatChanges} 个提供方的路由 compat（developer 角色兼容），跳过 ${excluded} 个已排除提供方`)
             return changes
         } catch (error) {

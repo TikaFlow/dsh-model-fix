@@ -5,6 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { isPlainObject, providersOf } from '@/shared/types'
 import { startIgnoreAll, endIgnoreAll } from '@/guard'
+import { queueTask } from '@/host'
 
 /**
  * 插件启动时捕获的 `llm-pi-ai` 备份：该 NS user 层 `providers` 段的深拷贝（只读缓存，不写盘）。
@@ -103,7 +104,7 @@ export async function restoreModels(ctx: Context): Promise<number> {
                 return 0
             }
             try {
-                await ctx.settings.mutate(API_NS, modelOps, apiDescriptor?.revision || 0)
+                await queueTask(ctx, () => ctx.settings.mutate(API_NS, modelOps, apiDescriptor?.revision || 0))
                 ctx.logger.info(`${PLUGIN_NAME}: 已恢复备份中的 ${changed} 个模型`)
                 return changed
             } catch (error) {

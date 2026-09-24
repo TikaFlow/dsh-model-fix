@@ -19,6 +19,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 两类 op 同批提交；`excludes` 命中的提供方在 provider 循环入口即整条跳过（两类 op 与 force 一起被排除，故不在各分支重复判断）；同一两层循环顺带**重建 `efforts` 记忆**（清除已删除模型/提供方的记忆，`excludes` 命中者在跳过处单独循环其模型同样重建、不产生对该提供方的写回；与旧值相同零写入，不同才以自有 NS 的 revision 写回 `version-N.efforts`，见「设计裁决」） |
 | `src/reset.ts` | 重置模型：仅剔除各非排除 provider 模型上的插件填充字段（`reasoningEfforts`/容量/`input`），配置段原样保留（开关不变，重置后改配置仍按原开关触发填充）；`planResetModels` 零 ctx 可单测，`resetModels` 全程打开事件流守卫（`isIgnoreAll`）防写回反向触发填充 |
 | `src/guard.ts` | 事件流守卫（模块级 `ignoreAll` + `startIgnoreAll`/`endIgnoreAll`/`isIgnoreAll`）：重置与恢复共用的写回保护，`index.ts` 两事件入口最先判定 |
+| `src/host.ts` | 宿主 HMR 事务感知的通用执行原语 `queueTask(ctx, task)`：取 hmr 服务私有 `executing` ALS 实例 `exit()` 摘出事务上下文后执行 task（当前消费者是全部 settings 写回点，以钩子形式传入 mutate），任务正常排队而非被 nested 拒绝；旧宿主无 hmr 服务时直接执行。机制与裁决见「宿主 settings 的脾气」末条 |
 | `src/restore.ts` | 恢复备份：`captureBackup` 仅在 `apply` 最顶部（先于 `installSection`）读一次 `llm-pi-ai` 的 **`providers` 段**并深拷贝为内存备份（不写盘，重启重建；绝不做延迟补捕，见设计裁决）；`providersOf` 收窄口径单一来源在 `src/shared/types.ts`（捕获与恢复共用）；`planRestore` 零 ctx 可单测，按**交集**语义只回退「备份与当前都存在」的 provider+model；`restoreModels` 与 reset 同样全程开守卫 |
 | `src/compat.ts` | 兼容性规则 → provider 路由 `compat` 的纯写入计划（添加 / 移除 / 删空整段 unset），零 ctx 依赖故可单测 |
 | `src/rpc.ts` / `src/rpc-route.ts` / `src/refresh.ts` | 三个 RPC 端点（`forceUpdate` 强制更新 / `resetModels` 重置模型 / `restoreModels` 恢复备份，以守卫互斥）/ 自注册 channel 路由（围栏 + 信封，见「设计裁决」）/ 刷新编排（含重试） |
@@ -69,6 +70,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **注册与文档装载都先于本插件 `apply`**：provider 在 become injectable 前 `publish(await load())`，`installSection` 内的注册 effect 体同步落库 ⇒ `installSection` 之后 `describe()` 即含本命名空间，**迁移前不需要等待就绪**。命名空间就是小写连字符串字面量。
 - 存储段非法会让 `ctx.settings.installSection` **同步抛出**（注册即解析校验存储段）⇒ 段 schema 必须宽松这一条更关键；`migrateConfig` 读不到命名空间则早退、不写任何东西。
 - **迁移必先于填充**，否则旧格式会被按新 schema 误解析。
+- **段事件可能在宿主 HMR 事务内同步派发（0.1.7）**：用户保存的写盘事务（`configEditor.edit` → `hmr.runExclusive`）内部的 `describe()`（Loader 调和触发）会在事务的 AsyncLocalStorage 上下文里同步回调 `settings/document-updated` 监听器；ALS 上下文随定时器传播且事务结束后仍残留 ⇒ 事务血缘里的写回经 `runExclusive` 会被以 `HMR transactions cannot be nested` 拒绝，**defer 到宏任务也逃不掉**（重试定时器同样继承该上下文）。解法是**在写 choke point 收口**：全部 settings 写回（fix 两处、自愈、迁移三处、重置、恢复）一律经 `src/host.ts` 的通用原语 `queueTask(ctx, task)` 以钩子形式包裹 mutate 调用——取 hmr 服务的私有 `executing` ALS 实例 `exit()` 摘出上下文（宿主 `watchConfig` 内部同款手法），重入检测放行后任务即经 runExclusive 的 promise 链正常**排队**等待宿主事务结束；原语本身不限写回，未来任何需脱离事务血缘的任务都可复用。**不放在事件入口包裹**的依据：choke point 让任何调用路径（含未来新增）天然安全，而事件入口包裹会漏掉写回之外新增的调用点。RPC（强制更新/重置/恢复）与启动链不在任何事务血缘内，本就不会嵌套（这正是此前事件 fix 全灭而 RPC 强制更新一直成功的分野）；client 半更无需处理：其写入执行在宿主 Node 侧请求处理血缘里，且浏览器无 `node:async_hooks`。实例不可得（旧宿主无 hmr 服务 / 字段漂移）时退回裸 mutate——旧宿主写回无 hmr 事务可嵌套，行为不变。升宿主须复核 hmr 服务 `executing` 字段名。
 
 ### 历史形态冻结
 

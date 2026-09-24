@@ -4,6 +4,7 @@ import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION } from '@/constants'
 import { CONFIG_VERSION, PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
 import { resolveConfig } from '@/config'
+import { queueTask } from '@/host'
 import { DEFAULT_CONFIG, parseSnapshot, parseVersion, toStored, versionKey } from '@/shared/parse'
 import type { PluginConfigSnapshot, UserExperienceRules, VersionedSection } from '@/shared/types'
 import type { V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot } from '@/types'
@@ -283,7 +284,7 @@ export async function migrateConfig(ctx: Context): Promise<void> {
             ctx.logger.warn(`${PLUGIN_NAME}: ${versionKey(CONFIG_VERSION)} 快照非法，已按当前生效配置重写`)
         }
         ops.push(...pruneOps(versions))
-        if (ops.length > 0) await ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision)
+        if (ops.length > 0) await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
         return
     }
     // 迁移源：versions 升序，从高到低取首个可解析快照——高版本降级解析、低版本走升级链，全不可解析则落默认
@@ -307,7 +308,7 @@ export async function migrateConfig(ctx: Context): Promise<void> {
         { op: 'set', path: [versionKey(CONFIG_VERSION)], value: stored },
         ...pruneOps(versions),
     ]
-    await ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision)
+    await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
     ctx.logger.info(`${PLUGIN_NAME}: ${action}，已写入 ${versionKey(CONFIG_VERSION)} 快照`)
 }
 
@@ -335,6 +336,6 @@ export async function selfHealConfig(ctx: Context): Promise<void> {
     const section = isPlainObject(descriptor.user) ? descriptor.user as VersionedSection : undefined
     const ops = dedupeExcludesOp(section?.[versionKey(CONFIG_VERSION)])
     if (ops.length === 0) return
-    await ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision)
+    await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
     ctx.logger.warn(`${PLUGIN_NAME}: 检测到排除列表存在重复项，已保留首次出现去重`)
 }

@@ -7,6 +7,7 @@ import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import type { PluginConfig } from '@/shared/types'
 import { isPlainObject } from '@/shared/types'
 import { startIgnoreAll, endIgnoreAll } from '@/guard'
+import { queueTask } from '@/host'
 
 /** 插件可能填充的模型字段（用户自定义字段不动） */
 const FILLED_FIELDS = ['reasoningEfforts', 'contextWindow', 'maxTokens', 'input'] as const
@@ -75,7 +76,7 @@ export async function resetModels(ctx: Context): Promise<number> {
                 return 0
             }
             try {
-                await ctx.settings.mutate(API_NS, modelOps, apiDescriptor?.revision || 0)
+                await queueTask(ctx, () => ctx.settings.mutate(API_NS, modelOps, apiDescriptor?.revision || 0))
                 ctx.logger.info(`${PLUGIN_NAME}: 已重置 ${changed} 个模型的插件字段`)
                 return changed
             } catch (error) {
