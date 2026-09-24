@@ -1,8 +1,9 @@
 /**
  * Connection RPC 端点（前后端通信通道）：
  * - 「强制更新」→ fix(ctx, true) 单次绕过 allowUpdate 填充（不重新拉取 models.dev，用当前内存目录）；
- * - 「重置模型」→ resetModels(ctx) 仅剔除插件填充的模型字段（reasoningEfforts / 容量 / 图片模态），
- *   配置段原样保留（开关不变，重置后修改配置仍按原开关触发填充），事件流守卫全程打开，
+ * - 「重置推理级别」→ resetModels(ctx) 仅剔除模型上的推理级别字段（reasoningEfforts），
+ *   最大上下文 / 输出上限 / 图片模态可在模型页自行设置故不清除；配置段原样保留
+ *   （开关不变，重置后修改配置仍按原开关触发填充），事件流守卫全程打开，
  *   写回触发的 settings/updated 一律短路，避免把刚删掉的字段重新填回。
  * - 「恢复备份」→ restoreModels(ctx) 把启动时备份（交集：备份与当前都存在的 provider+model）回退，
  *   事件流守卫全程打开，避免写回触发填充。
@@ -27,7 +28,7 @@ import type { HostRequestRejection, HostWebServerRegister, RpcResult } from '@/s
 
 /** 卡片「强制更新」按钮调用的 endpoint 名 */
 const ENDPOINT_FORCE_UPDATE = 'forceUpdate'
-/** 卡片「重置模型」按钮调用的 endpoint 名 */
+/** 卡片「重置推理级别」按钮调用的 endpoint 名 */
 const ENDPOINT_RESET_MODELS = 'resetModels'
 /** 卡片「恢复备份」按钮调用的 endpoint 名 */
 const ENDPOINT_RESTORE_MODELS = 'restoreModels'

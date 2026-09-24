@@ -1,4 +1,4 @@
-// reset.ts 纯函数测试：重置计划（剔除插件填充字段、排除跳过、零变更零 op）
+// reset.ts 纯函数测试：重置计划（仅剔除推理级别、排除跳过、零变更零 op）
 import { planResetModels } from '@/reset'
 import type { PluginConfig } from '@/shared/types'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
@@ -21,12 +21,12 @@ function modelsValueOf(modelOps: SettingsPathOp[], providerPath: string): Record
 
 /** 执行本文件的全部用例 */
 export function run(): void {
-    // ---------- planResetModels：模型参数剔除 ----------
+    // ---------- planResetModels：推理级别剔除 ----------
     const providers = {
-        // 有插件填充字段，应剔除
+        // 有推理级别，应剔除；contextWindow / maxTokens / input 不在清除范围、原样保留
         normal: { models: [
             { id: 'a', reasoningEfforts: { off: null, high: 'high' }, contextWindow: 200_000, maxTokens: 8_000, input: ['text', 'image'], temperature: 0.7, customField: 42 },
-            { id: 'b', description: 'no filled fields' },
+            { id: 'b', description: 'no reasoning efforts' },
         ] },
         // 命中排除，整体跳过
         'acme-gateway': { models: [{ id: 'c', reasoningEfforts: { off: null }, contextWindow: 100 }] },
@@ -34,6 +34,8 @@ export function run(): void {
         noModels: { api: 'openai-completions' },
         // models 非数组
         badModels: { models: { x: 1 } },
+        // 只有其他模型字段、无推理级别：不剔除、不产出 op
+        contextOnly: { models: [{ id: 'd', contextWindow: 100, maxTokens: 50, input: ['text'] }] },
     }
     const plan = planResetModels(base, providers)
     const next = modelsValueOf(plan.modelOps, 'providers.normal.models')
@@ -41,17 +43,20 @@ export function run(): void {
     check('排除的 provider 不产出模型 op', plan.modelOps.every((op) => op.path.join('.') !== 'providers.acme-gateway.models'))
     check('无 models 的 provider 不产出模型 op', plan.modelOps.every((op) => op.path.join('.') !== 'providers.noModels.models'))
     check('models 非数组的 provider 不产出模型 op', plan.modelOps.every((op) => op.path.join('.') !== 'providers.badModels.models'))
-    check('非排除且有 models 的 provider 产出整段 set op', next !== undefined)
-    check('模型数组中无填充字段的元素原样保留', next !== undefined
+    check('无推理级别的 provider 不产出模型 op', plan.modelOps.every((op) => op.path.join('.') !== 'providers.contextOnly.models'))
+    check('非排除且有推理级别的 provider 产出整段 set op', next !== undefined)
+    check('模型数组中无推理级别的元素原样保留', next !== undefined
         && next.length === 2
         && next[1] !== undefined
-        && next[1]!.description === 'no filled fields')
-    check('有填充字段的模型：四个字段全剔除', next !== undefined
+        && next[1]!.description === 'no reasoning efforts')
+    check('有推理级别的模型：仅剔除 reasoningEfforts', next !== undefined
         && next[0] !== undefined
-        && next[0]!.reasoningEfforts === undefined
-        && next[0]!.contextWindow === undefined
-        && next[0]!.maxTokens === undefined
-        && next[0]!.input === undefined)
+        && next[0]!.reasoningEfforts === undefined)
+    check('最大上下文 / 输出上限 / 图片模态保留（模型页可自行设置）', next !== undefined
+        && next[0] !== undefined
+        && next[0]!.contextWindow === 200_000
+        && next[0]!.maxTokens === 8_000
+        && next[0]!.input !== undefined)
     check('用户自定义字段保留', next !== undefined
         && next[0] !== undefined
         && next[0]!.id === 'a'
@@ -59,8 +64,8 @@ export function run(): void {
         && next[0]!.customField === 42)
     check('changed 计数 = 受影响模型数（normal 仅模型 a 剔除字段）', plan.changed === 1)
 
-    // 无填充字段的 provider 不产出 op（零变更零 op，与 fix 写回纪律一致）
-    check('无填充字段的 provider 不产出 op（零变更零 op）',
+    // 无推理级别的 provider 不产出 op（零变更零 op，与 fix 写回纪律一致）
+    check('无推理级别的 provider 不产出 op（零变更零 op）',
         (() => {
             const p = planResetModels(base, { solo: { models: [{ id: 'x', description: 'd' }] } })
             return p.modelOps.length === 0 && p.changed === 0

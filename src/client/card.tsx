@@ -3,7 +3,7 @@
  * 形态（插件详情页索取，标题/简介/面包屑/开关由页面自绘）。展开体为五张瓦片（顺序由 TILE_ORDER
  * 单一分发）：布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 / 用户体验）+ 动态集合瓦片（排除提供方，
  * summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）。瓦片手风琴：默认收起、同时只开一个。
- * footer 左侧强制更新 / 重置模型（危险键）/ 恢复备份（次级键）、右侧放弃修改 / 保存；三把写回键弹
+ * footer 左侧强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）、右侧放弃修改 / 保存；三把写回键弹
  * 宿主 Modal 二次确认后经 Connection RPC 请求 Node 半。
  * 编辑只改本地草稿，「保存」才经 settingsScope 原子写当前版本快照键（efforts 取写入当刻实时值，
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
@@ -70,7 +70,7 @@ export interface CardProps {
     providersScope: SettingsScope<readonly unknown[]>
     /** 强制更新 RPC：channel 与端点在入口拼好，卡片只消费结果 */
     forceUpdate: () => Promise<RpcResult<unknown>>
-    /** 重置模型 RPC：仅剔除插件曾填充的模型字段（reasoningEfforts/容量/图片模态，excludes 命中跳过），配置段原样保留；返回受影响的模型数 */
+    /** 重置推理级别 RPC：仅剔除模型上的 reasoningEfforts（最大上下文 / 输出上限 / 图片模态可在模型页自行设置，不清除；excludes 命中跳过），配置段原样保留；返回受影响的模型数 */
     resetModels: () => Promise<RpcResult<unknown>>
     /** 恢复备份 RPC：回退启动时备份（交集 provider+model）到当前配置；返回被恢复的模型数 */
     restoreModels: () => Promise<RpcResult<unknown>>
@@ -572,7 +572,7 @@ export function Card(props: CardProps) {
                 setForceBusy(false)
             })
     }
-    // 重置模型：与强制更新同形（危险键 + 二次确认）；配置段零写入（开关不变），竞态防护由 Node 半事件流守卫负责
+    // 重置推理级别：与强制更新同形（危险键 + 二次确认）；配置段零写入（开关不变），竞态防护由 Node 半事件流守卫负责
     const onReset = () => {
         if (!ready || resetBusy || restoreBusy || submitting) return
         setNotice(null)

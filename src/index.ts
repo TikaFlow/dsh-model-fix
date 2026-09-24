@@ -92,7 +92,7 @@ export function apply(ctx: Context, config?: unknown): void {
     } else {
         wireModernHost(ctx, config, () => disposed)
     }
-    // 浏览器半「强制更新 / 重置模型 / 恢复备份」RPC channel（结果经 RpcResult 回传卡片）
+    // 浏览器半「强制更新 / 重置推理级别 / 恢复备份」RPC channel（结果经 RpcResult 回传卡片）
     installRpc(ctx)
     // 首轮：迁移 → 缓存 → 填充 → 异步刷新（refreshIfStale 的 ts 初始 0 必过期 ⇒ 启动必拉取），
     // 与事件路径共用同一入口与守卫；卸载置位后在途结果不触碰已销毁上下文

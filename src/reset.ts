@@ -9,15 +9,16 @@ import { isPlainObject } from '@/shared/types'
 import { startIgnoreAll, endIgnoreAll } from '@/guard'
 import { queueTask } from '@/host'
 
-/** 插件可能填充的模型字段（用户自定义字段不动） */
-const FILLED_FIELDS = ['reasoningEfforts', 'contextWindow', 'maxTokens', 'input'] as const
+/** 重置清除的模型字段：仅推理级别——最大上下文 / 输出上限 / 图片模态可在模型页自行设置，不清除 */
+const RESET_FIELD = 'reasoningEfforts'
 
 /**
- * 重置操作的模型参数计划（纯函数，零 ctx 依赖可单测）：
- * 每个非排除 provider 逐模型剔除 FILLED_FIELDS 中的键、其余键原样保留，
- * 仅当该 provider 至少一个模型有可剔除的键时才整段重建写回（零变更零 op，与 fix 写回纪律一致）。
+ * 重置推理级别的模型参数计划（纯函数，零 ctx 依赖可单测）：
+ * 每个非排除 provider 逐模型剔除推理级别字段、其余键原样保留
+ * （contextWindow / maxTokens / input 不在清除范围），
+ * 仅当该 provider 至少一个模型有推理级别键时才整段重建写回（零变更零 op，与 fix 写回纪律一致）。
  * 配置段一律不写——开关保持原值，重置后修改配置仍会按原开关触发填充。
- * 返回 { modelOps, changed }，changed 为受影响（至少剔除一个字段）的模型数，与 fix 的模型计数口径一致。
+ * 返回 { modelOps, changed }，changed 为受影响（至少剔除一个推理级别）的模型数，与 fix 的模型计数口径一致。
  */
 export function planResetModels(config: PluginConfig, providers: Record<string, unknown>): {
     modelOps: SettingsPathOp[]
@@ -37,7 +38,7 @@ export function planResetModels(config: PluginConfig, providers: Record<string, 
             if (!isPlainObject(model)) continue
             const kept: Record<string, unknown> = {}
             for (const [key, value] of Object.entries(model)) {
-                if ((FILLED_FIELDS as readonly string[]).includes(key)) continue
+                if (key === RESET_FIELD) continue
                 kept[key] = value
             }
             if (Object.keys(model).length === Object.keys(kept).length) continue
@@ -51,11 +52,11 @@ export function planResetModels(config: PluginConfig, providers: Record<string, 
 }
 
 /**
- * 重置全部模型参数：剔除各非排除 provider 模型上的插件填充字段（reasoningEfforts /
- * contextWindow / maxTokens / input），用户自定义字段与配置段（开关）原样保留——
- * 重置后修改配置仍按原开关触发填充。事件流守卫全程打开，写回触发的 settings/updated
- * 事件被入口判定拦下，不会反向触发填充。
- * 返回受影响（至少剔除一个字段）的模型数；写失败先告警再抛出，由调用方转 RPC 失败结果。
+ * 重置全部推理级别：剔除各非排除 provider 模型上的 reasoningEfforts，其余模型字段
+ * （含可在模型页自行设置的最大上下文 / 输出上限 / 图片模态）、用户自定义字段与配置段
+ * （开关）原样保留——重置后修改配置仍按原开关触发填充。事件流守卫全程打开，写回触发的
+ * settings/updated 事件被入口判定拦下，不会反向触发填充。
+ * 返回受影响（至少剔除一个推理级别）的模型数；写失败先告警再抛出，由调用方转 RPC 失败结果。
  */
 export async function resetModels(ctx: Context): Promise<number> {
     startIgnoreAll()
@@ -72,12 +73,12 @@ export async function resetModels(ctx: Context): Promise<number> {
             const config = configDescriptor ? resolveConfig(configDescriptor.user) : DEFAULT_CONFIG
             const { modelOps, changed } = planResetModels(config, providers)
             if (modelOps.length === 0) {
-                ctx.logger.info(`${PLUGIN_NAME}: 重置：无可剔除字段的模型`)
+                ctx.logger.info(`${PLUGIN_NAME}: 重置：无可剔除推理级别的模型`)
                 return 0
             }
             try {
                 await queueTask(ctx, () => ctx.settings.mutate(API_NS, modelOps, apiDescriptor?.revision || 0))
-                ctx.logger.info(`${PLUGIN_NAME}: 已重置 ${changed} 个模型的插件字段`)
+                ctx.logger.info(`${PLUGIN_NAME}: 已重置 ${changed} 个模型的推理级别`)
                 return changed
             } catch (error) {
                 // 冲突重试：重读两段最新 revision 后重算计划（幂等——已剔除的模型不再计入 changed）
