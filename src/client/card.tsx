@@ -3,7 +3,8 @@
  * 形态（插件详情页索取，标题/简介/面包屑/开关由页面自绘）。展开体为五张瓦片（顺序由 TILE_ORDER
  * 单一分发）：布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 / 用户体验）+ 动态集合瓦片（排除提供方，
  * summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）。瓦片手风琴：默认收起、同时只开一个。
- * footer 左侧强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）、右侧放弃修改 / 保存；三把写回键弹
+ * footer 左侧强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）、右侧放弃修改（仅未保存时渲染）/
+ * 保存；三把写回键弹
  * 宿主 Modal 二次确认后经 Connection RPC 请求 Node 半。
  * 编辑只改本地草稿，「保存」才经 settingsScope 原子写当前版本快照键（efforts 取写入当刻实时值，
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
@@ -708,14 +709,17 @@ export function Card(props: CardProps) {
                     </button>
                 </span>
                 <span className="dsh-mf-actions">
-                    <button
-                        type="button"
-                        className="dsh-mf-discard"
-                        disabled={!dirty || submitting}
-                        onClick={onDiscard}
-                    >
-                        {t('discard')}
-                    </button>
+                    {/* 放弃修改只在有未保存编辑时出现（保存后自动隐去）；保存中保持可见但禁用 */}
+                    {dirty ? (
+                        <button
+                            type="button"
+                            className="dsh-mf-discard"
+                            disabled={submitting}
+                            onClick={onDiscard}
+                        >
+                            {t('discard')}
+                        </button>
+                    ) : null}
                     <button
                         type="button"
                         className="dsh-mf-save"
