@@ -1,10 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
-import { API_URL, CACHE_FILE, FETCH_MS, LEVELS, MAX_ATTEMPTS, RETRY_DELAY_MS } from './constants'
-import { PLUGIN_NAME } from './shared/constants'
-import type { CacheRecord, Catalog, IndexedCatalog, ModelEntry, ProviderGroup, IndexEntry } from './types'
-import { isCapacity } from './types'
-import { isPlainObject } from './shared/types'
+import { API_URL, CACHE_FILE, FETCH_MS, LEVELS, MAX_ATTEMPTS, RETRY_DELAY_MS } from '@/constants'
+import { PLUGIN_NAME } from '@/shared/constants'
+import type { CacheRecord, Catalog, IndexedCatalog, ModelEntry, ProviderGroup, IndexEntry } from '@/types'
+import { isCapacity } from '@/types'
+import { isPlainObject } from '@/shared/types'
 
 /** 目录尚未可用时的空兜底 */
 const EMPTY_INDEX: IndexedCatalog = { catalog: {}, groups: new Map() }

@@ -5,7 +5,7 @@
  * 冻结历史版本（v1–v4）快照形态。跨半共享类型与守卫单一来源在 `src/shared/types.ts`，两半均直连。
  */
 
-import { CAPACITY_UNLIMITED } from './constants'
+import { CAPACITY_UNLIMITED } from '@/constants'
 
 /** models.dev 单条条目的推理、容量与模态解析结果 */
 export interface ModelEntry {

@@ -31,7 +31,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 
 ### 跨半与宿主契约
 
-- **跨半共享层 `src/shared/`**（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）：常量（`API_NS`/`PLUGIN_NS`/`PLUGIN_NAME`/`CONFIG_VERSION`/`VERSION_PREFIX`）、类型与守卫（`isPlainObject`/`providersOf`/`PluginConfig`/Connection RPC 契约）、当前版本解析与物化（`parseSnapshot`/`parseEfforts`/`parseVersion`/`versionKey`/`DEFAULT_CONFIG`/`toStored`）的单一来源。两半均**直连**本层（Node 半 `./shared/*`、浏览器半 `../shared/*`），任何半不得中转再导出。`tsdown.config.ts` 的**双向**纯度门禁：client 半只放行 `../shared` 的值导入（其余 `../` 抛错，防 `node:path`/schemastery 进浏览器包；type-only 被擦除不受限），node 半禁止依赖 `src/client`（防反向耦合）。provider id 的合法性正则 `EXCLUDE_ID_PATTERN` 仍是宿主 models 页 `ROUTE_PATTERN` 的字面复制（跨仓复制无法消除），升宿主须复核。
+- **跨半共享层 `src/shared/`**（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）：常量（`API_NS`/`PLUGIN_NS`/`PLUGIN_NAME`/`CONFIG_VERSION`/`VERSION_PREFIX`）、类型与守卫（`isPlainObject`/`providersOf`/`PluginConfig`/Connection RPC 契约）、当前版本解析与物化（`parseSnapshot`/`parseEfforts`/`parseVersion`/`versionKey`/`DEFAULT_CONFIG`/`toStored`）的单一来源。两半均**直连**本层（统一经 `@/shared/*` 别名导入），任何半不得中转再导出。**导入别名纪律：src 与 test 的一切源码导入必须以 `@/`（→ `src/`）或 `@test/`（→ `test/`）开头，禁止相对路径**——映射声明在 tsconfig `paths`（typecheck/编辑器）与 tsdown 各配置的 `alias`（构建期；tsdown 不读 tsconfig paths，缺一不可）；别名键锚定 `@`（段边界匹配），不会吞 `@deepseek-ai/*` 等基线 specifier。`tsdown.config.ts` 的**双向**纯度门禁：client 半 `@/` 值导入只放行 `@/shared/*`（跨半共享层）与 `@/client/*`（本半内部），其余 `@/` 与一切相对导入抛错（防 `node:path`/schemastery 进浏览器包；type-only 被擦除不受限），node 半禁 `@/client*` 与一切相对导入（防反向耦合）。provider id 的合法性正则 `EXCLUDE_ID_PATTERN` 仍是宿主 models 页 `ROUTE_PATTERN` 的字面复制（跨仓复制无法消除），升宿主须复核。
 - 浏览器半 externals 只允许宿主模块表基线那几项，其余一律打进包；基线权威列表在宿主 `packages/client/web/src/platform.ts`，漂移的后果是运行期 `require` 未命中。
 - `package.json` 的 `dsh.client.inject` 是**依赖包图边**（填槽位所有者包），不是 cordis 服务名；服务名只写在 `src/client/index.tsx` 的 `export const inject`。
 - 浏览器半产物必须复刻宿主 client 的闭包工厂契约（`window.__ModuleLoader__.load` + banner/intro/footer 三段）。声明了 `dsh.client` 后，缺 `lib/client.js` 会让宿主**激活期聚合抛错** ⇒ **build 必须先于 link/安装到宿主**。
@@ -82,7 +82,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 
 ### 工具链陷阱
 
-- `pnpm test` **必须带 `--no-config`**：否则 CLI 参数会合并进数组配置的每一项，浏览器半的工厂 banner 会污染测试产物（无配置时产物扩展名为 `.mjs`）。
+- `pnpm test` 走**专用单对象配置** `tsdown.test.config.ts`（entry/outDir/alias 内聚，`entryFileNames` 钉死 `index.mjs`）：历史上必须 `--no-config` 是因为 CLI 参数会合并进 tsdown.config.ts 数组配置的每一项、浏览器半的工厂 banner 会污染测试产物，且 `--no-config` 下 tsdown 不读 tsconfig paths、`@/` 别名无法解析——独立非数组配置同时消除这两个问题，禁止再把测试构建指回数组主配置。
 - **沙箱内的验证结果不可信，要提权跑**：文件沙箱禁止命名管道 ⇒ `tsdown`/`node` 子进程的输出捕获受阻，`pnpm test`/`pnpm build` 可能返回 exit 0 却既无汇总输出也不落产物（实测：`.test-dist` 未生成、`lib/index.js` 时间戳早于本次 build）。验证须一次性提权执行，并**以看到的汇总行与产物时间戳为准**（`ALL PASS (n)`、`lib/*.js` 大小与 mtime），只看 exit 码会把空跑当成通过。
 - `pnpm install` 的 `prepare` 会跑 build ⇒ `lib/` 装完即存在。
 - 宿主包的本地开发依赖全部走 devDeps：`dsh-client-*`（浏览器半类型面）、`dsh-settings`（`SettingsPathOp` 类型）、`schemastery` / `dsh-util-values`（typecheck 与 test 的类型+值面），**版本须与宿主 latest 同号**（见「对外纪律」），否则类型面与发布版实际能力脱节；升级只能写具体版本号，`pkg@latest` 会装到陈旧 tag。
@@ -170,7 +170,7 @@ graph LR
 
 ## 命令
 
-- `pnpm build` / `pnpm run typecheck` / `pnpm test`（**必须 `--no-config`**，见上）
+- `pnpm build` / `pnpm run typecheck` / `pnpm test`（test 走 `tsdown.test.config.ts`，见「工具链陷阱」）
 - `pnpm install` 触发 `prepare` → build
 - `pnpm pack:release` → 依次跑 `prepack`（typecheck + test）与 `prepare`（build），产出 `dist/dsh-model-fix.tgz`
 

@@ -1,9 +1,9 @@
 /**
  * 跨半共享的纯常量（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）。
- * 两半均**直连**本层（Node 半 `./shared/constants`、浏览器半 `../shared/constants`），不经任何 facade 中转；
+ * 两半均**直连**本层（统一经 `@/shared/constants` 别名导入），不经任何 facade 中转；
  * Node 专属常量（含 `node:path` 的 `CACHE_FILE`、拉取参数等）仍留 `src/constants.ts`。
  *
- * 本文件是浏览器半能安全值导入的唯一跨半来源（`tsdown.config.ts` 的 client 纯度门禁只放行 `../shared`）。
+ * 本文件是浏览器半能安全值导入的唯一跨半来源（`tsdown.config.ts` 的 client 纯度门禁在 @/ 值导入里只放行 `@/shared`）。
  * 往本文件加任何 `node:`、`schemastery` 或非基线 `@deepseek-ai/*` 的值导入都会破坏浏览器半产物——勿加。
  */
 

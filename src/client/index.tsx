@@ -19,18 +19,18 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // SlotMap 的 'settings.models.footer' 键声明合并
 import type {} from '@deepseek-ai/dsh-client-ui-settings-models/client'
 // SlotMap 的 'plugins.bundle.config'（0.1.6+）与 'settings.plugin.item'（0.1.2 系列）键声明（本地结构复制）
-import type {} from './slot-contract'
+import type {} from '@/client/slot-contract'
 // Connection RPC call 切片的结构复制（宿主包未装依赖；取服务沿用宿主 ui-settings-general 的 ctx.get 断言范式）
-import type { ClientRpcCall } from '../shared/types'
-import { Card } from './card'
+import type { ClientRpcCall } from '@/shared/types'
+import { Card } from '@/client/card'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
-import { CARD_NS, en, zh } from './locales'
-import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS } from '../shared/constants'
-import { VERSION_KEY, decodeSection } from './model'
-import type { Flags } from './model'
-import { applyEffort, classifyTransition, sameSelection } from './effort'
-import type { ModelDirectoriesLike, SelectionLike, SessionsLike } from './effort'
-import { makeScope, type ConfigFormLike } from './scope.new'
+import { CARD_NS, en, zh } from '@/client/locales'
+import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS } from '@/shared/constants'
+import { VERSION_KEY, decodeSection } from '@/client/model'
+import type { Flags } from '@/client/model'
+import { applyEffort, classifyTransition, sameSelection } from '@/client/effort'
+import type { ModelDirectoriesLike, SelectionLike, SessionsLike } from '@/client/effort'
+import { makeScope, type ConfigFormLike } from '@/client/scope.new'
 
 /** 提供方 scope 的解码占位值：本卡只消费 snapshot.user（原始用户层），value 无用途；decode 必须永不返回 undefined */
 const PROVIDERS_VIEW: readonly unknown[] = []

@@ -15,9 +15,9 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactE
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { RpcResult } from '../shared/types'
-import { PLUGIN_NAME } from '../shared/constants'
-import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '../shared/parse'
+import type { RpcResult } from '@/shared/types'
+import { PLUGIN_NAME } from '@/shared/constants'
+import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 
 /** 瓦片 chevron：宿主 0.1.7 起该组件改名（旧名 IconChevronDownOutline14 已删除），按当前宿主实有符号取用（props 两代同形）。 */
 type ChevronIcon = (props: { size?: number; className?: string }) => ReactElement
@@ -53,11 +53,11 @@ import {
     removeExclude,
     resolveHits,
     toggleCell,
-} from './model'
-import type { CardKey } from './locales'
-import type { Flags, Group, RowKey } from './model'
-import type { PluginConfigViewProps } from './slot-contract'
-import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from './locales'
+} from '@/client/model'
+import type { CardKey } from '@/client/locales'
+import type { Flags, Group, RowKey } from '@/client/model'
+import type { PluginConfigViewProps } from '@/client/slot-contract'
+import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from '@/client/locales'
 
 /** 瓦片渲染顺序：自动填充 / 允许更新 / 兼容性 / 排除提供方 / 用户体验（排除提供方之后紧接用户体验） */
 const TILE_ORDER: readonly (Group | 'excludes')[] = ['autoFill', 'allowUpdate', 'compat', 'excludes', 'userExperience']

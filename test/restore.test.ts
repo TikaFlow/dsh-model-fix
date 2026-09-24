@@ -1,8 +1,8 @@
 // restore.ts 纯函数测试：providersOf 收窄、恢复计划（交集语义：备份与当前都存在的 provider+model 才恢复）
-import { planRestore } from '../src/restore'
-import { providersOf } from '../src/shared/types'
+import { planRestore } from '@/restore'
+import { providersOf } from '@/shared/types'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import { check } from './helper'
+import { check } from '@test/helper'
 
 /** 取 modelOps 中 path 匹配的第一条 set op 的 value（provider 级 models 数组） */
 function modelsValueOf(modelOps: SettingsPathOp[], providerPath: string): Record<string, unknown>[] | undefined {

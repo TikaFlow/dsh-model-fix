@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "tsdown test/index.ts -d .test-dist --no-config && node .test-dist/index.mjs",
+    "test": "tsdown --config tsdown.test.config.ts && node .test-dist/index.mjs",
     "prepack": "pnpm typecheck && pnpm test",
     "pack:release": "pnpm pack --out=\"dist/%s.tgz\"",
     "prepare": "pnpm build"

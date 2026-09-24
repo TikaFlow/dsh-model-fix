@@ -1,7 +1,7 @@
 // lookup.ts 纯函数测试：模型 id 匹配（精确/词干/前缀三级）、提供方提示与推理级别转换
-import { lookup, toReasoningEfforts } from '../src/lookup'
-import type { IndexedCatalog, IndexEntry } from '../src/types'
-import { check, stable } from './helper'
+import { lookup, toReasoningEfforts } from '@/lookup'
+import type { IndexedCatalog, IndexEntry } from '@/types'
+import { check, stable } from '@test/helper'
 
 /** 构造目录条目 */
 function entry(id: string, efforts: string[] = []): IndexEntry {

@@ -1,6 +1,6 @@
 /**
  * 跨半共享的类型声明与纯类型守卫（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）。
- * 两半均**直连**本层（Node 半 `./shared/types`、浏览器半 `../shared/types`），不经任何 facade 中转；
+ * 两半均**直连**本层（统一经 `@/shared/types` 别名导入），不经任何 facade 中转；
  * Node 专属类型（`ModelEntry` / `CacheRecord` / 冻结历史 v1–v4 / `isCapacity` 等）留在 `src/types.ts`。
  *
  * `isPlainObject` / `providersOf` 是值导出（两半均用），必须保持纯函数。Connection RPC 契约类型是宿主

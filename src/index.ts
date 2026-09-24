@@ -1,14 +1,14 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { readCache, setCatalog } from './catalog'
-import { PLUGIN_NS, API_NS, PLUGIN_NAME } from './shared/constants'
-import { DEFAULT_SECTION, SectionSchema, resolveConfig, setConfigSource } from './config'
-import { migrateConfig, selfHealConfig } from './migrate'
-import { refreshIfStale } from './refresh'
-import { installRpc } from './rpc'
-import { fix } from './fix'
-import { isIgnoreAll } from './guard'
-import { captureBackup } from './restore'
+import { readCache, setCatalog } from '@/catalog'
+import { PLUGIN_NS, API_NS, PLUGIN_NAME } from '@/shared/constants'
+import { DEFAULT_SECTION, SectionSchema, resolveConfig, setConfigSource } from '@/config'
+import { migrateConfig, selfHealConfig } from '@/migrate'
+import { refreshIfStale } from '@/refresh'
+import { installRpc } from '@/rpc'
+import { fix } from '@/fix'
+import { isIgnoreAll } from '@/guard'
+import { captureBackup } from '@/restore'
 
 export const name = PLUGIN_NAME
 export const inject = ['settings', 'connection']

@@ -1,7 +1,7 @@
 // config.ts 纯函数测试：resolveConfig / parseSnapshot / versionKey / parseVersion
-import { resolveConfig } from '../src/config'
-import { DEFAULT_CONFIG, parseSnapshot, parseVersion, versionKey } from '../src/shared/parse'
-import { check, stable } from './helper'
+import { resolveConfig } from '@/config'
+import { DEFAULT_CONFIG, parseSnapshot, parseVersion, versionKey } from '@/shared/parse'
+import { check, stable } from '@test/helper'
 
 /** 执行本文件的全部用例 */
 export function run(): void {

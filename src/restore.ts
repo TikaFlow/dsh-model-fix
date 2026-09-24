@@ -1,10 +1,10 @@
-import { MAX_ATTEMPTS } from './constants'
-import { API_NS, PLUGIN_NAME } from './shared/constants'
+import { MAX_ATTEMPTS } from '@/constants'
+import { API_NS, PLUGIN_NAME } from '@/shared/constants'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import { isPlainObject, providersOf } from './shared/types'
-import { startIgnoreAll, endIgnoreAll } from './guard'
+import { isPlainObject, providersOf } from '@/shared/types'
+import { startIgnoreAll, endIgnoreAll } from '@/guard'
 
 /**
  * 插件启动时捕获的 `llm-pi-ai` 备份：该 NS user 层 `providers` 段的深拷贝（只读缓存，不写盘）。

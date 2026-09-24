@@ -1,14 +1,14 @@
 /**
  * 浏览器半纯映射层：`tikaflow-model-fix` 版本快照段 <-> 卡片配置（autoFill / allowUpdate / compat / userExperience 四组布尔 + excludes 列表）。
- * 跨半共享的常量、类型、解析函数单一来源在 `src/shared/`：浏览器半值导入 `../shared/*`（经 client 纯度门禁放行，
+ * 跨半共享的常量、类型、解析函数单一来源在 `src/shared/`：浏览器半值导入 `@/shared/*`（经 client 纯度门禁放行，
  * 不引 `src/constants` / `src/types` / `src/config` 的值，避免 `node:path` / schemastery 被打进浏览器包）。
  * 本文件只保留 UI 层：组的行键表与渲染顺序、快照↔配置的 UI 派生（总控 / 单格 / 脏检测 / 排除项增删 / 命中判定）。
  */
 
-import type { PluginConfig } from '../shared/types'
-import { isPlainObject, providersOf } from '../shared/types'
-import { CONFIG_VERSION } from '../shared/constants'
-import { DEFAULT_CONFIG, FIELD_KEYS, COMPAT_KEYS, USER_EXPERIENCE_KEYS, parseSnapshot, versionKey } from '../shared/parse'
+import type { PluginConfig } from '@/shared/types'
+import { isPlainObject, providersOf } from '@/shared/types'
+import { CONFIG_VERSION } from '@/shared/constants'
+import { DEFAULT_CONFIG, FIELD_KEYS, COMPAT_KEYS, USER_EXPERIENCE_KEYS, parseSnapshot, versionKey } from '@/shared/parse'
 
 /** 版本快照键 */
 export const VERSION_KEY = versionKey(CONFIG_VERSION)

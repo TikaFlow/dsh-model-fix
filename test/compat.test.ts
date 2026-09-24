@@ -1,8 +1,8 @@
 /** src/compat.ts 纯函数用例：planProviderCompat 的添加 / 移除 / 幂等 / 保留用户其他字段 / 空段 unset */
 
-import { planProviderCompat } from '../src/compat'
-import type { CompatRules } from '../src/shared/types'
-import { check, stable } from './helper'
+import { planProviderCompat } from '@/compat'
+import type { CompatRules } from '@/shared/types'
+import { check, stable } from '@test/helper'
 
 const ON: CompatRules = { disableDeveloper: true }
 const OFF: CompatRules = { disableDeveloper: false }

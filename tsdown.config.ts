@@ -1,7 +1,11 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'tsdown'
 
 /** 浏览器半模块 id：必须用包名（client-modules 以 package.json name 注册 __ModuleLoader__ 行） */
 const CLIENT_ID = 'dsh-model-fix'
+
+/** `@` → src 目录（tsdown 不读 tsconfig paths，必须在此显式声明；test 构建见 tsdown.test.config.ts） */
+const SRC_ALIAS = { '@': fileURLToPath(new URL('./src', import.meta.url)) }
 
 /**
  * 宿主浏览器共享模块表基线（外部包只能 require 这些 specifier，其余一律 inline）。
@@ -34,15 +38,22 @@ export default defineConfig([
         clean: true,
         // 将 public 目录原样复制
         copy: 'public',
+        alias: SRC_ALIAS,
         plugins: [
             {
                 // 跨半纯度门禁（对称自守）：Node 半不得值依赖浏览器半（src/client）。
-                // 跨半共享须放 src/shared（双方都可依赖）；type-only 导入被擦除不受限，但 src/client 无 Node 半需消费的类型面，故一律禁。
+                // 全部源码导入必须以 `@/` 开头（相对导入一律拒绝）；跨半共享须放 src/shared（双方都可依赖）；
+                // type-only 导入在解析前已被擦除，不受限，但 src/client 无 Node 半需消费的类型面，故 @/client 一律禁。
                 name: 'dsh-node-bundle-purity',
                 resolveId(source: string) {
-                    if (source === './client' || source.startsWith('./client/') || source === '../client' || source.startsWith('../client/')) {
+                    if (source === '@/client' || source.startsWith('@/client/')) {
                         throw new Error(
                             `node bundle purity: "${source}" 跨半依赖浏览器半（src/client）被禁止；跨半共享须放 src/shared`,
+                        )
+                    }
+                    if (source.startsWith('./') || source.startsWith('../')) {
+                        throw new Error(
+                            `node bundle purity: "${source}" 相对导入被禁止；src 内一律使用 "@/" 别名导入（tsconfig paths 与 tsdown alias 已同步配置）`,
                         )
                     }
                     return null
@@ -75,18 +86,28 @@ export default defineConfig([
             neverBundle: isBaseline,
             alwaysBundle: (specifier: string) => !isBaseline(specifier),
         },
+        alias: SRC_ALIAS,
         plugins: [
             {
-                // 跨插件纯度门禁（自守，同 harness 规则）：非基线的 @deepseek-ai/* 与跨半相对路径
-                // 的值导入直接构建失败；type-only 导入在解析前已被擦除，不受影响
+                // 跨插件纯度门禁（自守，同 harness 规则）：非基线的 @deepseek-ai/* 与越界值导入直接构建失败；
+                // type-only 导入在解析前已被擦除，不受影响。
+                // @/ 值导入只放行 @/shared/*（跨半共享层，零 Node 依赖）与 @/client/*（本半内部）；
+                // 相对导入一律拒绝（全部源码导入必须以 @/ 开头，防拖入 node:path 等 Node 依赖）。
+                // 别名键锚定 `@`（段边界匹配），不会吞掉 @deepseek-ai/* 等基线 specifier。
                 name: 'dsh-client-bundle-purity',
                 resolveId(source: string) {
-                    if (source.startsWith('../')) {
-                        // 放行跨半共享模块（src/shared，零 Node 依赖）；其余 ../ 仍禁（防止拖入 node:path 等 Node 依赖）
-                        if (source === '../shared' || source.startsWith('../shared/')) return null
+                    if (source.startsWith('@/')) {
+                        const intraClient = source === '@/client' || source.startsWith('@/client/')
+                        const crossShared = source === '@/shared' || source.startsWith('@/shared/')
+                        if (intraClient || crossShared) return null
                         throw new Error(
-                            `client bundle purity: "${source}" 跨半值导入 Node 半源码（会拖入 node:path 等 Node 依赖）；`
-                            + '浏览器半只允许 type-only 导入 ../、或值导入 ../shared（跨半共享模块），其余跨半协作须以字面量/契约复制维护',
+                            `client bundle purity: "${source}" 越界值导入 Node 半专属源码；`
+                            + '浏览器半 @/ 值导入只允许 @/shared/*（跨半共享模块）与 @/client/*（本半内部），其余跨半协作须以字面量/契约复制维护',
+                        )
+                    }
+                    if (source.startsWith('./') || source.startsWith('../')) {
+                        throw new Error(
+                            `client bundle purity: "${source}" 相对导入被禁止；浏览器半一律使用 "@/" 别名导入（tsconfig paths 与 tsdown alias 已同步配置）`,
                         )
                     }
                     if (!source.startsWith('@deepseek-ai/') || isBaseline(source)) return null

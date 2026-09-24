@@ -1,9 +1,9 @@
 import z from '@deepseek-ai/schemastery'
-import { MIN_SUPPORTED_VERSION } from './constants'
-import { CONFIG_VERSION } from './shared/constants'
-import type { PluginConfig, VersionedSection } from './shared/types'
-import { isPlainObject } from './shared/types'
-import { DEFAULT_CONFIG, parseSnapshot, parseVersion } from './shared/parse'
+import { MIN_SUPPORTED_VERSION } from '@/constants'
+import { CONFIG_VERSION } from '@/shared/constants'
+import type { PluginConfig, VersionedSection } from '@/shared/types'
+import { isPlainObject } from '@/shared/types'
+import { DEFAULT_CONFIG, parseSnapshot, parseVersion } from '@/shared/parse'
 
 /** 命名空间下的默认段值（版本快照容器） */
 export const DEFAULT_SECTION: VersionedSection = {}

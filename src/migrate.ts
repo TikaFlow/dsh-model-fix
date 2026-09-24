@@ -1,13 +1,13 @@
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import { MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION } from './constants'
-import { CONFIG_VERSION, PLUGIN_NAME, PLUGIN_NS } from './shared/constants'
-import { resolveConfig } from './config'
-import { DEFAULT_CONFIG, parseSnapshot, parseVersion, toStored, versionKey } from './shared/parse'
-import type { PluginConfigSnapshot, UserExperienceRules, VersionedSection } from './shared/types'
-import type { V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot } from './types'
-import { isPlainObject } from './shared/types'
+import { MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION } from '@/constants'
+import { CONFIG_VERSION, PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
+import { resolveConfig } from '@/config'
+import { DEFAULT_CONFIG, parseSnapshot, parseVersion, toStored, versionKey } from '@/shared/parse'
+import type { PluginConfigSnapshot, UserExperienceRules, VersionedSection } from '@/shared/types'
+import type { V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot } from '@/types'
+import { isPlainObject } from '@/shared/types'
 
 // ---------- 历史版本（v1）迁移源代码：新命名空间版本快照体系内 v1 快照的冻结形态（见 types.ts 历史版本(v1) 段说明），不引用当前版本的可演进定义。 ----------
 

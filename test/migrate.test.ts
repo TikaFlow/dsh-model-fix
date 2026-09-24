@@ -1,8 +1,8 @@
 // migrate.ts 纯函数测试：upgradeConfig 升级链 / DEFAULT_STORED / toStored / pruneOps 清理规则 / excludes 去重 op
-import { DEFAULT_STORED, dedupeExcludesOp, pruneOps, upgradeConfig } from '../src/migrate'
-import { resolveConfig } from '../src/config'
-import { parseEfforts, toStored } from '../src/shared/parse'
-import { check, stable } from './helper'
+import { DEFAULT_STORED, dedupeExcludesOp, pruneOps, upgradeConfig } from '@/migrate'
+import { resolveConfig } from '@/config'
+import { parseEfforts, toStored } from '@/shared/parse'
+import { check, stable } from '@test/helper'
 
 /** 执行本文件的全部用例 */
 export function run(): void {

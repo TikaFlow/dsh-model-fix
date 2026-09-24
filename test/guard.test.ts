@@ -1,6 +1,6 @@
 // guard.ts 测试：事件流守卫的开关语义
-import { startIgnoreAll, endIgnoreAll, isIgnoreAll } from '../src/guard'
-import { check } from './helper'
+import { startIgnoreAll, endIgnoreAll, isIgnoreAll } from '@/guard'
+import { check } from '@test/helper'
 
 /** 执行本文件的全部用例 */
 export function run(): void {

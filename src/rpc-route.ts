@@ -12,7 +12,7 @@
  * `ENDPOINT_SEGMENT_PATTERN` / `webServer.register` / `match` 逐字一致），故单一路径即覆盖全支持范围。
  */
 
-import type { HostHttpRequest, HostHttpResponse, HostRequestRejection, RpcResult } from './shared/types'
+import type { HostHttpRequest, HostHttpResponse, HostRequestRejection, RpcResult } from '@/shared/types'
 
 /** endpoint 段名允许的字符（宿主 ENDPOINT_SEGMENT_PATTERN 的字面复制） */
 const ENDPOINT_SEGMENT = /^[A-Za-z0-9_$.-]+$/

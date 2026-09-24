@@ -1,5 +1,5 @@
-import { HINTS } from './constants'
-import type { IndexedCatalog, IndexEntry } from './types'
+import { HINTS } from '@/constants'
+import type { IndexedCatalog, IndexEntry } from '@/types'
 
 /** 归一化模型 id：小写并去 -latest / -openai-compact 后缀噪音 */
 function normalizeId(id: string): string {

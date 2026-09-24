@@ -1,8 +1,8 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { fetchLatest, setCatalog } from './catalog'
-import { MAX_ATTEMPTS, REFRESH_INTERVAL_MS, RETRY_DELAY_MS } from './constants'
-import { PLUGIN_NAME } from './shared/constants'
-import { fix } from './fix'
+import { fetchLatest, setCatalog } from '@/catalog'
+import { MAX_ATTEMPTS, REFRESH_INTERVAL_MS, RETRY_DELAY_MS } from '@/constants'
+import { PLUGIN_NAME } from '@/shared/constants'
+import { fix } from '@/fix'
 
 // 拉取生命周期状态：时间戳只在成功时更新（失败路径不封保鲜窗口，下一次用户事件即可重试自愈）；
 // 在途守卫防止连续事件叠加拉取——在途期间事件只填充，结算（成功/重试耗尽/卸载）后自然放行

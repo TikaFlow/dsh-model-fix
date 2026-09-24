@@ -1,8 +1,8 @@
 /** src/client/model.ts 纯映射层用例：解码（只读 version-5，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化 */
 
-import { check, stable } from './helper'
-import { API_NS, API_NS as PI_AI_NS, CONFIG_VERSION, CONFIG_VERSION as PLUGIN_CONFIG_VERSION, PLUGIN_NS, PLUGIN_NS as MODEL_FIX_NS } from '../src/shared/constants'
-import { DEFAULT_CONFIG, DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '../src/shared/parse'
+import { check, stable } from '@test/helper'
+import { API_NS, API_NS as PI_AI_NS, CONFIG_VERSION, CONFIG_VERSION as PLUGIN_CONFIG_VERSION, PLUGIN_NS, PLUGIN_NS as MODEL_FIX_NS } from '@/shared/constants'
+import { DEFAULT_CONFIG, DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 import {
     EXCLUDE_ID_PATTERN,
     VERSION_KEY,
@@ -16,8 +16,8 @@ import {
     removeExclude,
     resolveHits,
     toggleCell,
-} from '../src/client/model'
-import type { Flags } from '../src/client/model'
+} from '@/client/model'
+import type { Flags } from '@/client/model'
 
 /** 三组全开的配置（总控与整组置位用例的基准，无排除项，无记忆，记住推理级别开启） */
 const ALL_ON: Flags = {

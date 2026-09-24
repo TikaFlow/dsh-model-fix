@@ -1,9 +1,9 @@
 // catalog.ts 纯函数测试：buildCatalog 分组构建与剪裁（推理/容量/图片模态三源）、容量守卫与缓存条目结构校验
-import { buildCatalog, isCacheRecord, parseCacheGroup } from '../src/catalog'
-import { CAPACITY_UNLIMITED } from '../src/constants'
-import type { CacheRecord } from '../src/types'
-import { isCapacity } from '../src/types'
-import { check, stable } from './helper'
+import { buildCatalog, isCacheRecord, parseCacheGroup } from '@/catalog'
+import { CAPACITY_UNLIMITED } from '@/constants'
+import type { CacheRecord } from '@/types'
+import { isCapacity } from '@/types'
+import { check, stable } from '@test/helper'
 
 /** 用单 provider 单模型构造 api 数据并返回该缓存条目（被剪裁时 undefined） */
 function one(model: Record<string, unknown>): CacheRecord | undefined {

@@ -4,7 +4,7 @@
  * 是否公告该级别。零外部值依赖，宿主 API 一律用本文件的结构类型描述（type-only，构建期擦除）。
  */
 
-import type { EffortMemory } from '../shared/types'
+import type { EffortMemory } from '@/shared/types'
 
 // ---------- 宿主 API 的结构类型（type-only，构建期擦除；不引 dsh-api-session-controller / dsh-client-ui-model-selection 依赖） ----------
 

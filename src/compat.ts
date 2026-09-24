@@ -4,9 +4,9 @@
  */
 
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
-import { DEVELOPER_COMPAT_FIELD } from './constants'
-import type { CompatRules } from './shared/types'
-import { isPlainObject } from './shared/types'
+import { DEVELOPER_COMPAT_FIELD } from '@/constants'
+import type { CompatRules } from '@/shared/types'
+import { isPlainObject } from '@/shared/types'
 
 /** 一条兼容性规则在路由 compat 中的落点 */
 interface CompatRule {

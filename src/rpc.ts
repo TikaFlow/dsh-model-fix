@@ -16,14 +16,14 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { PLUGIN_NAME, PLUGIN_NS } from './shared/constants'
-import { fix } from './fix'
-import { isIgnoreAll } from './guard'
-import { resetModels } from './reset'
-import { restoreModels } from './restore'
-import { createChannelRoute } from './rpc-route'
-import type { EndpointHandler } from './rpc-route'
-import type { HostRequestRejection, HostWebServerRegister, RpcResult } from './shared/types'
+import { PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
+import { fix } from '@/fix'
+import { isIgnoreAll } from '@/guard'
+import { resetModels } from '@/reset'
+import { restoreModels } from '@/restore'
+import { createChannelRoute } from '@/rpc-route'
+import type { EndpointHandler } from '@/rpc-route'
+import type { HostRequestRejection, HostWebServerRegister, RpcResult } from '@/shared/types'
 
 /** 卡片「强制更新」按钮调用的 endpoint 名 */
 const ENDPOINT_FORCE_UPDATE = 'forceUpdate'

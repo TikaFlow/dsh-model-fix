@@ -11,9 +11,9 @@
  * - 产物只含 6 个已知键（剥离 configVersion 等运行时不消费的键）；缺省容器均为新对象/新数组，不与 `DEFAULT_CONFIG` 共享引用
  */
 
-import { CONFIG_VERSION, VERSION_PREFIX } from './constants'
-import type { CompatRules, EffortMemory, FieldRules, PluginConfig, PluginConfigSnapshot, UserExperienceRules } from './types'
-import { isPlainObject } from './types'
+import { CONFIG_VERSION, VERSION_PREFIX } from '@/shared/constants'
+import type { CompatRules, EffortMemory, FieldRules, PluginConfig, PluginConfigSnapshot, UserExperienceRules } from '@/shared/types'
+import { isPlainObject } from '@/shared/types'
 
 /** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，排除列表为空，每模型推理级别记忆为空，记住推理级别开启 */
 export const DEFAULT_CONFIG: PluginConfig = {

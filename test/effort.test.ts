@@ -1,14 +1,14 @@
 // effort.ts 纯逻辑测试：lookupEffort / applyEffort / advertisesEffort / classifyTransition / sameSelection
-import { check, stable } from './helper'
+import { check, stable } from '@test/helper'
 import {
     advertisesEffort,
     applyEffort,
     classifyTransition,
     lookupEffort,
     sameSelection,
-} from '../src/client/effort'
-import type { GroupLike } from '../src/client/effort'
-import type { EffortMemory } from '../src/shared/types'
+} from '@/client/effort'
+import type { GroupLike } from '@/client/effort'
+import type { EffortMemory } from '@/shared/types'
 
 /** 执行本文件的全部用例 */
 export function run(): void {
