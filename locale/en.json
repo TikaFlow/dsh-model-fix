@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Model field auto-fill",
+    "description": "Auto-fills reasoning effort, context window, max output, and image modality for unofficial (custom) providers, and remembers the last used reasoning effort."
+  }
+}

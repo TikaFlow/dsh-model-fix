@@ -108,7 +108,7 @@ export const HINT_KEYS: Record<Group, CardKey> = {
 
 export const zh: Record<CardKey, string> = {
     title: '模型参数填充',
-    description: '配置提供方模型的参数填充、同步、兼容性与排除行为。',
+    description: '配置提供方模型的参数填充、同步、兼容性、排除与推理级别记忆行为。',
     colAutoFill: '自动填充',
     colAllowUpdate: '允许更新',
     colCompat: '兼容性',
@@ -174,7 +174,7 @@ export const zh: Record<CardKey, string> = {
 
 export const en: Record<CardKey, string> = {
     title: 'Model field auto-fill',
-    description: 'Configures how the plugin fills, syncs, and applies compatibility to provider models, and which providers to exclude.',
+    description: 'Configures how the plugin fills, syncs, and applies compatibility to provider models, which providers to exclude, and how reasoning efforts are remembered.',
     colAutoFill: 'Auto fill',
     colAllowUpdate: 'Allow update',
     colCompat: 'Compatibility',
