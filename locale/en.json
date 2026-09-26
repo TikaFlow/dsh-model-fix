@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Model field auto-fill",
-    "description": "Auto-fills reasoning effort, context window, max output, and image modality for unofficial (custom) providers, and provides user experience improvements such as compatibility enhancement and remembering reasoning effort."
+    "description": "Auto-fills reasoning effort, context window, output limit, and image modality fields for unofficial (custom) providers, and provides user experience improvements such as compatibility enhancement and remembering reasoning effort."
   }
 }
