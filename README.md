@@ -1,8 +1,8 @@
 # dsh-model-fix
 
-[DSH](https://github.com/deepseek-ai/deepseek-harness)（DeepSeek Harness）插件：为非官方（自定义）提供方的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`），数据来自 [models.dev](https://models.dev)。
-
 > 本插件已被 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 收录，同时可在 [dsh-market](https://github.com/dsh-market/dsh-market) 中搜索、安装。
+
+DSH[（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness) 插件：给非官方（自定义）提供方的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`）等参数，数据来自 [models.dev](https://models.dev)。同时，提供兼容性提升、记住推理级别等用户体验优化。
 
 插件截图：
 
