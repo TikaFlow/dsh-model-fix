@@ -107,8 +107,13 @@ export function advertisesEffort(groups: readonly GroupLike[], provider: string,
 }
 
 /**
- * 根据上一选择与当前选择，判定本次是否为「模型变化」（应自动恢复记忆）或「级别变化」（应保存记忆）。
- * `prev === null` 视为模型变化（首帧，只应用不记忆）。
+ * 根据上一选择与当前选择，判定本次是否为「模型变化」（应自动恢复记忆或按 defaultHigh 设为 high）
+ * 或「级别变化」（应保存记忆）。`prev === null` 视为模型变化（首帧，只应用不记忆）。
+ *
+ * `defaultHigh` 为 true 且满足以下全部条件时，把推理级别改写为 `high`：
+ * 未设置推理级别（`next.reasoningEffort === undefined`）、未记住该模型级别（`remembered === undefined`）、
+ * 目标模型公告 `high` 档位（`advertisesEffort(groups, next.provider, next.model, 'high')`）。
+ * 仅在「model-change」分支生效——同模型改级别（含手动选「default」）是 effort-change，不受影响。
  *
  * 返回：
  * - `{ kind: 'model-change', resolved }` — 模型变化；resolved 为可能改写后的选择
@@ -125,11 +130,15 @@ export function classifyTransition(
     next: SelectionLike,
     memory: EffortMemory,
     groups: readonly GroupLike[],
+    defaultHigh: boolean,
 ): Transition {
     if (prev === null || prev.provider !== next.provider || prev.model !== next.model) {
         const remembered = lookupEffort(memory, next.provider, next.model)
         if (remembered !== undefined && remembered !== next.reasoningEffort && advertisesEffort(groups, next.provider, next.model, remembered)) {
             return { kind: 'model-change', resolved: { ...next, reasoningEffort: remembered } }
+        }
+        if (defaultHigh && remembered === undefined && next.reasoningEffort === undefined && advertisesEffort(groups, next.provider, next.model, 'high')) {
+            return { kind: 'model-change', resolved: { ...next, reasoningEffort: 'high' } }
         }
         return { kind: 'model-change', resolved: next }
     }

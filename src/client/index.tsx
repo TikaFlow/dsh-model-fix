@@ -170,8 +170,9 @@ function boot(
                 const dirState = dir.store.getSnapshot()
                 // 开关仅门控「保存」；恢复用的记忆始终取真实 efforts（是否清空由卡片交互决定）
                 const rememberEfforts = scope.getSnapshot().value?.userExperience.rememberEfforts ?? true
+                const defaultHigh = scope.getSnapshot().value?.userExperience.defaultHigh ?? false
                 const memory = scope.getSnapshot().value?.efforts ?? {}
-                const transition = classifyTransition(prev, next, memory, dirState.groups)
+                const transition = classifyTransition(prev, next, memory, dirState.groups, defaultHigh)
 
                 if (transition.kind === 'model-change') {
                     if (transition.resolved.reasoningEffort !== next.reasoningEffort) {

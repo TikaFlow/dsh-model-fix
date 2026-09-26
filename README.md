@@ -18,6 +18,7 @@
 - 排除提供方：列出的提供方本插件完全不动（填充、更新、兼容性写入、强制更新、重置推理级别时跳过），基本等效于对它关闭插件
 - 记住推理级别：每模型独立记住上次手动选择的推理级别，切换模型时自动恢复
 - 清除记忆：关闭「记住推理级别」时，将会询问是否确认清除记忆，可在清除后不保存设置，依然可以继续记忆，但旧记忆已清除
+- 默认使用 high：切换模型时，若没有该模型的记忆，且模型提供 `high` 档位，则自动把推理级别设为 `high`
 - 强制更新：按 models.dev 当前值立即覆盖一遍
 - 恢复备份：回退到插件启动时已存在的模型参数
 - 可视化设置：见下文
@@ -90,25 +91,26 @@ DSH `0.1.2-rc.1` ~ `0.1.7-rc.1`
 - 条目样式：绿点 + 绿色胶囊＝该提供方已存在，保存后排除将会生效；灰色＝暂无同名提供方（不是写错，创建后即生效）。
 - 列表按录入顺序保存；输入已存在的 id 会提示并不添加；每条右侧的删除按钮可移除。
 - 想让某个已有提供方从此不再被接管，同样把它加进排除列表。
-- 「排除提供方」不影响「用户体验」组的开关：记住推理级别对所有提供方一律生效。
+- 「排除提供方」不影响「用户体验」组的开关：记住推理级别、默认使用 high 对所有提供方一律生效。
 
 ```yaml
 tikaflow-model-fix:
-  version-5:
-    autoFill:
-      reasoning: true   # 填充缺失的推理级别档位；默认 true
-      context: true     # 填充缺失的 contextWindow/maxTokens；默认 true
-      image: true       # 填充缺失的 input 图片模态声明；默认 true
-    allowUpdate:
-      reasoning: false  # 同步已有模型的推理级别档位；默认 false
-      context: false    # 同步已有模型的 contextWindow/maxTokens；默认 false
-      image: false      # 同步已有模型的 input 图片模态声明；默认 false
-    compat:
-      disableDeveloper: true  # 写入 compat.supportsDeveloperRole: false；默认 true
+  version-6:
+    autoFill:           # 自动填充缺失的字段；默认 true
+      reasoning: true
+      context: true
+      image: true
+    allowUpdate:        # 允许更新已有模型的字段；默认 false
+      reasoning: false
+      context: false
+      image: false
+    compat:             # 兼容性写入
+      disableDeveloper: true
     excludes: []        # 排除的提供方 id 列表；默认空
     efforts: {}         # 每模型推理级别记忆（运行时自动维护，无需手动编辑）
-    userExperience:     # 用户体验（前端行为开关）
-      rememberEfforts: true  # 记住推理级别：关闭后不再保存新的记忆级别，已记住的仍会自动恢复；默认 true；对所有提供方生效，不支持排除
+    userExperience:     # 用户体验（前端行为开关），对所有提供方生效，不支持排除
+      rememberEfforts: true
+      defaultHigh: false
 ```
 
 注意 `compat` 与其余开关不同：**开启即写入、关闭即移除**。关闭期间该字段由你自己管理。

@@ -58,6 +58,12 @@ export interface UserExperienceRules {
      * 为 false 时前端不再保存新的记忆，但已记住的仍会自动恢复（关闭开关时卡片会询问是否清空，清空后即无记忆可恢复）。
      */
     rememberEfforts: boolean
+    /**
+     * 切换模型时若未设置推理级别、也无记住的级别、且目标模型公告 `high` 档位，则自动把推理级别设为 `high`。
+     * 仅在「model-change」分支生效，不干预同模型切换级别（effort-change，含手动选「default」）。
+     * 默认 false。
+     */
+    defaultHigh: boolean
 }
 
 /** 每模型推理级别记忆：provider id → model id → harness ModelThinkingLevel 字符串 */

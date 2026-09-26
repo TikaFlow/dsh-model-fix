@@ -16,7 +16,7 @@ export const PLUGIN_NS = 'tikaflow-model-fix'
 export const PLUGIN_NAME = 'dsh-model-fix'
 
 /** 当前代码支持的配置版本（新 NS 内的快照版本）；配置 schema 变化时递增，并在 migrate.ts 中追加升级步骤 */
-export const CONFIG_VERSION = 5
+export const CONFIG_VERSION = 6
 
 /** 版本快照键前缀，段内键形如 version-N */
 export const VERSION_PREFIX = 'version-'

@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-DSH 插件：为所有非官方（自定义）提供方的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`），数据来自 models.dev；并按兼容性规则为 openai-completions 提供方维护路由级 `compat`（当前一条：不使用 `developer` 角色）。另按提供方维度提供排除（`excludes`：命中的提供方本插件零操作）。每模型独立记住上次手动选择的推理级别，切换模型时自动恢复（`userExperience.rememberEfforts` 可关，关后不再保存新的、已记住的仍会恢复；该组不支持按提供方排除）。
+DSH 插件：为所有非官方（自定义）提供方的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`），数据来自 models.dev；并按兼容性规则为 openai-completions 提供方维护路由级 `compat`（当前一条：不使用 `developer` 角色）。另按提供方维度提供排除（`excludes`：命中的提供方本插件零操作）。每模型独立记住上次手动选择的推理级别，切换模型时自动恢复（`userExperience.rememberEfforts` 可关，关后不再保存新的、已记住的仍会恢复；该组不支持按提供方排除）。另有 `userExperience.defaultHigh`（默认关）：切换模型时若未设置推理级别、没有该模型的记忆且模型提供 `high` 档位，自动设为 `high`。
 
 ## 技术栈与目录
 
@@ -12,7 +12,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | --- | --- |
 | `src/index.ts` | Node 半入口：`export` + `Config`（0.1.7 宿主 settings 面经 `entry.fiber.runtime.Config` 取用；根 `.volatile()` 使宿主把整段作为实时引用注入 apply 第二参，旧宿主 schemastery 无该元数据即按原样解析、行为不变）+ **单一 `apply` 编排体**（captureBackup → 代际接线 → installRpc → 启动链，卸载标记贯穿），代际差异（shim）收敛在两个 wire 函数：`wireLegacyHost`（installSection 注册 + `settings/updated`）与 `wireModernHost`（配置源经 apply 第二参实时引用 + `settings/document-updated` 按 ns 分流），两条段变更链（自有段「自愈→填充」、llm-pi-ai「填充→保鲜刷新」）两代共用同函数 |
 | `src/shared/` | **跨半共享层**（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`，两半值导入的唯一跨半来源，不经任何 facade 中转）：`constants.ts`（`API_NS`/`PLUGIN_NS`/`PLUGIN_NAME`/`CONFIG_VERSION`/`VERSION_PREFIX`）、`types.ts`（`isPlainObject`/`providersOf` + 共用类型与 Connection RPC 契约）、`parse.ts`（`DEFAULT_CONFIG`/`parseSnapshot`/`parseEfforts`/`parseVersion`/`versionKey`/`toStored` + 各组解析函数与行键表） |
-| `src/types.ts` | Node 专属类型：models.dev 目录类型（`ModelEntry`/`CacheRecord`/…）、`isCapacity`、**冻结历史版本(v1-v4) 形态**（共用类型与守卫直连 `src/shared/types.ts`） |
+| `src/types.ts` | Node 专属类型：models.dev 目录类型（`ModelEntry`/`CacheRecord`/…）、`isCapacity`、**冻结历史版本(v1-v5) 形态**（共用类型与守卫直连 `src/shared/types.ts`） |
 | `src/constants.ts` | Node 专属常量（`CACHE_FILE` 带 `node:path`、保留上限、重试参数、`CAPACITY_UNLIMITED`、`HINTS`、兼容性落点 `DEVELOPER_COMPAT_APIS` / `DEVELOPER_COMPAT_FIELD`）；共享常量直连 `src/shared/constants.ts` |
 | `src/config.ts` / `src/migrate.ts` | `resolveConfig`/配置源 + `SectionSchema`（宽松 dict，installSection 注册用）/ 升级链与 `migrateConfig` 编排、`DEFAULT_STORED` 规范默认快照（物化函数 `toStored` 单一来源在 `src/shared/parse.ts`，两半直连） |
 | `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
@@ -79,7 +79,8 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - v2 = 引入 `compat` 前的快照（两组六布尔），冻结形态同上；台阶 `upgradeTo2` 的产物即该形态，故返回类型用冻结的 `V2PluginConfigSnapshot`。
 - v3 = 引入 `excludes` 前的快照（三组布尔 + compat），冻结形态同上；`upgradeTo3` 的返回类型即该冻结形态（**每次升版都要把上一级台阶的返回类型改指新冻结的 `V(N-1)PluginConfigSnapshot`**，否则当前类型演进会连带改写历史语义）。
 - v4 = 引入 `efforts` 前的快照（三组布尔 + compat + excludes），冻结形态同上；`upgradeTo4` 的返回类型即该冻结形态。
-- **只往 `compat` 对象里加键不算形态变化**：不递增 `CONFIG_VERSION`、不加台阶，前提是每个新键都有 schema 默认（旧快照解析后即获得默认）。**新增顶层组（如 `excludes` / `efforts`）则算形态变化**，必须升版——不升版会让旧插件的 `parseSnapshot` 剥掉新键并触发自愈重写，破坏版本快照体系赖以存在的"无损回退"。**唯一例外经用户单次授权**：`userExperience` 加在 v5 内不升版，依据是同一版本周期内的不同提交、尚无已发布的旧 v5 形态可回退冲突；且旧插件读新快照是 schema 静默忽略多余键（`parseSnapshot` 仍合法、不触发自愈），损失仅限"回退→旧插件保存→再升级"后 `rememberEfforts` 偏好回落默认。
+- v5 = 引入 `defaultHigh` 前的快照（三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts}），冻结形态同上；`upgradeTo5` 的返回类型即该冻结形态。`efforts` 虽是宽松记忆字段，v5 已存在故在冻结形态内（其 V5 台阶 schema 不含 efforts，由 `upgradeTo6` 经 `parseEfforts` 单独保留，见下）。
+- **只往 `compat` 对象里加键不算形态变化**：不递增 `CONFIG_VERSION`、不加台阶，前提是每个新键都有 schema 默认（旧快照解析后即获得默认）。**新增顶层组（如 `excludes` / `efforts`）则算形态变化**，必须升版——不升版会让旧插件的 `parseSnapshot` 剥掉新键并触发自愈重写，破坏版本快照体系赖以存在的"无损回退"。**`userExperience` 组内的 `defaultHigh` 经用户要求随 v6 一并升版落地**（v5 周期内 `rememberEfforts` 曾以「同一版本周期内不同提交、无已发布旧 v5 形态可回退冲突」为由不升版加入；`defaultHigh` 不复用该例外，正式升 v6、加 `upgradeTo6` 台阶，v5 冻结为只含 `rememberEfforts` 的形态）。
 - 升级台阶按**目标版本**命名 `upgradeToN`（名字只说明"我产出 vN"，如何从更低版本接力上来是其内部事务）：每级先 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力，再按 `vN-1` 冻结 schema 解析、补新增字段落默认；**产物版本号写固定字面量**（不引用 `CONFIG_VERSION`）。`upgradeConfig` 只调最新一级，链上既有函数的**逻辑**不改（返回类型标注随冻结形态更新除外）；最低一级 `upgradeTo2` 独占全链唯一的 `fromVersion < MIN_SUPPORTED_VERSION` 守卫（该常量等于这一级的输入下限，自维护，实际不会触发，仅挡误用）。
 - 提升 `MIN_SUPPORTED_VERSION` 时：该版本的冻结段与消费它的台阶（`upgradeTo该版本`）一并移除。
 
@@ -139,9 +140,10 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **备份缺失／当前无 `providers` 段要显式抛错，不能回 0**：`changed: 0` 会被前端显示成「已恢复 0 个模型」，与"确实无可恢复"无法区分，用户只会以为按钮坏了。
 - **RPC channel 由本插件自注册，不用宿主 `connection.rpc.handle`**：`handle` 在**服务自己的 ctx** 上求值 `owner.webServer`（`get rpc() { const owner = this.ctx }`，与调用方 fiber 无关），而 connection 插件的 `inject` 从 0.1.2-rc.1 的 `["webServer","credentials"]` 缩成 ≥0.1.5 的 `["credentials"]`（三版的 `get rpc`/`register` 逐字未变）⇒ `owner.webServer` 抛 `cannot get property "webServer" without inject`，路由从不注册。故改在**本插件自己的子 fiber**（已注入 webServer）上 `webServer.register({kind:'prefix'})`，复用宿主的 `connection.requestRejection` 做围栏、按宿主 `rpcFetchHandler` 复刻信封与状态码，浏览器半 `connection.rpc.call` 完全无感。**给调用方注入 webServer 修不好宿主通道**——出问题的 ctx 是 connection 自己的。单一路径可行的依据：0.1.2-rc.1 与 0.1.6-alpha.2 的 `rpcFetchHandler` / 两个信封 schema / `ENDPOINT_SEGMENT_PATTERN` / `webServer.register` / `match` 逐字一致（已比对 npm 上两版源码），即该契约覆盖全支持范围；结论不能靠读代码拍板，要靠「真 HostConnectionService + 桩 webServer」的本地探针复核。
 
-- **「记住推理级别」是纯监听（不拦截），受「用户体验」瓦片开关控制**：前端**监听**（订阅）模型选择与推理级别选择的投影变化，不是拦截 / hook 宿主的 `directory.select`。UI 只有「用户体验」瓦片里的 `rememberEfforts` 开关（该组不新增行或瓦片；关闭时追加一个「是否清空已有记忆」的确认弹层），监听器做两件事：① 模型变化时从记忆读值并经 `directory.select` 自动恢复；② 级别变化时把记忆写进自有 NS 的 `efforts` 字段。`userExperience.rememberEfforts === false` 时**只停止②**（`effort-change` 分支跳过写入），①**照常进行**——传给 `classifyTransition` 的记忆始终取真实 `efforts`，不再做"假装没有记忆"的置空 hack；故**「关闭 === 无记忆」不再总是成立**：未清空时旧记忆仍可自动恢复，重新打开即恢复保存。是否清空由卡片交互决定——开关由开转关时**立即**（不等「保存」）弹确认问「是否清空已有记忆」，选清空则经前端 settings scope 直写 `efforts={}`（非 RPC、与「保存」同一条写通道；「有记忆」判据取实时值而非草稿里的副本，因卡片不拥有该字段；清空失败显式报错，避免"开关已关而记忆未清"无从察觉），记忆为空时不弹确认、直接关闭（用户确认）。Node 半**只负责持久化、解析与失效清理**（`parseEfforts` / 迁移 / 快照往返 / `fix` 重建记忆），不自动设置——后端写配置对当前会话无效（只影响新会话），「自动设置」必须走前端 `directory.select`。该开关**不读取 `excludes`**：记住推理级别对所有提供方（含被排除的）一律生效，故卡片释义与 README 都写明"不支持排除"。
+- **「记住推理级别」是纯监听（不拦截），受「用户体验」瓦片开关控制**：前端**监听**（订阅）模型选择与推理级别选择的投影变化，不是拦截 / hook 宿主的 `directory.select`。UI「用户体验」瓦片含 `rememberEfforts` 开关（关闭时追加一个「是否清空已有记忆」的确认弹层）与同组 `defaultHigh` 开关（见下条），监听器做两件事：① 模型变化时从记忆读值并经 `directory.select` 自动恢复；② 级别变化时把记忆写进自有 NS 的 `efforts` 字段。`userExperience.rememberEfforts === false` 时**只停止②**（`effort-change` 分支跳过写入），①**照常进行**——传给 `classifyTransition` 的记忆始终取真实 `efforts`，不再做"假装没有记忆"的置空 hack；故**「关闭 === 无记忆」不再总是成立**：未清空时旧记忆仍可自动恢复，重新打开即恢复保存。是否清空由卡片交互决定——开关由开转关时**立即**（不等「保存」）弹确认问「是否清空已有记忆」，选清空则经前端 settings scope 直写 `efforts={}`（非 RPC、与「保存」同一条写通道；「有记忆」判据取实时值而非草稿里的副本，因卡片不拥有该字段；清空失败显式报错，避免"开关已关而记忆未清"无从察觉），记忆为空时不弹确认、直接关闭（用户确认）。Node 半**只负责持久化、解析与失效清理**（`parseEfforts` / 迁移 / 快照往返 / `fix` 重建记忆），不自动设置——后端写配置对当前会话无效（只影响新会话），「自动设置」必须走前端 `directory.select`。该开关**不读取 `excludes`**：记住推理级别对所有提供方（含被排除的）一律生效，故卡片释义与 README 都写明"不支持排除"。
+- **「默认使用 high」与「记住推理级别」同属「用户体验」瓦片、同条监听链，默认 false**：`classifyTransition` 的「model-change」分支在「自动恢复记忆」逻辑之后接一个**无记忆**分支——原逻辑无记忆即无操作，开启 `defaultHigh` 后改为：未设置推理级别（`next.reasoningEffort === undefined`）、未记住该模型级别（`remembered === undefined`）、且目标模型公告 `high` 档位时，把推理级别改写为 `high`。三条护栏：① **记忆优先**——有记忆（即便因未受支持而未恢复）即跳过 defaultHigh，不覆盖用户偏好；② **不覆盖既有级别**——`next.reasoningEffort` 非 undefined 时不改写（模型已带级别即尊重之）；③ **不干预 effort-change**——同模型改级别（含手动选「provider default」即 undefined）是 `effort-change` 分支，defaultHigh 只在模型变化时生效，故用户手动选 default 不会被反向填回 high。自动设置经 `directory.select(resolved)` 走与「恢复记忆」同一 `pendingAutoSet` 守卫，反向触发的投影变化被跳过、不写记忆（故 defaultHigh 自动填的 high **不会被保存为记忆**，下次切回该模型若无新记忆仍走 defaultHigh，行为稳定）。该开关同样**不读取 `excludes`**，对所有提供方一致。属 v6、随 `defaultHigh` 字段正式升版（见「历史形态冻结」）。
 - **`efforts` 是运行时记忆而非用户配置**：结构 `{ provider: { model: level } }` 用嵌套对象而非拼接 `provider/model`（model-id 可能含 `/`，拼接无法还原）；不纳入 `parseSnapshot` 的严格字段校验，由其单独**宽松**解析（结构不符回落 `{}`）——记忆坏值若判整段快照非法，会连累配置自愈重写丢配置。`isDirty` 也不比较它，故记忆变化不触发「未保存更改」徽章；卡片「保存」写整段快照时 `efforts` 取**写入当刻的实时值**（卡片不拥有该字段，用草稿里的旧快照会把"开卡后切过模型"的那段记忆覆盖回去）。
-- **`efforts` 由浏览器半经自有 NS 的 settings scope 直写**：与卡片「保存」同一条通道（`['version-5','efforts']` 路径 op）：它是一次写回即生效、无需回执的记忆写入，用不到 RPC 端点。写入失败只吞 rejection（级别已在当前会话生效）。
+- **`efforts` 由浏览器半经自有 NS 的 settings scope 直写**：与卡片「保存」同一条通道（`['version-6','efforts']` 路径 op）：它是一次写回即生效、无需回执的记忆写入，用不到 RPC 端点。写入失败只吞 rejection（级别已在当前会话生效）。
 - **自动设置的前置校验**：恢复记忆前必须确认目标模型的 `groups`（catalog）公告该级别，未公告就不改写选择（回落默认）——投喂宿主不支持的级别会被拒；`groups` 未加载时同样不改写。
 - **「provider default」= `undefined` → 清除记忆**：UI 上选「provider default」提交的 `reasoningEffort` 是 `undefined`（省略键），即 `delete efforts[provider][model]`；保存路径统一（存字符串 / 删除），恢复路径统一（仅字符串级别改写）。
 - **`lastAutoSet` 守卫防止自动设置反向触发重复保存**：自动设置 `directory.select(resolved)` 后投影 `next` 会反向变化并被监听器捕获，无守卫会被判成 `effort-change` 再存一次（幂等但多余）。守卫逻辑：设置前记 `pendingAutoSet`，下一次投影变化与它相同则清除标记并跳过。
@@ -164,19 +166,19 @@ graph LR
 
 ## 配置说明
 
-- 自有命名空间 `tikaflow-model-fix`（由本插件注册），仅对象写法，如 `tikaflow-model-fix: { version-5: { autoFill: { reasoning: true, context: false, image: true }, compat: { disableDeveloper: true }, excludes: [ "acme-gateway" ], efforts: { "z-ai": { "glm-5.2": "high" } }, userExperience: { rememberEfforts: true } } }`；首次启动或版本升级时自动写入当前版本快照。
+- 自有命名空间 `tikaflow-model-fix`（由本插件注册），仅对象写法，如 `tikaflow-model-fix: { version-6: { autoFill: { reasoning: true, context: false, image: true }, compat: { disableDeveloper: true }, excludes: [ "acme-gateway" ], efforts: { "z-ai": { "glm-5.2": "high" } }, userExperience: { rememberEfforts: true, defaultHigh: false } } }`；首次启动或版本升级时自动写入当前版本快照。
 - `compat` 与两组填充规则平行，键按「规则 → provider 路由 compat 字段」映射（当前仅 `disableDeveloper` → `supportsDeveloperRole: false`）；往该对象加新键不需要递增配置版本。
 - `excludes` 是提供方 id 字符串数组（`providers.<id>` 的 `<id>`，即界面上的「Provider ID / 路由标识」），命中的提供方本插件零操作；非数组或元素非字符串判整段快照非法（与其余组同严格度，浏览器半与 Node 半共用 `src/shared/parse.ts` 的 `parseSnapshot`）。
 - `efforts` 是每模型推理级别记忆（运行时自动维护，非用户配置），结构为 `{ "<provider>": { "<model>": "<level>" } }`；宽松解析（结构不符回落 `{}`），不纳入 schema 校验、不参与 `isDirty`。模型/提供方被删除后，对应记忆在下次 `fix` 时自动清除（重建语义，见「设计裁决」）；`excludes` 命中的提供方同样按模型重建（现存模型的记忆保留、已删除模型的记忆一并清除）。
-- `userExperience` 是用户体验组（**前端行为**开关，与 `compat` 同严格度：整项非对象/字段非布尔判整段非法，由 `src/shared/parse.ts` 的 `parseSnapshot` 统一解析），当前仅 `rememberEfforts`（默认 `true`）：关掉后浏览器半**不再保存**推理级别，但**仍用已记住的自动恢复**（卡片在开关关闭时会立即询问是否清空已有记忆，清空后即无记忆可恢复，见「设计裁决」）；它**不读取 `excludes`**——记住推理级别对所有提供方（含被排除的）一律生效，卡片释义与 README 均写明"不支持排除"。仍属 v5、不升版（经用户确认：同一版本周期内的不同提交，无回退冲突，见「设计裁决」）。
+- `userExperience` 是用户体验组（**前端行为**开关，与 `compat` 同严格度：整项非对象/字段非布尔判整段非法，由 `src/shared/parse.ts` 的 `parseSnapshot` 统一解析），含 `rememberEfforts`（默认 `true`）与 `defaultHigh`（默认 `false`）。`rememberEfforts` 关掉后浏览器半**不再保存**推理级别，但**仍用已记住的自动恢复**（卡片在开关关闭时会立即询问是否清空已有记忆，清空后即无记忆可恢复，见「设计裁决」）；`defaultHigh` 开启后，模型变化时若未设置级别、未记住级别、且模型公告 `high` 档位，则自动把推理级别设为 `high`（详见「设计裁决」）。该组**不读取 `excludes`**——对所有提供方（含被排除的）一律生效，卡片释义与 README 均写明"不支持排除"。属 v6：`rememberEfforts` 原在 v5 周期内以「无已发布旧 v5 形态可回退冲突」为由不升版加入，`defaultHigh` 不复用该例外，正式升 v6、加 `upgradeTo6` 台阶（见「历史形态冻结」）。
 - 也可经 Web 设置的卡片修改（宿主跟随 latest，见「对外纪律」），两种途径写的是同一个东西。
 - 推理级别取值与 harness `ModelThinkingLevel` 一致：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`；提供方与模型列表在 `llm-pi-ai` 命名空间的 `providers` 下。
 
 ## 命令
 
-- `pnpm build` / `pnpm run typecheck` / `pnpm test`（test 走 `tsdown.test.config.ts`，见「工具链陷阱」）
+- `pnpm build` / `pnpm run typecheck` / `pnpm test`（test 走 `tsdown.test.config.ts`，见「工具链陷阱」）；验证只需跑 `pnpm build`：其内部按 `pnpm test && tsdown` 串行，`test` 又含 `pnpm typecheck`，即一次 build 自动触发 typecheck → test → build 全流程
 - `pnpm install` 触发 `prepare` → build
-- `pnpm pack:release` → 依次跑 `prepack`（typecheck + test）与 `prepare`（build），产出 `dist/dsh-model-fix.tgz`
+- `pnpm pack:release` → pack 自动触发 `prepare`（build = typecheck → test → tsdown），产出 `dist/dsh-model-fix.tgz`；勿加 `prepack`（pack 已跑 `prepare`，`prepack` 只会令 test 重复执行）
 
 ## 测试规范
 

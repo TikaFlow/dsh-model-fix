@@ -6,6 +6,7 @@
  */
 
 import { CAPACITY_UNLIMITED } from '@/constants'
+import type { EffortMemory } from '@/shared/types'
 
 /** models.dev 单条条目的推理、容量与模态解析结果 */
 export interface ModelEntry {
@@ -150,4 +151,35 @@ export interface V4PluginConfigSnapshot {
     autoFill: V4FieldRules
     compat: V4CompatRules
     excludes: string[]
+}
+
+// ---------- 历史版本（v5）冻结形态：引入 defaultHigh 之前的快照（三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts}）。 ----------
+// ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 5 时本段与 upgradeTo6 的 v5 解析一并移除 ----------
+
+/** 历史版本(v5)：字段规则 schema（与当前 FieldRules 同形，独立声明以冻结形态） */
+export interface V5FieldRules {
+    reasoning: boolean
+    context: boolean
+    image: boolean
+}
+
+/** 历史版本(v5)：兼容性规则 schema（与当前 CompatRules 同形，独立声明以冻结形态） */
+export interface V5CompatRules {
+    disableDeveloper: boolean
+}
+
+/** 历史版本(v5)：用户体验规则（冻结形态：只含 rememberEfforts，不含 v6 起的 defaultHigh） */
+export interface V5UserExperienceRules {
+    rememberEfforts: boolean
+}
+
+/** 历史版本(v5)配置快照（freeze；不引用当前版本的可演进定义；efforts 是宽松记忆字段，v5 已存在故在此冻结） */
+export interface V5PluginConfigSnapshot {
+    configVersion: number
+    allowUpdate: V5FieldRules
+    autoFill: V5FieldRules
+    compat: V5CompatRules
+    excludes: string[]
+    efforts: EffortMemory
+    userExperience: V5UserExperienceRules
 }

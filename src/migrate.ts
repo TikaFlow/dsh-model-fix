@@ -5,9 +5,9 @@ import { MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION } from '@/constants'
 import { CONFIG_VERSION, PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
 import { resolveConfig } from '@/config'
 import { queueTask } from '@/host'
-import { DEFAULT_CONFIG, parseSnapshot, parseVersion, toStored, versionKey } from '@/shared/parse'
-import type { PluginConfigSnapshot, UserExperienceRules, VersionedSection } from '@/shared/types'
-import type { V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot } from '@/types'
+import { DEFAULT_CONFIG, parseEfforts, parseSnapshot, parseVersion, toStored, versionKey } from '@/shared/parse'
+import type { PluginConfigSnapshot, VersionedSection } from '@/shared/types'
+import type { V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot, V5CompatRules, V5FieldRules, V5PluginConfigSnapshot, V5UserExperienceRules } from '@/types'
 import { isPlainObject } from '@/shared/types'
 
 // ---------- 历史版本（v1）迁移源代码：新命名空间版本快照体系内 v1 快照的冻结形态（见 types.ts 历史版本(v1) 段说明），不引用当前版本的可演进定义。 ----------
@@ -98,7 +98,7 @@ function upgradeTo2(config: unknown, fromVersion: number): V2PluginConfigSnapsho
 
 /**
  * 兼容性规则的台阶默认值：v2 无该对象，升级到 v3 时落默认。
- * 写字面量而不引用 config.ts 的 DEFAULT_CONFIG.compat——后者会随当前版本演进，台阶产物形态必须恒定。
+ * 写字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.compat`——后者随当前版本演进，台阶产物形态必须恒定。
  */
 const V3_COMPAT_DEFAULT: V3CompatRules = { disableDeveloper: true }
 
@@ -122,7 +122,7 @@ function upgradeTo3(config: unknown, fromVersion: number): V3PluginConfigSnapsho
 
 /**
  * 排除列表的台阶默认值：v3 无该数组，升级到 v4 时落空列表。
- * 写空字面量而不引用 config.ts 的 DEFAULT_CONFIG.excludes，理由同上（产物形态恒定）。
+ * 写空字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.excludes`，理由同上（产物形态恒定）。
  */
 const V4_EXCLUDES_DEFAULT: readonly string[] = []
 
@@ -178,13 +178,14 @@ const V4ConfigSchema: z<Omit<V4PluginConfigSnapshot, 'configVersion'>> = z.objec
 
 /**
  * 每模型推理级别记忆与用户体验规则的台阶默认值：v4 无这两个键，升级到 v5 时落默认。
- * 写空字面量而不引用 config.ts 的 DEFAULT_CONFIG，理由同上（产物形态恒定）。
+ * 写空字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG`，理由同上（产物形态恒定）。
+ * userExperience 用冻结的 V5UserExperienceRules（只含 rememberEfforts，无 v6 的 defaultHigh）。
  */
 const V5_EFFORTS_DEFAULT: Record<string, Record<string, string>> = {}
-const V5_USER_EXPERIENCE_DEFAULT: UserExperienceRules = { rememberEfforts: true }
+const V5_USER_EXPERIENCE_DEFAULT: V5UserExperienceRules = { rememberEfforts: true }
 
-/** 升到 v5（当前版本）：低于 v5 的输入先由 upgradeTo4 逐级接力到 v4，再按 v4 冻结 schema 解析（非法整体回退 v4 默认），新增 efforts 对象并落默认 */
-function upgradeTo5(config: unknown, fromVersion: number): PluginConfigSnapshot {
+/** 升到 v5：低于 v5 的输入先由 upgradeTo4 逐级接力到 v4，再按 v4 冻结 schema 解析（非法整体回退 v4 默认），新增 efforts 对象与 userExperience 并落默认 */
+export function upgradeTo5(config: unknown, fromVersion: number): V5PluginConfigSnapshot {
     const v4 = fromVersion < 4 ? upgradeTo4(config, fromVersion) : config
     let parsed: Omit<V4PluginConfigSnapshot, 'configVersion'>
     try {
@@ -204,19 +205,89 @@ function upgradeTo5(config: unknown, fromVersion: number): PluginConfigSnapshot 
     }
 }
 
+// ---------- 历史版本（v5）迁移源代码：v5 快照的冻结形态（见 types.ts 历史版本(v5) 段说明），不引用当前版本的可演进定义。 ----------
+
+/** 历史版本(v5)：字段规则 schema（与 v4 同形，独立声明以冻结形态），dflt 为省略字段的默认值 */
+const v5FieldRules = (dflt: boolean): z<V5FieldRules> => z.object({
+    reasoning: z.boolean().default(dflt),
+    context: z.boolean().default(dflt),
+    image: z.boolean().default(dflt),
+})
+
+/** 历史版本(v5)：兼容性规则 schema（与 v4 同形，独立声明以冻结形态） */
+const v5CompatRules: z<V5CompatRules> = z.object({
+    disableDeveloper: z.boolean().default(true),
+})
+
+/** 历史版本(v5)：用户体验规则 schema（冻结形态：只含 rememberEfforts，无 v6 的 defaultHigh） */
+const v5UserExperienceRules: z<V5UserExperienceRules> = z.object({
+    rememberEfforts: z.boolean().default(true),
+})
+
+/** 历史版本(v5)：默认配置——解析失败兜底与 schema 整项缺省的唯一来源 */
+const V5_BASE: Omit<V5PluginConfigSnapshot, 'configVersion'> = {
+    allowUpdate: { reasoning: false, context: false, image: false },
+    autoFill: { reasoning: true, context: true, image: true },
+    compat: { disableDeveloper: true },
+    excludes: [],
+    efforts: {},
+    userExperience: { rememberEfforts: true },
+}
+
+/**
+ * 历史版本(v5)：配置 schema（仅对象写法，configVersion 等多余键被 schema 忽略；默认取 V5_BASE 的展开副本）。
+ * efforts 是宽松记忆字段，不进 schema（坏结构只该回落 {} 而非拖垮整段），由 upgradeTo6 经 parseEfforts 单独保留。
+ */
+const V5ConfigSchema: z<Omit<V5PluginConfigSnapshot, 'configVersion' | 'efforts'>> = z.object({
+    allowUpdate: v5FieldRules(false).default({ ...V5_BASE.allowUpdate }),
+    autoFill: v5FieldRules(true).default({ ...V5_BASE.autoFill }),
+    compat: v5CompatRules.default({ ...V5_BASE.compat }),
+    excludes: z.array(z.string()).default([...V5_BASE.excludes]),
+    userExperience: v5UserExperienceRules.default({ ...V5_BASE.userExperience }),
+})
+
+/**
+ * defaultHigh 的台阶默认值：v5 无该字段，升级到 v6 时落默认（false）。
+ * 写字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.userExperience.defaultHigh`——后者随当前版本演进，台阶产物形态必须恒定。
+ */
+const V6_DEFAULT_HIGH_DEFAULT = false
+
+/** 升到 v6（当前版本）：低于 v6 的输入先由 upgradeTo5 逐级接力到 v5，再按 v5 冻结 schema 解析（非法整体回退 v5 默认），新增 userExperience.defaultHigh 并落默认；efforts 经 parseEfforts 宽松保留 */
+function upgradeTo6(config: unknown, fromVersion: number): PluginConfigSnapshot {
+    const v5 = fromVersion < 5 ? upgradeTo5(config, fromVersion) : config
+    let parsed: Omit<V5PluginConfigSnapshot, 'configVersion' | 'efforts'>
+    try {
+        parsed = V5ConfigSchema((isPlainObject(v5) ? v5 : {}) as unknown as Omit<V5PluginConfigSnapshot, 'configVersion' | 'efforts'>)
+    } catch {
+        parsed = V5_BASE
+    }
+    // efforts 宽松保留（结构不符回落 {}）：记忆坏值不判整段快照非法，避免连累配置自愈重写丢配置
+    const efforts = parseEfforts(isPlainObject(v5) ? (v5 as { efforts?: unknown }).efforts : undefined)
+    // 产物版本固定为 6（本函数形态恒定），故不引用 CONFIG_VERSION
+    return {
+        configVersion: 6,
+        allowUpdate: parsed.allowUpdate,
+        autoFill: parsed.autoFill,
+        compat: { ...parsed.compat },
+        excludes: [...parsed.excludes],
+        efforts,
+        userExperience: { ...parsed.userExperience, defaultHigh: V6_DEFAULT_HIGH_DEFAULT },
+    }
+}
+
 /**
  * 配置版本迁移入口：只调用最新一级台阶，产物即当前 CONFIG_VERSION 的快照形态。
  * 新版本发布时：新增 `upgradeToN`（它负责把更低版本经 `upgradeToN-1` 接力上来），把本函数改指它，
  * 链上既有函数一律不改，并把上一级台阶的返回类型改指新冻结的 `V(N-1)PluginConfigSnapshot`。
- * 例如当前版本=6：
- *   upgradeConfig = (c, v) => upgradeTo6(c, v)
- *   upgradeTo6 = (c, v) => {
- *     const v5 = v < 5 ? upgradeTo5(c, v) : c
- *     // 在此升到 6 的字段并返回 v6 快照
+ * 例如当前版本=7：
+ *   upgradeConfig = (c, v) => upgradeTo7(c, v)
+ *   upgradeTo7 = (c, v) => {
+ *     const v6 = v < 6 ? upgradeTo6(c, v) : c
+ *     // 在此升到 7 的字段并返回 v7 快照
  *   }
  */
 export function upgradeConfig(config: unknown, fromVersion: number): PluginConfigSnapshot {
-    return upgradeTo5(config, fromVersion)
+    return upgradeTo6(config, fromVersion)
 }
 
 /** 全新用户的规范默认快照（与升级链对空输入的结果一致，由 test 守护）；物化函数单一来源在 src/shared/parse.ts 的 `toStored` */

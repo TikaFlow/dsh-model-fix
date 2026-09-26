@@ -57,6 +57,8 @@ export function run(): void {
             { id: 'm2', reasoning: { efforts: [{ id: 'low' }] } },
         ] },
     ]
+    // 既有用例的 defaultHigh 一律传 false（关掉新开关，行为与未引入该开关时一致）
+    const DH_OFF = false
 
     // 模型变化：有记忆且受支持且与当前不同 → 改写
     check('classify 模型变化改写记忆', stable(classifyTransition(
@@ -64,6 +66,7 @@ export function run(): void {
         { provider: 'a', model: 'm1', reasoningEffort: 'low' },
         memory,
         groupsWithM1,
+        DH_OFF,
     )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm1', reasoningEffort: 'high' } }))
 
     // 模型变化：有记忆但与当前相同 → 不改写（resolved 即 next 本身）
@@ -72,6 +75,7 @@ export function run(): void {
         { provider: 'a', model: 'm1', reasoningEffort: 'high' },
         memory,
         groupsWithM1,
+        DH_OFF,
     )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm1', reasoningEffort: 'high' } }))
 
     // 模型变化：无记忆 → 不改写
@@ -80,6 +84,7 @@ export function run(): void {
         { provider: 'a', model: 'm3', reasoningEffort: 'low' },
         memory,
         groupsWithM1,
+        DH_OFF,
     )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm3', reasoningEffort: 'low' } }))
 
     // 模型变化：记忆不受支持（m2 只公告 low，记忆是 high）→ 不改写
@@ -88,6 +93,7 @@ export function run(): void {
         { provider: 'a', model: 'm2', reasoningEffort: 'low' },
         { a: { m2: 'high' } },
         groupsWithM1,
+        DH_OFF,
     )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm2', reasoningEffort: 'low' } }))
 
     // 模型变化：记忆 provider 存在但 model 不在 groups → 不改写
@@ -96,6 +102,7 @@ export function run(): void {
         { provider: 'a', model: 'm9', reasoningEffort: 'low' },
         { a: { m9: 'xhigh' } },
         groupsWithM1,
+        DH_OFF,
     )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm9', reasoningEffort: 'low' } }))
 
     // 首帧（prev === null）→ 模型变化（若记忆存在且受支持则改写）
@@ -104,6 +111,7 @@ export function run(): void {
         { provider: 'a', model: 'm1' },
         memory,
         groupsWithM1,
+        DH_OFF,
     )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm1', reasoningEffort: 'high' } }))
 
     // 同模型级别变化 → effort-change
@@ -112,6 +120,7 @@ export function run(): void {
         { provider: 'a', model: 'm1', reasoningEffort: 'high' },
         memory,
         groupsWithM1,
+        DH_OFF,
     )) === stable({ kind: 'effort-change' }))
 
     // 同模型级别变 undefined → effort-change
@@ -120,6 +129,7 @@ export function run(): void {
         { provider: 'a', model: 'm1' },
         memory,
         groupsWithM1,
+        DH_OFF,
     )) === stable({ kind: 'effort-change' }))
 
     // 同模型同级别 → none
@@ -128,6 +138,7 @@ export function run(): void {
         { provider: 'a', model: 'm1', reasoningEffort: 'low' },
         memory,
         groupsWithM1,
+        DH_OFF,
     )) === stable({ kind: 'none' }))
 
     // 同模型 undefined === undefined → none
@@ -136,5 +147,80 @@ export function run(): void {
         { provider: 'a', model: 'm1' },
         memory,
         groupsWithM1,
+        DH_OFF,
     )) === stable({ kind: 'none' }))
+
+    // ---------- defaultHigh：无记忆分支下，未设置级别且模型公告 high → 设为 high ----------
+    const DH_ON = true
+    // 无记忆、未设置级别、模型有 high → 设为 high
+    check('defaultHigh 无记忆未设置级别且模型有 high → 设为 high', stable(classifyTransition(
+        { provider: 'b', model: 'x' },
+        { provider: 'a', model: 'm1' },
+        {},
+        groupsWithM1,
+        DH_ON,
+    )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm1', reasoningEffort: 'high' } }))
+
+    // defaultHigh 开关关闭时不生效（resolved 即 next，无 high 改写）
+    check('defaultHigh 关闭时不改写', stable(classifyTransition(
+        { provider: 'b', model: 'x' },
+        { provider: 'a', model: 'm1' },
+        {},
+        groupsWithM1,
+        DH_OFF,
+    )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm1' } }))
+
+    // 模型不公告 high（m2 只有 low）→ 不改写
+    check('defaultHigh 模型无 high 不改写', stable(classifyTransition(
+        { provider: 'b', model: 'x' },
+        { provider: 'a', model: 'm2' },
+        {},
+        groupsWithM1,
+        DH_ON,
+    )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm2' } }))
+
+    // 模型无 reasoning（groupsWithM1 的 provider b 的 m2 无 reasoning）→ 不改写
+    check('defaultHigh 模型无推理级别不改写', stable(classifyTransition(
+        { provider: 'a', model: 'm1' },
+        { provider: 'b', model: 'm2' },
+        {},
+        groupsWithM1,
+        DH_ON,
+    )) === stable({ kind: 'model-change', resolved: { provider: 'b', model: 'm2' } }))
+
+    // 已设置推理级别（next.reasoningEffort 非 undefined）→ 不改写（不覆盖既有级别）
+    check('defaultHigh 已设置级别不改写', stable(classifyTransition(
+        { provider: 'b', model: 'x' },
+        { provider: 'a', model: 'm1', reasoningEffort: 'low' },
+        {},
+        groupsWithM1,
+        DH_ON,
+    )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm1', reasoningEffort: 'low' } }))
+
+    // 有记忆（即便记忆未恢复，如不受支持）→ defaultHigh 不生效（"无记忆"分支才生效）
+    check('defaultHigh 有记忆（不受支持）不改写', stable(classifyTransition(
+        { provider: 'b', model: 'x' },
+        { provider: 'a', model: 'm2', reasoningEffort: 'low' },
+        { a: { m2: 'high' } },
+        groupsWithM1,
+        DH_ON,
+    )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm2', reasoningEffort: 'low' } }))
+
+    // 有记忆且可恢复 → 恢复优先于 defaultHigh（不因 defaultHigh 而改写为 high）
+    check('defaultHigh 记忆恢复优先于默认 high', stable(classifyTransition(
+        { provider: 'b', model: 'x' },
+        { provider: 'a', model: 'm1', reasoningEffort: 'low' },
+        { a: { m1: 'high' } },
+        groupsWithM1,
+        DH_ON,
+    )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm1', reasoningEffort: 'high' } }))
+
+    // 首帧 + defaultHigh + 无记忆 + 模型有 high → 设为 high
+    check('defaultHigh 首帧无记忆模型有 high → 设为 high', stable(classifyTransition(
+        null,
+        { provider: 'a', model: 'm1' },
+        {},
+        groupsWithM1,
+        DH_ON,
+    )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm1', reasoningEffort: 'high' } }))
 }
