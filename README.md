@@ -6,7 +6,7 @@ DSH[（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness) 插
 
 插件截图：
 
-![插件管理界面](screenshot/plugin.png)
+![插件管理界面](screenshots/dual.png)
 
 [更多截图](screenshot/)
 
