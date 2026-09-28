@@ -354,17 +354,34 @@ export function canonicalizeCurrentOp(section: VersionedSection | undefined): Se
 }
 
 /**
+ * 0.1.7 现代栈下本插件 Config schema 命名空间由宿主 Loader 异步登记，晚于 apply——启动时 describe() 可能尚未含本 NS。
+ * 有界轮询等待其出现后再迁移（dsh-settings 无"命名空间注册"事件或 ready promise，settings/document-updated 只在 RAW 段变更时发、且 provider 首次 publish 早于本插件 apply 故监听器错过）。旧栈（installSection）同步注册，首轮即命中、零等待。
+ */
+const MIGRATE_POLL_MS = 50
+const MIGRATE_WAIT_MS = 2000
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
  * 启动时配置迁移：
  * - 有当前版本快照 → 规范化校验：以当前生效值物化规范完整快照，与盘上 v6 逐键比较；不一致（非法 / 字段残缺 / 含多余键）即重写自愈
  *   （幂等——第二轮同值零写入即收敛），两阶段清理低版本旧快照：先清低于最低支持版本，再清低于当前版本且超出上限的 excess（高版本快照保留）
  * - 无当前版本 → 段内所有 ≥ 最低支持版本中取最高可解析快照：高版本降级解析（按当前 schema，多余键忽略、efforts 宽松保留）、
  *   低版本走升级链；均不可解析或段内无版本则视为全新用户，直接写入规范默认快照，确保后续读取必有当前版本
  */
-export async function migrateConfig(ctx: Context): Promise<void> {
-    // 可直接读到本命名空间：provider 在 become injectable 前已 publish(load())，且 installSection 的注册
-    // effect 体同步执行；读不到即服务缺席/被禁用，无从迁移，按当前生效配置继续。
-    const descriptor = ctx.settings.describe().find((d) => d.ns === PLUGIN_NS)
-    if (!descriptor) return
+export async function migrateConfig(ctx: Context, disposed: () => boolean = () => false): Promise<void> {
+    // 轮询等待 describe() 含本 NS（0.1.7 晚注册，见上）；超时/卸载即放弃，按当前生效配置继续
+    let descriptor = ctx.settings.describe().find((d) => d.ns === PLUGIN_NS)
+    let waited = 0
+    while (!descriptor) {
+        if (disposed()) return
+        if (waited >= MIGRATE_WAIT_MS) {
+            ctx.logger.warn(`${PLUGIN_NAME}: 等待 ${PLUGIN_NS} 命名空间注册超时（${MIGRATE_WAIT_MS}ms），跳过本次迁移/写回/清理`)
+            return
+        }
+        await sleep(MIGRATE_POLL_MS)
+        waited += MIGRATE_POLL_MS
+        descriptor = ctx.settings.describe().find((d) => d.ns === PLUGIN_NS)
+    }
     const section = isPlainObject(descriptor.user) ? descriptor.user as VersionedSection : undefined
     const versions = collectVersions(section)
     if (versions.includes(CONFIG_VERSION)) {

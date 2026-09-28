@@ -97,7 +97,7 @@ export function apply(ctx: Context, config?: unknown): void {
     // 首轮：迁移 → 缓存 → 填充 → 异步刷新（refreshIfStale 的 ts 初始 0 必过期 ⇒ 启动必拉取），
     // 与事件路径共用同一入口与守卫；卸载置位后在途结果不触碰已销毁上下文
     ctx.effect(() => {
-        void migrateConfig(ctx)
+        void migrateConfig(ctx, () => disposed)
             .catch((error) => {
                 if (disposed) return
                 ctx.logger.warn(`${PLUGIN_NAME}: 配置迁移失败，使用当前生效配置继续：${error instanceof Error ? error.message : String(error)}`)
