@@ -1,6 +1,7 @@
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
+import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION } from '@/constants'
 import { CONFIG_VERSION, PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
 import { resolveConfig } from '@/config'
@@ -333,8 +334,29 @@ export function pruneOps(
 }
 
 /**
+ * 当前版本快照的规范化 op：以「当前生效值」物化规范完整快照（`resolveConfig` → `toStored`），
+ * 与盘上 v6 逐键比较；不一致才产出 set op，幂等——第二轮同值零写入即收敛。
+ * 仅在 migrateConfig 的「当前版本已存在」分支调用（无 v6 时由迁移分支直接写规范快照）。
+ *
+ * 覆盖三类重写动因：
+ * - 非法：`parseSnapshot(onDisk)` 判 undefined（如用户手改坏、或 v6 为非对象）——`resolveConfig` 回落到段内最高可解析快照或默认；
+ * - 残缺：`parseSnapshot` 对缺失字段一律补默认，会把只有 `efforts` 的 `{efforts:{…}}` 判为合法完整配置，
+ *   单纯「非法才自愈」不足以保证盘上是规范完整快照；此处按规范化结果比对，残缺即重写（保留 efforts/excludes 现值，补齐四组默认与 configVersion）；
+ * - 多余键：v6 含当前 schema 未知的键时，`toStored` 物化只保留已知键，比对不一致即剥离重写。
+ */
+export function canonicalizeCurrentOp(section: VersionedSection | undefined): SettingsPathOp[] {
+    if (!section) return []
+    const key = versionKey(CONFIG_VERSION)
+    if (!(key in section)) return [] // v6 不存在 → 交给迁移分支，不在此产出
+    const onDisk = section[key]
+    const canonical = toStored(resolveConfig(section))
+    return deepEqualJson(onDisk, canonical) ? [] : [{ op: 'set', path: [key], value: canonical }]
+}
+
+/**
  * 启动时配置迁移：
- * - 有当前版本快照 → 直接使用（快照本身非法则按当前生效值重写自愈），两阶段清理低版本旧快照：先清低于最低支持版本，再清低于当前版本且超出上限的 excess（高版本快照保留）
+ * - 有当前版本快照 → 规范化校验：以当前生效值物化规范完整快照，与盘上 v6 逐键比较；不一致（非法 / 字段残缺 / 含多余键）即重写自愈
+ *   （幂等——第二轮同值零写入即收敛），两阶段清理低版本旧快照：先清低于最低支持版本，再清低于当前版本且超出上限的 excess（高版本快照保留）
  * - 无当前版本 → 段内所有 ≥ 最低支持版本中取最高可解析快照：高版本降级解析（按当前 schema，多余键忽略、efforts 宽松保留）、
  *   低版本走升级链；均不可解析或段内无版本则视为全新用户，直接写入规范默认快照，确保后续读取必有当前版本
  */
@@ -346,13 +368,13 @@ export async function migrateConfig(ctx: Context): Promise<void> {
     const section = isPlainObject(descriptor.user) ? descriptor.user as VersionedSection : undefined
     const versions = collectVersions(section)
     if (versions.includes(CONFIG_VERSION)) {
-        const ops: SettingsPathOp[] = []
-        // 当前版本快照非法（如用户手改坏）时自愈：不修就会长期停在「文件里是坏值、运行期按
-        // 最高可解析版本或默认执行」的不一致状态（浏览器半同样显示默认），且每次启动都无从纠正。
-        // 重写目标取当前生效值——段内有可用的其余版本快照（含更高版本）则沿用其语义，否则落默认。
-        if (!parseSnapshot(section?.[versionKey(CONFIG_VERSION)])) {
-            ops.push({ op: 'set', path: [versionKey(CONFIG_VERSION)], value: toStored(resolveConfig(section)) })
-            ctx.logger.warn(`${PLUGIN_NAME}: ${versionKey(CONFIG_VERSION)} 快照非法，已按当前生效配置重写`)
+        const ops: SettingsPathOp[] = [...canonicalizeCurrentOp(section)]
+        if (ops.length > 0) {
+            // 区分两类重写动因，便于排查：非法（parseSnapshot 判 undefined，如用户手改坏）vs 非规范（合法但字段残缺或含多余键）
+            const onDisk = section?.[versionKey(CONFIG_VERSION)]
+            ctx.logger.warn(!parseSnapshot(onDisk)
+                ? `${PLUGIN_NAME}: ${versionKey(CONFIG_VERSION)} 快照非法，已按当前生效配置重写`
+                : `${PLUGIN_NAME}: ${versionKey(CONFIG_VERSION)} 快照非规范（字段残缺或含多余键），已规范化重写`)
         }
         ops.push(...pruneOps(versions))
         if (ops.length > 0) await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
