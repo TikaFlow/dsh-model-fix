@@ -71,7 +71,7 @@ dsh plugin --profile web add github:TikaFlow/dsh-model-fix
 
 ### 支持范围
 
-DSH `0.1.2-rc.1` ~ `0.1.7-rc.1`
+DSH `0.1.2-rc.1` ~ `0.2.0-rc.2`
 
 ## 使用说明
 
