@@ -166,11 +166,18 @@ const STYLE_TEXT = [
     '.dsh-mf-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
     '@media (max-width:680px){.dsh-mf-items{grid-template-columns:minmax(0,1fr)}}',
     '@media (prefers-reduced-motion:reduce){.dsh-mf-itemChevron{transition:none}}',
-    // 开关：逐字复刻官方 .switch/.thumb（宿主无 Switch 原语；轨道无过渡）
+    // 开关：逐字复刻 primitives 的 Switch.module.css（官方设置面无 on/off 开关，该 CSS 是规格唯一
+    // 权威；组件本体 0.2.0 线起才导出、peer 下限无此符号，故不自用；轨道无过渡）
+    // 滑块分态取色：关闭态读专用令牌 switch-thumb（深色下 neutral-bluish-400 中灰——关闭态轨道是
+    // 中性灰 border-l3，需要比轨道更亮的滑块，纯白在暗色下过亮故不用反色令牌）；开启态仍读
+    // label-primary-foreground（开启态轨道是 brand-primary，滑块必须与轨道反色相抗——全局换成
+    // switch-thumb 会让深色下「近白轨道 + 中灰滑块」对比反被拉低）。fallback 逐层退回，新令牌
+    // 不存在的旧宿主保持原取值。
     '.dsh-mf-switch{box-sizing:border-box;position:relative;flex:0 0 auto;width:36px;height:20px;padding:2px;border:0;border-radius:10px;background:var(--dsw-alias-border-l3,rgba(0,0,0,.12));cursor:pointer}',
     '.dsh-mf-switch[aria-checked="true"]{background:var(--dsw-alias-brand-primary,#0f1115)}',
     '.dsh-mf-switch:disabled{cursor:default;opacity:.5}',
     '.dsh-mf-thumb{display:block;width:16px;height:16px;border-radius:50%;corner-shape:round;background:var(--dsw-alias-label-primary-foreground,#fff);transition:transform 120ms ease}',
+    '.dsh-mf-switch[aria-checked="false"] .dsh-mf-thumb{background:var(--dsw-alias-switch-thumb,var(--dsw-alias-label-primary-foreground,#fff))}',
     '.dsh-mf-switch[aria-checked="true"] .dsh-mf-thumb{transform:translateX(16px)}',
     '.dsh-mf-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 0 4px;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1))}',
     '.dsh-mf-actions{display:flex;align-items:center;gap:8px}',
