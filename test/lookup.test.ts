@@ -42,6 +42,24 @@ export function run(): void {
     check('词干剥离日期后缀', lookup(catalog({ deepseek: ['deepseek-chat-20250901'] }), 'deepseek', 'deepseek-chat')?.id === 'deepseek-chat-20250901')
     check('词干剥离长数字段', lookup(catalog({ deepseek: ['deepseek-chat-v3.1-2508'] }), 'deepseek', 'deepseek-chat')?.id === 'deepseek-chat-v3.1-2508')
 
+    // ---------- digits 区分：同 base 多日期变体，凭 digits 精确命中而非歧义 undefined ----------
+    check('digits 区分 8 位日期', lookup(catalog({ openai: ['gpt-5-20240813', 'gpt-5-20241120'] }), 'openai', 'gpt-5-20240813')?.id === 'gpt-5-20240813')
+    check('digits 区分 4 位 MMDD', lookup(catalog({ openai: ['gpt-5-0813', 'gpt-5-1120'] }), 'openai', 'gpt-5-0813')?.id === 'gpt-5-0813')
+    check('digits 区分 MM-DD', lookup(catalog({ openai: ['gpt-5-08-13', 'gpt-5-11-20'] }), 'openai', 'gpt-5-08-13')?.id === 'gpt-5-08-13')
+    check('digits 区分 YYYY-MM-DD', lookup(catalog({ openai: ['gpt-5-2024-08-13', 'gpt-5-2024-11-20'] }), 'openai', 'gpt-5-2024-08-13')?.id === 'gpt-5-2024-08-13')
+    // 数字串归一化：仅连字符写法不同的同日期（08-31 与 0831、2024-08-31 与 20240831）视作同一 digits
+    check('digits 归一化 08-31 == 0831', lookup(catalog({ openai: ['gpt-5-08-13', 'gpt-5-11-20'] }), 'openai', 'gpt-5-0813')?.id === 'gpt-5-08-13')
+    check('digits 归一化 2024-08-31 == 20240831', lookup(catalog({ openai: ['gpt-5-20240813', 'gpt-5-20241120'] }), 'openai', 'gpt-5-2024-08-13')?.id === 'gpt-5-20240813')
+    check('digits 不同不误配', lookup(catalog({ openai: ['gpt-5-20240813', 'gpt-5-20241120'] }), 'openai', 'gpt-5-20240814') === undefined)
+    // 本地带日期、目录有同 base 裸名 + 异日期变体：digits 比对排除异日期，仅裸名命中
+    check('digits 排除异日期留裸名', lookup(catalog({ openai: ['gpt-5', 'gpt-5-20241120'] }), 'openai', 'gpt-5-20240813')?.id === 'gpt-5')
+    // ---------- 中缀日期：日期夹在 id 中段（非末尾）同样提取并区分 ----------
+    check('中缀日期精确命中', lookup(catalog({ openai: ['gpt-5-20240831-preview', 'gpt-5-20241120-preview'] }), 'openai', 'gpt-5-20240831-preview')?.id === 'gpt-5-20240831-preview')
+    check('中缀日期变体凭 digits 区分', lookup(catalog({ openai: ['gpt-5-preview', 'gpt-5-20241120-preview'] }), 'openai', 'gpt-5-20240831-preview')?.id === 'gpt-5-preview')
+    check('中缀日期多变体无裸名 -> 无匹配', lookup(catalog({ openai: ['gpt-5-20240831-preview', 'gpt-5-20241120-preview'] }), 'openai', 'gpt-5-preview') === undefined)
+
+
+
     // ---------- 前缀匹配：目录 id 以本地 id 加分隔符扩展时唯一命中 ----------
     check('前缀匹配唯一命中', lookup(catalog({ openai: ['gpt-5-mini'] }), 'openai', 'gpt-5')?.id === 'gpt-5-mini')
 
