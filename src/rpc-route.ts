@@ -3,16 +3,21 @@
  *
  * 不用宿主通道的原因：`handle` 在**服务自己的 ctx** 上求值 `owner.webServer`
  * （`get rpc() { const owner = this.ctx }`，与调用方 fiber 无关），而 connection 插件的
- * `inject` 自 0.1.5 起不再含 webServer（0.1.2-rc.1 时含），故 `owner.webServer` 必抛
+ * `inject` 自 0.1.5 起不再含 webServer，故 `owner.webServer` 必抛
  * `cannot get property "webServer" without inject`，通道无从挂上。
  *
  * 与宿主通道逐项等价：同一把信任围栏（`connection.requestRejection`）+ 同一套信封与状态码
  * （宿主 `rpcFetchHandler` 的字面复制），故浏览器半的 `connection.rpc.call` 无需感知。
- * 该契约跨宿主版本稳定（0.1.2-rc.1 与 0.1.6-alpha.2 的 `rpcFetchHandler` / 两个信封 schema /
- * `ENDPOINT_SEGMENT_PATTERN` / `webServer.register` / `match` 逐字一致），故单一路径即覆盖全支持范围。
+ * 类型面直接取宿主 devDep：请求/响应是 node:http 原生类型，RPC 信封与围栏类型
+ * 来自 `@deepseek-ai/dsh-client-connection`（全部 type-only，构建期擦除）。
  */
 
-import type { HostHttpRequest, HostHttpResponse, HostRequestRejection, RpcResult } from '@/shared/types'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type {
+    ConnectionRequestRejection,
+    ConnectionRpcResult,
+    HostConnectionService,
+} from '@deepseek-ai/dsh-client-connection'
 
 /** endpoint 段名允许的字符（宿主 ENDPOINT_SEGMENT_PATTERN 的字面复制） */
 const ENDPOINT_SEGMENT = /^[A-Za-z0-9_$.-]+$/
@@ -22,7 +27,7 @@ const INVALID_RPC_ID = 'invalid-request'
 const MAX_BODY_BYTES = 64 * 1024
 
 /** 端点处理函数（与宿主 ConnectionRpcHandler 同形） */
-export type EndpointHandler = (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<RpcResult<unknown>>
+export type EndpointHandler = (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<ConnectionRpcResult<unknown>>
 
 /** 从 channel 前缀路由的 pathname 切出 endpoint；越界、空段或非法字符返回 undefined */
 export function endpointOf(pathname: string, channel: string): string | undefined {
@@ -41,7 +46,7 @@ export function parseClientRequest(value: unknown): { rpcId: string; method: str
 }
 
 /** 构造服务端响应信封 */
-export function serverResponse(rpcId: string, result: RpcResult<unknown>): Record<string, unknown> {
+export function serverResponse(rpcId: string, result: ConnectionRpcResult<unknown>): Record<string, unknown> {
     return { type: 'server-response', rpcId, result }
 }
 
@@ -53,20 +58,20 @@ export function envelopeRpcId(value: unknown): string {
 
 /** 构造本 channel 的前缀路由处理器（围栏 → 读体 → 解信封 → 调 handler → 回信封） */
 export function createChannelRoute(
-    connection: { requestRejection: HostRequestRejection },
+    connection: Pick<HostConnectionService, 'requestRejection'>,
     channel: string,
     handler: EndpointHandler,
-): (req: HostHttpRequest, res: HostHttpResponse) => Promise<void> {
-    const respond = (res: HostHttpResponse, status: number, body: string): void => {
+): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+    const respond = (res: ServerResponse, status: number, body: string): void => {
         res.writeHead(status, { 'content-type': 'application/json' })
         res.end(body)
     }
-    const badRequest = (res: HostHttpResponse, rpcId: string, message: string): void => {
+    const badRequest = (res: ServerResponse, rpcId: string, message: string): void => {
         respond(res, 200, JSON.stringify(serverResponse(rpcId, { ok: false, error: { code: 'gateway/bad-request', message, details: {} } })))
     }
     return async (req, res) => {
         // 与宿主 /api 路由同一把围栏：非受信来源 403、浏览器会话未认证 401
-        const rejection = connection.requestRejection(req)
+        const rejection: ConnectionRequestRejection = connection.requestRejection(req)
         if (rejection !== undefined) {
             res.writeHead(rejection)
             res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
@@ -125,7 +130,7 @@ export function createChannelRoute(
 }
 
 /** 读完请求体；超上限即拒绝 */
-function readBody(req: HostHttpRequest): Promise<string> {
+function readBody(req: IncomingMessage): Promise<string> {
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = []
         let size = 0

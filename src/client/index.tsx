@@ -1,13 +1,20 @@
 /**
  * 浏览器半入口（dsh.client 声明的 web 侧 cordis 插件）。宿主 settings 面为 0.1.7+ 的
  * ctx.configForms，经 makeScope 包装（decode 缓存语义）后供卡片与记忆监听消费。
- * 五个席位一律注册：`ctx.slots.inject` 对无声明方的席位只挂一个 pending wait（声明到达
- * 才跑回调，fiber 卸载即取消），故缺席者静默不发生（卡片不出现），这正是 `settings.plugin.item`
- * 的情形。SlotMap 键经 models 包 declaration merging 与本地 slot-contract.ts 提供；
- * 类型边全部 type-only（构建期擦除）。
+ * 四个席位一律注册：`ctx.slots.inject` 对无声明方的席位只挂一个 pending wait（声明到达
+ * 才跑回调，fiber 卸载即取消），故缺席者静默不发生（卡片不出现）。SlotMap 键经
+ * models 包与本插件包 declaration merging 提供（均 type-only 导入，构建期擦除）。
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+// ctx.sessions 服务面（ISessions 声明合并）
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+// 一次模型选择与会话投影（宿主真类型，type-only）
+import type { ModelSelection, ModelSelectionProjection } from '@deepseek-ai/dsh-api-session-controller/types'
+// ctx.modelDirectories 服务面（ModelDirectoryResolver 声明合并）+ 目录控制器类型
+import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client'
+// SessionId 品牌 id（sessions / modelDirectories 服务的键类型）
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // ctx.slots 服务面（SlotRegistry）
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // ctx.locale 服务面
@@ -16,18 +23,17 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 // SlotMap 的 'settings.models.footer' 键声明合并
 import type {} from '@deepseek-ai/dsh-client-ui-settings-models/client'
-// SlotMap 的 'plugins.bundle.config' 与 'settings.plugin.item' 键声明（本地结构复制）
-import type {} from '@/client/slot-contract'
-// Connection RPC call 切片的结构复制（宿主包未装依赖；取服务沿用宿主 ui-settings-general 的 ctx.get 断言范式）
-import type { ClientRpcCall } from '@/shared/types'
+// SlotMap 的 'plugins.bundle.config' / 'plugins.row.config' 键声明合并（宿主 ui-plugin-manager 类型面）
+import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
+// Connection RPC 调用面（宿主真类型，type-only；取服务沿用宿主 ui-settings-general 的 ctx.get 断言范式）
+import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client'
 import { Card } from '@/client/card'
 import { CARD_NS, en, zh } from '@/client/locales'
 import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS } from '@/shared/constants'
 import { VERSION_KEY, decodeSection } from '@/client/model'
 import type { Flags } from '@/client/model'
 import { applyEffort, classifyTransition, sameSelection } from '@/client/effort'
-import type { ModelDirectoriesLike, SelectionLike, SessionsLike } from '@/client/effort'
-import { makeScope, type DecodedScope } from '@/client/scope.new'
+import { makeScope, type DecodedScope } from '@/client/scope'
 
 /** 提供方 scope 的解码占位值：本卡只消费 snapshot.user（原始用户层），value 无用途；decode 必须永不返回 undefined */
 const PROVIDERS_VIEW: readonly unknown[] = []
@@ -62,8 +68,9 @@ function boot(
     ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), `${name}: card dictionaries`)
     // scope 的 form 订阅释放挂入本 fiber
     ctx.effect(() => () => { scope.dispose(); providersScope.dispose() }, `${name}: scope disposal`)
-    // RPC channel 与 src/rpc.ts 的 `/${PLUGIN_NS}` 同源（同取 PLUGIN_NS 常量）；endpoint 名须与 rpc.ts 两侧同步
-    const rpc = (ctx.get('connection') as { rpc: { call: ClientRpcCall } }).rpc
+    // RPC channel 与 src/rpc.ts 的 `/${PLUGIN_NS}` 同源（同取 PLUGIN_NS 常量）；endpoint 名须与 rpc.ts 两侧同步。
+    // ctx.connection 的声明合并只有宿主 face（HostConnectionHandle），client face 无合并 ⇒ 经 unknown 桥接断言
+    const rpc = (ctx.get('connection') as unknown as { rpc: ClientConnectionRpc }).rpc
     const forceUpdate = () => rpc.call(`/${MODEL_FIX_NS}`, 'forceUpdate', {})
     const resetModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'resetModels', {})
     const restoreModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'restoreModels', {})
@@ -74,8 +81,8 @@ function boot(
         // 记忆写入失败不影响会话本身（级别已在当前会话生效），故只吞掉 rejection
         void scope.mutate([{ op: 'set', path: [VERSION_KEY, 'efforts'], value: next }]).catch(() => {})
     }
-    // 五个席位一律注册：`ctx.slots.inject` 先有声明方才占格，无声明者只挂 pending wait、
-    // 静默不发生 ⇒ 卡片/配置段不出现（0.1.7+ 上的 settings.plugin.item 即此情形）。
+    // 四个席位一律注册：`ctx.slots.inject` 先有声明方才占格，无声明者只挂 pending wait、
+    // 静默不发生 ⇒ 卡片/配置段不出现。
     // 单元格标识按 kind：list 席位用 id、keyed 席位用 key（footer 是配置 NS，bundle 是 npm 包名，
     // row 是「包名#patch 条目 id」；不同 slot 即不同账本，无需后缀区分）；footer 以 order 排最前
     // （list 渲染器按 order 单键重排）
@@ -85,13 +92,6 @@ function boot(
         order: -999999,
         locale: CARD_NS,
     }, (props) => <Card {...props} scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
-    // 插件配置页把卡片渲在 <ul> 内（官方 PluginCard 即 <li>），故该席位的根元素须为 li
-    ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
-        name: 'settings.plugin.item',
-        key: MODEL_FIX_NS,
-        priority: -999999,
-        locale: CARD_NS,
-    }, (props) => <Card {...props} as="li" scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
     // 插件详情页的配置段：keyed 按 entryKey 分发，key 是 npm 包名（不是 patch 条目 id）
     // defaultOpen：配置段就是该页主体，默认收起等于让用户多点一次
     ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
@@ -122,21 +122,21 @@ function boot(
     // 记忆监听子 fiber（宿主无 sessions/modelDirectories 时静默不启用）：纯监听，只订阅会话投影；
     // 自动设置经宿主公开 directory.select，保存经自有 NS 的 settings scope 直写
     ctx.inject(['sessions', 'modelDirectories'], (subCtx) => {
-        const sessions = subCtx.get('sessions') as SessionsLike
-        const modelDirectories = subCtx.get('modelDirectories') as ModelDirectoriesLike
+        const sessions = subCtx.sessions
+        const modelDirectories = subCtx.modelDirectories
 
         subCtx.effect(() => {
             /** 每会话的追踪状态 */
             interface Tracked {
                 retainUnsub: (() => void) | null
                 projectionUnsub: (() => void) | null
-                lastNext: SelectionLike | null
-                pendingAutoSet: SelectionLike | null
+                lastNext: ModelSelection | null
+                pendingAutoSet: ModelSelection | null
             }
-            const tracked = new Map<string, Tracked>()
+            const tracked = new Map<SessionId, Tracked>()
 
             /** 处理一次投影变化 */
-            function handleProjection(id: string, entry: Tracked, next: SelectionLike | null): void {
+            function handleProjection(id: SessionId, entry: Tracked, next: ModelSelection | null): void {
                 // 守卫：跳过本次自动设置反向触发的投影变化（避免重复保存）
                 if (entry.pendingAutoSet !== null) {
                     if (next !== null && sameSelection(entry.pendingAutoSet, next)) {
@@ -151,7 +151,7 @@ function boot(
                 entry.lastNext = next
                 if (next === null) return
 
-                let dir: ReturnType<ModelDirectoriesLike['directoryFor']>
+                let dir: ModelDirectory
                 try {
                     dir = modelDirectories.directoryFor(id)
                 } catch {
@@ -176,7 +176,7 @@ function boot(
             }
 
             /** 对一个会话建立保留态 + 投影订阅 */
-            function trackRetain(id: string): void {
+            function trackRetain(id: SessionId): void {
                 let entry = tracked.get(id)
                 if (!entry) {
                     entry = { retainUnsub: null, projectionUnsub: null, lastNext: null, pendingAutoSet: null }
@@ -188,7 +188,7 @@ function boot(
                     const binding = sessions.binding(id)
                     if (!binding) return
                     const projection = binding.session.projections.faceOf('modelSelection')
-                    const readNext = (): SelectionLike | null => (projection.getSnapshot() as { next?: SelectionLike | null } | null)?.next ?? null
+                    const readNext = (): ModelSelection | null => (projection.getSnapshot() as ModelSelectionProjection | null)?.next ?? null
                     entry.projectionUnsub = projection.subscribe(() => handleProjection(id, entry, readNext()))
                     // 订阅时先按当前值跑一次，避免已选模型要等下一次变化才恢复记忆
                     handleProjection(id, entry, readNext())
@@ -196,7 +196,7 @@ function boot(
             }
 
             /** 解绑一个会话的所有订阅 */
-            function untrack(id: string): void {
+            function untrack(id: SessionId): void {
                 const entry = tracked.get(id)
                 if (!entry) return
                 entry.retainUnsub?.()

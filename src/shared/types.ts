@@ -2,10 +2,7 @@
  * 跨半共享的类型声明与纯类型守卫（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）。
  * 两半均**直连**本层（统一经 `@/shared/types` 别名导入），不经任何 facade 中转；
  * Node 专属类型（`ModelEntry` / `CacheRecord` / 冻结历史 v1–v4 / `isCapacity` 等）留在 `src/types.ts`。
- *
- * `isPlainObject` / `providersOf` 是值导出（两半均用），必须保持纯函数。Connection RPC 契约类型是宿主
- * `@deepseek-ai/dsh-client-connection` / `dsh-host-webserver` 的**结构本地复制**而非依赖：
- * 仅 type-only 使用（运行期服务经 `ctx` 注入取得，不 import 宿主值），宿主契约变化时须同步本段。
+ * Connection RPC 契约等宿主类型不再在本仓声明：一律 type-only 导入 devDep 的宿主类型面（构建期擦除）。
  */
 
 /** 判断是否为普通数据对象（非数组、非 null、非类实例） */
@@ -105,45 +102,3 @@ export interface PluginConfigSnapshot {
 
 /** 命名空间下的整段配置：version-N -> 对应版本的配置快照（保留低版本历史与更高新版本，便于无损回退） */
 export type VersionedSection = Record<string, unknown>
-
-// ---------- Connection RPC（强制更新通道）：宿主 @deepseek-ai/dsh-client-connection / dsh-host-webserver 契约的结构本地复制。 ----------
-// ---------- 仅 type-only 使用：运行期服务全部经 ctx 注入取得，无须 import 宿主值（浏览器半亦同，构建期擦除）。宿主契约变化时须同步本段。 ----------
-
-/** Connection RPC 端点返回值（对应宿主 ConnectionRpcResult） */
-export type RpcResult<T> =
-    | { readonly ok: true; readonly value: T }
-    | { readonly ok: false; readonly error: { code: string; message: string; details: object } }
-
-/** Node 半使用的 ctx.connection.requestRejection 切片（宿主 HostConnectionService.requestRejection） */
-export type HostRequestRejection = (request: { headers: unknown }) => 401 | 403 | undefined
-
-/** Node 半使用的 ctx.webServer.register 切片（宿主 WebServer.register，仅前缀路由） */
-export type HostWebServerRegister = (route: {
-    kind: 'prefix'
-    path: string
-    handler: (req: HostHttpRequest, res: HostHttpResponse) => Promise<void>
-}) => () => void
-
-/** 宿主 webServer 路由拿到的 node:http 请求（本插件只消费方法、URL、请求头与请求体） */
-export interface HostHttpRequest {
-    method?: string
-    url?: string
-    headers: Record<string, string | string[] | undefined>
-    on(event: 'data', listener: (chunk: Buffer) => void): unknown
-    on(event: 'end', listener: () => void): unknown
-    on(event: 'error', listener: (error: unknown) => void): unknown
-}
-
-/** 宿主 webServer 路由拿到的 node:http 响应（本插件只写 JSON 响应） */
-export interface HostHttpResponse {
-    writeHead(status: number, headers?: Record<string, string>): unknown
-    end(body?: string): unknown
-}
-
-/** 浏览器半使用的 connection.rpc.call 切片（宿主 ClientConnectionRpc.call，仅一元调用） */
-export type ClientRpcCall = (
-    channel: string,
-    endpoint: string,
-    payload: unknown,
-    signal?: AbortSignal,
-) => Promise<RpcResult<unknown>>

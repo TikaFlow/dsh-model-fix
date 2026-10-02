@@ -10,13 +10,15 @@
  * 三个端点共用同一守卫做互斥：守卫已开（另一写回在途）时一律拒绝——两个写回端点并发时，
  * 后到者的 finally 会提前解除守卫，令先到者的写回失去保护；填充与写回语义也相互冲突。
  * channel 为插件自有命名空间拼成的绝对前缀，浏览器半以 `/${MODEL_FIX_NS}` 配对（两侧同取 src/shared/constants.ts 的 `PLUGIN_NS`，改常量即两侧同步）。
- * connection 服务经 ctx.get 断言取得（宿主包未安装为依赖，类型用 src/types 的结构复制；
- * 断言范式与宿主内置插件 ui-settings-general 一致），信任围栏由宿主 connection 统一施加。
+ * connection / webServer 服务经 ctx.get 断言取得宿主真类型（type-only 导入 devDep 的
+ * dsh-client-connection / dsh-host-webserver；断言范式与宿主内置插件 ui-settings-general 一致），信任围栏由宿主 connection 统一施加。
  * 路由由本插件自注册而不走宿主 `connection.rpc.handle`：后者在**服务自己的 ctx** 上求值
  * `owner.webServer`，而 connection 插件自 0.1.5 起不再注入 webServer，故它必然抛错（详见 rpc-route.ts）。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { ConnectionRpcResult, HostConnectionService } from '@deepseek-ai/dsh-client-connection'
+import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
 import { fix } from '@/fix'
 import { isIgnoreAll } from '@/guard'
@@ -24,7 +26,6 @@ import { resetModels } from '@/reset'
 import { restoreModels } from '@/restore'
 import { createChannelRoute } from '@/rpc-route'
 import type { EndpointHandler } from '@/rpc-route'
-import type { HostRequestRejection, HostWebServerRegister, RpcResult } from '@/shared/types'
 
 /** 卡片「强制更新」按钮调用的 endpoint 名 */
 const ENDPOINT_FORCE_UPDATE = 'forceUpdate'
@@ -34,7 +35,7 @@ const ENDPOINT_RESET_MODELS = 'resetModels'
 const ENDPOINT_RESTORE_MODELS = 'restoreModels'
 
 /** 守卫已开（另一写回在途）时的统一拒绝结果 */
-const writeInProgress = (): RpcResult<unknown> => ({
+const writeInProgress = (): ConnectionRpcResult<unknown> => ({
     ok: false,
     error: { code: 'model-fix/write-in-progress', message: '另一操作进行中，请稍后重试', details: {} },
 })
@@ -44,8 +45,8 @@ export function installRpc(ctx: Context): void {
     // 子 fiber 声明 connection + webServer：webServer 用于注册前缀路由，connection 用于信任围栏。
     // 无 webServer 的 profile（如 headless）下子 fiber 不启动，插件其余功能不受影响。
     ctx.inject(['connection', 'webServer'], (rpcCtx) => {
-        const connection = rpcCtx.get('connection') as { requestRejection: HostRequestRejection }
-        const webServer = rpcCtx.get('webServer') as { register: HostWebServerRegister }
+        const connection = rpcCtx.get('connection') as Pick<HostConnectionService, 'requestRejection'>
+        const webServer = rpcCtx.get('webServer') as WebServer
         rpcCtx.effect(() => {
             const channel = `/${PLUGIN_NS}`
             const handler: EndpointHandler = async (endpoint) => {

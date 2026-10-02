@@ -1,12 +1,13 @@
 // rpc-route.ts 纯逻辑测试：endpoint 切分 / 信封解析与构造 / 自注册路由的围栏、状态码与信封往返
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { check, stable } from '@test/helper'
 import { createChannelRoute, endpointOf, envelopeRpcId, parseClientRequest, serverResponse } from '@/rpc-route'
-import type { HostHttpRequest, HostHttpResponse, RpcResult } from '@/shared/types'
+import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 
 const CHANNEL = '/tikaflow-model-fix'
 
 /** 最小 node:http 请求桩：构造后由微任务派发 data/end（或 error） */
-function fakeRequest(init: { method?: string; url?: string; contentType?: string | string[]; body?: string; failBody?: boolean }): HostHttpRequest {
+function fakeRequest(init: { method?: string; url?: string; contentType?: string | string[]; body?: string; failBody?: boolean }): IncomingMessage {
     const listeners: Record<string, ((arg: never) => void)[]> = {}
     const req = {
         method: init.method ?? 'POST',
@@ -25,11 +26,11 @@ function fakeRequest(init: { method?: string; url?: string; contentType?: string
         if (init.body !== undefined) for (const listener of listeners.data ?? []) listener(Buffer.from(init.body) as never)
         for (const listener of listeners.end ?? []) listener(undefined as never)
     })
-    return req as unknown as HostHttpRequest
+    return req as unknown as IncomingMessage
 }
 
 /** 最小 node:http 响应桩：记录状态码与响应体 */
-function fakeResponse(): HostHttpResponse & { status: number; body: string | undefined } {
+function fakeResponse(): ServerResponse & { status: number; body: string | undefined } {
     const res = {
         status: 0,
         body: undefined as string | undefined,
@@ -41,7 +42,7 @@ function fakeResponse(): HostHttpResponse & { status: number; body: string | und
             res.body = body
         },
     }
-    return res
+    return res as unknown as ServerResponse & { status: number; body: string | undefined }
 }
 
 /** 造一个请求信封 JSON 体 */
@@ -72,7 +73,7 @@ export async function run(): Promise<void> {
     check('envelopeRpcId 非字符串回落占位', envelopeRpcId({ rpcId: 9 }) === 'invalid-request' && envelopeRpcId(null) === 'invalid-request' && envelopeRpcId('x') === 'invalid-request')
 
     // ---------- createChannelRoute ----------
-    const okHandler = async (endpoint: string, payload: unknown): Promise<RpcResult<unknown>> => ({ ok: true, value: { endpoint, payload } })
+    const okHandler = async (endpoint: string, payload: unknown): Promise<ConnectionRpcResult<unknown>> => ({ ok: true, value: { endpoint, payload } })
     const routeWith = (rejection: 401 | 403 | undefined, handler = okHandler) => createChannelRoute({ requestRejection: () => rejection }, CHANNEL, handler)
 
     const runRoute = async (rejection: 401 | 403 | undefined, init: Parameters<typeof fakeRequest>[0], handler?: typeof okHandler) => {

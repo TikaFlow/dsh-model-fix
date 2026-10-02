@@ -7,7 +7,7 @@ import {
     lookupEffort,
     sameSelection,
 } from '@/client/effort'
-import type { GroupLike } from '@/client/effort'
+import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { EffortMemory } from '@/shared/types'
 
 /** 执行本文件的全部用例 */
@@ -32,9 +32,9 @@ export function run(): void {
     check('applyEffort 不改入参', stable(before) === stable({ a: { m: 'low' } }) && after.a !== before.a)
 
     // ---------- advertisesEffort ----------
-    const groups: GroupLike[] = [
-        { id: 'a', models: [{ id: 'm1', reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } }] },
-        { id: 'b', models: [{ id: 'm2' }] },
+    const groups: ModelProviderGroup[] = [
+        { id: 'a', name: 'a', models: [{ id: 'm1', name: 'm1', reasoning: { efforts: [{ id: 'low', name: 'low' }, { id: 'high', name: 'high' }] } }] },
+        { id: 'b', name: 'b', models: [{ id: 'm2', name: 'm2' }] },
     ]
     check('advertisesEffort 命中', advertisesEffort(groups, 'a', 'm1', 'high') === true)
     check('advertisesEffort 不公告', advertisesEffort(groups, 'a', 'm1', 'xhigh') === false)
@@ -51,10 +51,10 @@ export function run(): void {
 
     // ---------- classifyTransition ----------
     const memory: EffortMemory = { a: { m1: 'high', m2: 'low' } }
-    const groupsWithM1: GroupLike[] = [
-        { id: 'a', models: [
-            { id: 'm1', reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } },
-            { id: 'm2', reasoning: { efforts: [{ id: 'low' }] } },
+    const groupsWithM1: ModelProviderGroup[] = [
+        { id: 'a', name: 'a', models: [
+            { id: 'm1', name: 'm1', reasoning: { efforts: [{ id: 'low', name: 'low' }, { id: 'high', name: 'high' }] } },
+            { id: 'm2', name: 'm2', reasoning: { efforts: [{ id: 'low', name: 'low' }] } },
         ] },
     ]
     // 既有用例的 defaultHigh 一律传 false（关掉新开关，行为与未引入该开关时一致）

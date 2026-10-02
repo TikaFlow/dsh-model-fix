@@ -1,7 +1,7 @@
 /**
  * 模型参数填充卡片（浏览器半）：1:1 复刻官方 Web-UI 插件卡的可折叠卡片。四个挂载席位（模型页 footer /
- * 插件配置页 li / 插件详情页 / 内置插件选项卡）共用本外壳，差异只有根元素（`as`）与折叠态策略
- * （`defaultOpen`：详情页与内置插件选项卡默认展开且保存后不自动收起，另两席默认收起、保存后自动收起）；
+ * 插件详情页 / 组件实例详情页 / 内置插件选项卡）共用同一外壳，差异只有折叠态策略
+ * （`defaultOpen`：三处详情席位默认展开且保存后不自动收起，footer 席默认收起、保存后自动收起）；
  * 详情页仍自绘自己的图标 / 面包屑 / 开关，卡片头部只管本卡。
  * 展开体为五张瓦片（顺序由 TILE_ORDER 单一分发）：布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 /
  * 用户体验）+ 动态集合瓦片（排除提供方，
@@ -18,9 +18,9 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactE
 // primitives 由宿主模块表注入
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 // scope 类型来自本项目的 ConfigForm decode 包装层
-import type { DecodedScope } from '@/client/scope.new'
+import type { DecodedScope } from '@/client/scope'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { RpcResult } from '@/shared/types'
+import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import { PLUGIN_NAME } from '@/shared/constants'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 
@@ -122,13 +122,11 @@ export interface CardProps {
     /** 宿主 llm-pi-ai 命名空间：只取 snapshot.user 的提供方 id，判定排除项是否命中 */
     providersScope: DecodedScope<readonly unknown[]>
     /** 强制更新 RPC：channel 与端点在入口拼好，卡片只消费结果 */
-    forceUpdate: () => Promise<RpcResult<unknown>>
+    forceUpdate: () => Promise<ConnectionRpcResult<unknown>>
     /** 重置推理级别 RPC：仅剔除模型上的 reasoningEfforts（最大上下文 / 输出上限 / 图片模态可在模型页自行设置，不清除；excludes 命中跳过），配置段原样保留；返回受影响的模型数 */
-    resetModels: () => Promise<RpcResult<unknown>>
+    resetModels: () => Promise<ConnectionRpcResult<unknown>>
     /** 恢复备份 RPC：回退启动时备份（交集 provider+model）到当前配置；返回被恢复的模型数 */
-    restoreModels: () => Promise<RpcResult<unknown>>
-    /** 根元素：插件配置席位把卡片渲在 `<ul>` 内须为 li（官方 PluginCard 同形；列表样式由 .dsh-mf-card 自清） */
-    as?: 'div' | 'li'
+    restoreModels: () => Promise<ConnectionRpcResult<unknown>>
     /** 初始折叠态：插件详情页（plugins.bundle.config）与「内置插件」选项卡（settings.plugins.tab）默认展开；另两席位不传即默认收起（与官方插件卡一致）。同时决定保存成功后是否自动收起——只在默认收起的席位上生效 */
     defaultOpen?: boolean
 }
@@ -475,8 +473,6 @@ export function Card(props: CardProps) {
     ensureStyles()
     const scope = props.scope
     const { t } = props
-    // 根元素由席位决定：模型页 footer 是普通块，插件配置页在 <ul> 内须为 li（官方 PluginCard 同形）
-    const Root = props.as ?? 'div'
     const snap = useSyncExternalStore(
         (listener) => scope.subscribe(listener),
         () => scope.getSnapshot(),
@@ -537,14 +533,14 @@ export function Card(props: CardProps) {
     // 配置服务不可用：保留静态外壳（无展开语义）便于发现与排查
     if (snap.status === 'unavailable') {
         return (
-            <Root className="dsh-mf-card">
+            <div className="dsh-mf-card">
                 <div className="dsh-mf-header dsh-mf-headerStatic">
                     <span className="dsh-mf-headText">
                         <span className="dsh-mf-name">{t('title')}</span>
                         <span className="dsh-mf-desc">{t('unavailable')}</span>
                     </span>
                 </div>
-            </Root>
+            </div>
         )
     }
 
@@ -864,7 +860,7 @@ export function Card(props: CardProps) {
     )
 
     return (
-        <Root className={open ? 'dsh-mf-card dsh-mf-cardOpen' : 'dsh-mf-card'}>
+        <div className={open ? 'dsh-mf-card dsh-mf-cardOpen' : 'dsh-mf-card'}>
             <button
                 type="button"
                 className="dsh-mf-header"
@@ -883,6 +879,6 @@ export function Card(props: CardProps) {
             {notices}
             {open ? <div className="dsh-mf-body">{body}</div> : null}
             {confirms}
-        </Root>
+        </div>
     )
 }
