@@ -11,7 +11,7 @@
  * 宿主 Modal 二次确认后经 Connection RPC 请求 Node 半。
  * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
- * 结果反馈一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）；不用宿主 Toast（官方设置面零调用）。
+ * 结果反馈一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）。
  */
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
@@ -27,7 +27,7 @@ import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 /** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标。 */
 type ChevronIcon = (props: { size?: number; className?: string }) => ReactElement
 const CHEVRON_DOWN: ChevronIcon = primitives.IconChevronDownOutlineRegular
-const { Button, Modal } = primitives
+const { Button, Modal, Switch, Tag, StateDot, IconTrashOutlineMedium } = primitives
 
 /** 项目仓库与反馈入口：README「安装 / 问题反馈」同源，改地址只改这两行 */
 const REPO_URL = 'https://github.com/TikaFlow/dsh-model-fix'
@@ -76,21 +76,6 @@ function IconIssue() {
         <svg className="dsh-mf-linkIcon" viewBox="0 0 16 16" width="16" height="16" aria-hidden>
             <path fill="currentColor" d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
             <path fill="currentColor" d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z" />
-        </svg>
-    )
-}
-
-/** 排除项删除钮：复刻官方 models 页自绘线稿 IconTrash（primitives 只有实心桶 IconTrashOutline16，观感更重且线稿版不导出）。 */
-function IconTrash() {
-    return (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-            <path
-                d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.7 9a1 1 0 001 .9h4.6a1 1 0 001-.9L12 4M6.5 6.8v4.4M9.5 6.8v4.4"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-            />
         </svg>
     )
 }
@@ -160,10 +145,9 @@ const STYLE_TEXT = [
     '.dsh-mf-desc{font-size:13px;line-height:1.5;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-chevron{flex:none;color:var(--dsw-alias-label-tertiary,#81858c);transition:transform .16s}',
     '.dsh-mf-chevronOpen{transform:rotate(180deg)}',
-    '.dsh-mf-pending{flex:none;border-radius:999px;corner-shape:round;padding:1px 8px;font-size:11px;line-height:17px;font-weight:500;white-space:nowrap;background:var(--dsw-alias-bg-module-platform,#f5f6f7);color:var(--dsw-alias-label-secondary,#61666b)}',
     // 展开体：左右内缩与 header 对齐；顶部 0.5px 分隔线隔开摘要与正文，12px 上边距撑开与瓦片的距离
     '.dsh-mf-body{margin:0 16px;padding:12px 0 8px;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));display:flex;flex-direction:column;gap:12px}',
-    // 状态行：内联承载一切结果反馈（官方设置面无 Toast）
+    // 状态行：内联承载一切结果反馈
     '.dsh-mf-notice{margin:0;padding:0 16px 12px;font-size:12px;line-height:18px}',
     '.dsh-mf-noticeSuccess{color:var(--dsw-alias-state-success-primary,#22c55e)}',
     '.dsh-mf-noticeError{color:var(--dsw-alias-state-error-primary,#ec1313)}',
@@ -189,23 +173,15 @@ const STYLE_TEXT = [
     '.dsh-mf-itemBody{border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));padding:10px 14px 12px;display:grid;gap:6px;background:var(--dsw-alias-bg-module-platform,#f5f6f7)}',
     '.dsh-mf-itemHint{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-itemRow{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,#0f1115)}',
-    // 「排除提供方」瓦片：状态胶囊与小绿点照官方「插件列表」项卡的 .configTag/.statusDot 体系
-    // （命中=success 10% 底 + 同色文字无边框，未命中=bg-layer-1 + label-secondary；点 7×7、在胶囊外）；
-    // 输入框照 ModelsSection 的 .input，删除钮照同页 .iconButton、字形照其自绘线稿 IconTrash
-    '.dsh-mf-count{flex:none;border-radius:5px;padding:1px 6px;font-size:11px;line-height:16px;white-space:nowrap;min-height:20px;display:inline-flex;align-items:center;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-secondary,#61666b)}',
-    '.dsh-mf-count[data-hit="true"]{background:color-mix(in srgb, var(--dsw-alias-state-success-primary,#22c55e) 10%, transparent);color:var(--dsw-alias-state-success-primary,#22c55e)}',
+    // 输入框照 ModelsSection 的 .input，删除钮照同页 .iconButton
     '.dsh-mf-input{box-sizing:border-box;width:100%;height:32px;padding:0 10px;border:0.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#0f1115);font:inherit;font-size:14px;line-height:22px}',
     '.dsh-mf-input:focus{border-color:var(--dsw-alias-brand-primary,#0f1115);outline:none}',
     '.dsh-mf-input::placeholder{color:var(--dsw-alias-label-dimmed,#e1e5ee)}',
     '.dsh-mf-input:disabled{opacity:.6;cursor:default}',
     '.dsh-mf-fieldError{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313)}',
-    // 一行一项：状态点在胶囊外（官方 trailing 是 [PhaseDot][StateTag] 兄弟节点）；删除钮 margin-left:auto 贴右成列
+    // 一行一项：状态点在胶囊外（官方 trailing 同为 [点][胶囊] 兄弟节点）；删除钮 margin-left:auto 贴右成列
     '.dsh-mf-tagRow{position:relative;display:flex;align-items:center;gap:7px;min-width:0}',
-    '.dsh-mf-tag{min-width:0;display:inline-flex;align-items:center;gap:6px;border-radius:5px;padding:1px 6px;font-size:11px;line-height:16px;min-height:20px;white-space:nowrap;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-secondary,#61666b)}',
-    '.dsh-mf-tag[data-hit="true"]{background:color-mix(in srgb, var(--dsw-alias-state-success-primary,#22c55e) 10%, transparent);color:var(--dsw-alias-state-success-primary,#22c55e)}',
     '.dsh-mf-tagText{min-width:0;overflow:hidden;text-overflow:ellipsis}',
-    // 命中的第二信号（不只靠颜色）：照官方 .statusDot 的 7px 圆点（data-phase=active 同款 success 色）
-    '.dsh-mf-tagDot{flex:none;width:7px;height:7px;display:inline-block;border-radius:999px;corner-shape:round;background:var(--dsw-alias-state-success-primary,#22c55e)}',
     '.dsh-mf-remove{box-sizing:border-box;flex:none;width:28px;height:28px;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;padding:0;border:none;border-radius:6px;background:0 0;color:var(--dsw-alias-label-tertiary,#81858c);cursor:pointer}',
     '.dsh-mf-remove:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-primary,#0f1115)}',
     '.dsh-mf-remove:disabled{cursor:default;opacity:.4}',
@@ -213,19 +189,6 @@ const STYLE_TEXT = [
     '.dsh-mf-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
     '@media (max-width:680px){.dsh-mf-items{grid-template-columns:minmax(0,1fr)}}',
     '@media (prefers-reduced-motion:reduce){.dsh-mf-itemChevron{transition:none}}',
-    // 开关：逐字复刻 primitives 的 Switch.module.css（官方设置面无 on/off 开关，该 CSS 是规格唯一
-    // 权威；组件本体 0.2.0 线起才导出、peer 下限无此符号，故不自用；轨道无过渡）
-    // 滑块分态取色：关闭态读专用令牌 switch-thumb（深色下 neutral-bluish-400 中灰——关闭态轨道是
-    // 中性灰 border-l3，需要比轨道更亮的滑块，纯白在暗色下过亮故不用反色令牌）；开启态仍读
-    // label-primary-foreground（开启态轨道是 brand-primary，滑块必须与轨道反色相抗——全局换成
-    // switch-thumb 会让深色下「近白轨道 + 中灰滑块」对比反被拉低）。fallback 逐层退回，新令牌
-    // 不存在的旧宿主保持原取值。
-    '.dsh-mf-switch{box-sizing:border-box;position:relative;flex:0 0 auto;width:36px;height:20px;padding:2px;border:0;border-radius:10px;background:var(--dsw-alias-border-l3,rgba(0,0,0,.12));cursor:pointer}',
-    '.dsh-mf-switch[aria-checked="true"]{background:var(--dsw-alias-brand-primary,#0f1115)}',
-    '.dsh-mf-switch:disabled{cursor:default;opacity:.5}',
-    '.dsh-mf-thumb{display:block;width:16px;height:16px;border-radius:50%;corner-shape:round;background:var(--dsw-alias-label-primary-foreground,#fff);transition:transform 120ms ease}',
-    '.dsh-mf-switch[aria-checked="false"] .dsh-mf-thumb{background:var(--dsw-alias-switch-thumb,var(--dsw-alias-label-primary-foreground,#fff))}',
-    '.dsh-mf-switch[aria-checked="true"] .dsh-mf-thumb{transform:translateX(16px)}',
     '.dsh-mf-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 0 0;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1))}',
     '.dsh-mf-actions{display:flex;align-items:center;gap:8px}',
     // footer 三把按钮共用官方 .discard/.save 基座；危险键按官方语义为红字透明底（无实心红先例）
@@ -274,23 +237,6 @@ function truncateMessage(value: string): string {
     return value.length > 120 ? `${value.slice(0, 119)}…` : value
 }
 
-/** 自绘开关（宿主无 Switch 原语，官方插件卡同样自绘 role="switch"，结构与取值逐字对齐） */
-function Switch(props: { checked: boolean; disabled: boolean; aria: string; onChange: () => void }) {
-    return (
-        <button
-            type="button"
-            role="switch"
-            aria-checked={props.checked}
-            aria-label={props.aria}
-            disabled={props.disabled}
-            className="dsh-mf-switch"
-            onClick={props.onChange}
-        >
-            <span className="dsh-mf-thumb" />
-        </button>
-    )
-}
-
 /** 配置组瓦片（官方「插件列表」项卡同款）：summary 为组名 + 整组开关 + 折叠箭头，展开体为组释义 + 子开关行；
  * 整行可点由 .dsh-mf-itemToggle 覆盖层承担（无 button 嵌套），可访问名用 aria-labelledby 指向可见标题。 */
 function GroupTile(props: {
@@ -319,14 +265,13 @@ function GroupTile(props: {
                 />
                 <strong className="dsh-mf-itemTitle" id={`${id}-title`}>{title}</strong>
                 <span className="dsh-mf-itemTrailing">
-                    <span className="dsh-mf-itemSwitch">
-                        <Switch
-                            checked={masterValue(props.flags, group)}
-                            disabled={props.disabled}
-                            aria={`${title} ${t('masterAll')}`}
-                            onChange={props.onMaster}
-                        />
-                    </span>
+                    <Switch
+                        className="dsh-mf-itemSwitch"
+                        checked={masterValue(props.flags, group)}
+                        disabled={props.disabled}
+                        label={`${title} ${t('masterAll')}`}
+                        onChange={props.onMaster}
+                    />
                     <CHEVRON_DOWN size={12} className="dsh-mf-itemChevron" />
                 </span>
             </div>
@@ -339,7 +284,7 @@ function GroupTile(props: {
                             <Switch
                                 checked={groupValue(props.flags, group, key)}
                                 disabled={props.disabled}
-                                aria={`${t(ROW_KEYS[key])} ${title}`}
+                                label={`${t(ROW_KEYS[key])} ${title}`}
                                 onChange={() => { props.onCell(key) }}
                             />
                         </div>
@@ -405,11 +350,11 @@ function ExcludesTile(props: {
                 />
                 <strong className="dsh-mf-itemTitle" id={`${id}-title`}>{title}</strong>
                 <span className="dsh-mf-itemTrailing">
-                    {/* 官方 trailing 结构：[状态点][状态胶囊]，点在胶囊外；summary 的点纯装饰（徽标文字已带语义，读屏不重复播报） */}
-                    {props.hits.size > 0 ? <span className="dsh-mf-tagDot" aria-hidden /> : null}
-                    <span className="dsh-mf-count" data-hit={props.hits.size > 0 ? 'true' : undefined}>
+                    {/* 官方 trailing 结构：[状态点][状态胶囊]，点在胶囊外；summary 的点纯装饰（StateDot 自带 aria-hidden，徽标文字已带语义） */}
+                    {props.hits.size > 0 ? <StateDot state="done" size={7} /> : null}
+                    <Tag tone={props.hits.size > 0 ? 'success' : 'neutral'}>
                         {t('excludeHits', { count: props.hits.size })}
-                    </span>
+                    </Tag>
                     <CHEVRON_DOWN size={12} className="dsh-mf-itemChevron" />
                 </span>
             </div>
@@ -444,11 +389,11 @@ function ExcludesTile(props: {
                         return (
                             <div key={excluded} className="dsh-mf-tagRow">
                                 {/* 官方结构：trailing 是 [状态点][状态胶囊] 两个兄弟节点，点在胶囊外面不进底色 */}
-                                {hit ? <span className="dsh-mf-tagDot" role="img" aria-label={stateText} title={stateText} /> : null}
-                                <span className="dsh-mf-tag" data-hit={hit ? 'true' : undefined}>
+                                {hit ? <StateDot state="done" size={7} /> : null}
+                                <Tag tone={hit ? 'success' : 'neutral'}>
                                     <span className="dsh-mf-tagText">{excluded}</span>
-                                </span>
-                                {/* 命中状态不能只靠颜色传达：圆点带读屏名，行内再留一份状态文案 */}
+                                </Tag>
+                                {/* 命中状态不能只靠颜色传达：StateDot 恒 aria-hidden，行内另留一份读屏状态文案 */}
                                 <span className="dsh-mf-hidden">{stateText}</span>
                                 <button
                                     type="button"
@@ -457,7 +402,7 @@ function ExcludesTile(props: {
                                     disabled={props.disabled}
                                     onClick={() => { props.onRemove(excluded) }}
                                 >
-                                    <IconTrash />
+                                    <IconTrashOutlineMedium size={14} />
                                 </button>
                             </div>
                         )
@@ -873,7 +818,7 @@ export function Card(props: CardProps) {
                     <span className="dsh-mf-desc">{t('description')}</span>
                 </span>
                 {/* 胶囊挂在 header：收起态也要说明卡里存着未落盘的编辑 */}
-                {dirty ? <span className="dsh-mf-pending">{t('unsaved')}</span> : null}
+                {dirty ? <Tag tone="neutral">{t('unsaved')}</Tag> : null}
                 <CHEVRON_DOWN className={open ? 'dsh-mf-chevron dsh-mf-chevronOpen' : 'dsh-mf-chevron'} />
             </button>
             {notices}
