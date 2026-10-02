@@ -8,7 +8,7 @@ DSH[（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness) 插
 
 ![插件管理界面](screenshots/dual.png)
 
-[更多截图](screenshot/)
+[更多截图](screenshots/)
 
 ## 功能
 
@@ -28,9 +28,8 @@ DSH[（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness) 插
 
 - 入口：
   - 「设置」-->「模型」-->「模型参数填充」卡片
-  - 「设置」-->「插件」-->「插件配置」-->「模型参数填充」卡片（DSH < `0.1.6-alpha.2`）
   - 「设置」-->「内置插件」-->「模型填充」选项卡-->「模型参数填充」卡片（此处卡片默认展开）
-  - 「插件」-->「已安装」-->「模型参数填充」详情页（DSH >= `0.1.6-alpha.2`；此处卡片默认展开）
+  - 「插件」-->「已安装」-->「模型参数填充」详情页（此处卡片默认展开）
   - 「插件」-->「已安装」-->「模型参数填充」详情页-->「包含的组件」-->「dsh-model-fix」
 
 ## 安装
