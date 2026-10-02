@@ -84,7 +84,7 @@ export function planRestore(
 
 /**
  * 恢复备份：把各共有 provider 中共有 model 回退到启动时备份值（交集语义，见 planRestore）。
- * 事件流守卫全程打开，写回触发的 settings/updated 事件被入口判定拦下，不会反向触发填充。
+ * 事件流守卫全程打开，写回触发的 settings/document-updated 事件被入口判定拦下，不会反向触发填充。
  * 返回被恢复的模型数；写失败先告警再抛出，由调用方转 RPC 失败结果。
  */
 export async function restoreModels(ctx: Context): Promise<number> {

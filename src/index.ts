@@ -2,7 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { readCache, setCatalog } from '@/catalog'
 import { PLUGIN_NS, API_NS, PLUGIN_NAME } from '@/shared/constants'
-import { DEFAULT_SECTION, SectionSchema, resolveConfig, setConfigSource } from '@/config'
+import { resolveConfig, setConfigSource } from '@/config'
 import { migrateConfig, selfHealConfig } from '@/migrate'
 import { refreshIfStale } from '@/refresh'
 import { installRpc } from '@/rpc'
@@ -14,13 +14,10 @@ export const name = PLUGIN_NAME
 export const inject = ['settings', 'connection']
 
 /**
- * 0.1.7+ 宿主的 Config schema 面：宽松任意值（「比当前代码更新的版本快照」也能通过注册校验）+
- * 根 `.volatile()`（纯 schema 元数据）——后者使宿主把整段作为实时引用注入 apply 第二参（每次 `.get()` 取当前值）；
- * 旧宿主 schemastery 无 `.volatile` 即按原样解析，行为不变。
+ * 宿主 Config schema 面：宽松任意值（「比当前代码更新的版本快照」也能通过注册校验）+
+ * 根 `.volatile()`（纯 schema 元数据）——后者使宿主把整段作为实时引用注入 apply 第二参（每次 `.get()` 取当前值）。
  */
-const LooseConfig = z.any() as z & { volatile?: () => z }
-export const Config: typeof SectionSchema =
-    typeof LooseConfig.volatile === 'function' ? LooseConfig.volatile() : LooseConfig
+export const Config = z.any().volatile()
 
 /** 吞掉 fix 写回失败的 rejection（失败日志已在 fix 内告警，避免未处理拒绝） */
 const swallowFixError = (): void => {}
@@ -48,50 +45,26 @@ function refillAfterApiChange(ctx: Context, disposed: () => boolean): void {
         .catch(swallowFixError)
 }
 
-// ---------- 两个宿主代际的接线：全部差异仅此两函数（配置源 + 段变更事件） ----------
-
-/** 0.1.6 及更早宿主：installSection 注册命名空间，段变更走 settings/updated
- * （attach 同步触发的一次 onChange 时目录未就绪，fix 空转无害）。 */
-function wireLegacyHost(ctx: Context, disposed: () => boolean): void {
-    ctx.settings.installSection(ctx, PLUGIN_NS, SectionSchema, DEFAULT_SECTION, {
-        setSource: (current) => { setConfigSource(() => resolveConfig(current())) },
-        onChange: () => refillAfterOwnChange(ctx),
-    })
-    ctx.on('settings/updated', (ns) => {
-        if (ns !== API_NS) return
-        refillAfterApiChange(ctx, disposed)
-    })
-}
-
-/** 0.1.7+ 宿主：配置源取 apply 第二参的实时引用——.get() 必须在工厂内、不得在 apply 时刻取走，
- * 否则卡片保存后的新值读不进来；段变更走 settings/document-updated（0.1.7 唯一段级事件），按 ns 分流。 */
-function wireModernHost(ctx: Context, config: unknown, disposed: () => boolean): void {
-    setConfigSource(() => resolveConfig(readVolatile(config)))
-    ctx.on('settings/document-updated', (ns) => {
-        if (ns === PLUGIN_NS) refillAfterOwnChange(ctx)
-        else if (ns === API_NS) refillAfterApiChange(ctx, disposed)
-    })
-}
-
 /** 实时取当前段：根 volatile 下 config 为引用包装，.get() 每次返回最新解析值 */
 function readVolatile(config: unknown): unknown {
     const value = config as { get?: () => unknown }
     return typeof value?.get === 'function' ? value.get() : config
 }
 
-/** 入口：单一编排体（备份 → 代际接线 → RPC → 启动链）；代际差异收敛在两个 wire 函数，
- * 按 installSection 是否存在同步分叉（反向调用在对方宿主上同步失败，必须分叉）。 */
+/** 入口：单一编排体（备份 → 配置源与段变更接线 → RPC → 启动链） */
 export function apply(ctx: Context, config?: unknown): void {
     // 插件级卸载标记：启动链与事件驱动的异步续体都据此中止，卸载后不触碰已销毁上下文
     let disposed = false
-    // 备份仅此一次，且必须早于一切写回（两代接线都会起异步 fix）——晚了备份的就是被填充过的内容；
+    // 备份仅此一次，且必须早于一切写回（接线即起异步 fix）——晚了备份的就是被填充过的内容；
     // 此刻注册与文档装载都先于 apply，describe() 已含 API_NS，必可读
     captureBackup(ctx)
-    if (typeof (ctx.settings as { installSection?: unknown }).installSection === 'function') {
-        wireLegacyHost(ctx, () => disposed)
-    } else {
-        wireModernHost(ctx, config, () => disposed)
-    }
+    // 配置源取 apply 第二参的实时引用——.get() 必须在工厂内、不得在 apply 时刻取走，
+    // 否则卡片保存后的新值读不进来；段变更走 settings/document-updated（0.1.7 唯一段级事件），按 ns 分流
+    setConfigSource(() => resolveConfig(readVolatile(config)))
+    ctx.on('settings/document-updated', (ns) => {
+        if (ns === PLUGIN_NS) refillAfterOwnChange(ctx)
+        else if (ns === API_NS) refillAfterApiChange(ctx, () => disposed)
+    })
     // 浏览器半「强制更新 / 重置推理级别 / 恢复备份」RPC channel（结果经 RpcResult 回传卡片）
     installRpc(ctx)
     // 首轮：迁移 → 缓存 → 填充 → 异步刷新（refreshIfStale 的 ts 初始 0 必过期 ⇒ 启动必拉取），

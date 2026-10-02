@@ -1,13 +1,10 @@
 /**
- * 浏览器半入口（dsh.client 声明的 web 侧 cordis 插件）。宿主 settings 面两代互斥——
- * 0.1.6 及更早的 ctx.settingsScope 与 0.1.7+ 的 ctx.configForms，恰有一个存在 ⇒
- * 两个 ctx.inject 子 fiber 各挂一代（缺席者永久 PENDING 空转，无报错）。
- * 编排体 boot 两代共用：0.1.7 路径经 makeScope 把 ConfigForm 适配为 SettingsScope，
- * 0.1.6 路径原栈 bind；卡片 / 排除命中判定 / 记忆监听两代零差别。
- * 五个席位两代全注册、无需按代际取子集：`ctx.slots.inject` 对无声明方的席位只挂一个
- * pending wait（声明到达才跑回调，fiber 卸载即取消），故缺席者静默不发生（卡片不出现），
- * 这正是 0.1.7+ 上 `settings.plugin.item` 的情形。SlotMap 键经 models 包 declaration
- * merging 与本地 slot-contract.ts 提供；类型边全部 type-only（构建期擦除）。
+ * 浏览器半入口（dsh.client 声明的 web 侧 cordis 插件）。宿主 settings 面为 0.1.7+ 的
+ * ctx.configForms，经 makeScope 包装（decode 缓存语义）后供卡片与记忆监听消费。
+ * 五个席位一律注册：`ctx.slots.inject` 对无声明方的席位只挂一个 pending wait（声明到达
+ * 才跑回调，fiber 卸载即取消），故缺席者静默不发生（卡片不出现），这正是 `settings.plugin.item`
+ * 的情形。SlotMap 键经 models 包 declaration merging 与本地 slot-contract.ts 提供；
+ * 类型边全部 type-only（构建期擦除）。
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -15,70 +12,56 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // ctx.locale 服务面
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// ctx.settingsScope 服务面（0.1.6 及更早）
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// ctx.configForms 服务面 + ConfigForm 类型
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 // SlotMap 的 'settings.models.footer' 键声明合并
 import type {} from '@deepseek-ai/dsh-client-ui-settings-models/client'
-// SlotMap 的 'plugins.bundle.config'（0.1.6+）与 'settings.plugin.item'（0.1.2 系列）键声明（本地结构复制）
+// SlotMap 的 'plugins.bundle.config' 与 'settings.plugin.item' 键声明（本地结构复制）
 import type {} from '@/client/slot-contract'
 // Connection RPC call 切片的结构复制（宿主包未装依赖；取服务沿用宿主 ui-settings-general 的 ctx.get 断言范式）
 import type { ClientRpcCall } from '@/shared/types'
 import { Card } from '@/client/card'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { CARD_NS, en, zh } from '@/client/locales'
 import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS } from '@/shared/constants'
 import { VERSION_KEY, decodeSection } from '@/client/model'
 import type { Flags } from '@/client/model'
 import { applyEffort, classifyTransition, sameSelection } from '@/client/effort'
 import type { ModelDirectoriesLike, SelectionLike, SessionsLike } from '@/client/effort'
-import { makeScope, type ConfigFormLike } from '@/client/scope.new'
+import { makeScope, type DecodedScope } from '@/client/scope.new'
 
 /** 提供方 scope 的解码占位值：本卡只消费 snapshot.user（原始用户层），value 无用途；decode 必须永不返回 undefined */
 const PROVIDERS_VIEW: readonly unknown[] = []
 
 export const name = PLUGIN_NAME
-// 标记服务不进父级 inject：父 fiber 在缺席代际上会永久 PENDING，卡死整条插件链
 export const inject = ['slots', 'locale', 'connection']
 
 export function apply(ctx: ClientContext): void {
-    // 0.1.7+：configForms 存在 ⇒ 本 fiber 激活，新代 scope 适配后走 boot
+    // 宿主 get 只收一个 entryId 参数（无 decode spec），段值解码由 makeScope 的 decode 完成
     ctx.inject(['configForms'], (child) => {
-        // 宿主 get 只收一个 entryId 参数（无 decode spec），段值解码由 makeScope 的 decode 完成
-        const configForms = child.get('configForms') as {
-            get: (ns: string) => ConfigFormLike
-        }
+        const configForms = child.get('configForms') as { get: (ns: string) => ConfigForm<unknown> }
         boot(ctx,
             makeScope(configForms.get(MODEL_FIX_NS), decodeSection),
             makeScope(configForms.get(PI_AI_NS), () => PROVIDERS_VIEW),
         )
     })
-    // 0.1.6 及更早：settingsScope 存在 ⇒ 本 fiber 激活，原栈 scope 直绑后走 boot
-    ctx.inject(['settingsScope'], (child) => {
-        const settingsScope = child.settingsScope
-        boot(ctx,
-            settingsScope.bind<Flags>({ namespace: MODEL_FIX_NS, decode: decodeSection }),
-            settingsScope.bind<readonly unknown[]>({ namespace: PI_AI_NS, decode: () => PROVIDERS_VIEW }),
-        )
-    })
 }
 
 /**
- * 两代宿主共用的编排体：词典注册、RPC 载体、席位注册、记忆监听子 fiber。
+ * 编排体：词典注册、RPC 载体、席位注册、记忆监听子 fiber。
  * @param ctx - 父 fiber 的 ctx：共享编排一律在其上执行（ctx.<name> 属性读要求本 fiber
  *   声明过 inject，子 fiber 只声明了标记服务；子 ctx 只用于构造 scope）
- * @param scope - 本插件命名空间的 SettingsScope（卡片与记忆监听消费）
- * @param providersScope - llm-pi-ai 命名空间的 SettingsScope（只消费 user 层的提供方 id）
+ * @param scope - 本插件命名空间的 decode 后段视图（卡片与记忆监听消费）
+ * @param providersScope - llm-pi-ai 命名空间的 decode 后段视图（只消费 user 层的提供方 id）
  */
 function boot(
     ctx: ClientContext,
-    scope: SettingsScope<Flags> & { dispose?: () => void },
-    providersScope: SettingsScope<readonly unknown[]> & { dispose?: () => void },
+    scope: DecodedScope<Flags>,
+    providersScope: DecodedScope<readonly unknown[]>,
 ): void {
     // 词典注册返回 disposer；经 effect 挂载，卸载/HMR 时自动撤销
     ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), `${name}: card dictionaries`)
-    // 适配器 scope（0.1.7 路径）的 form 订阅释放挂入本 fiber；0.1.6 宿主 scope 无 dispose（可选链跳过）
-    const disposables = [scope.dispose?.bind(scope), providersScope.dispose?.bind(providersScope)].filter(Boolean) as Array<() => void>
-    if (disposables.length) ctx.effect(() => () => { for (const dispose of disposables.splice(0)) dispose() }, `${name}: scope disposal`)
+    // scope 的 form 订阅释放挂入本 fiber
+    ctx.effect(() => () => { scope.dispose(); providersScope.dispose() }, `${name}: scope disposal`)
     // RPC channel 与 src/rpc.ts 的 `/${PLUGIN_NS}` 同源（同取 PLUGIN_NS 常量）；endpoint 名须与 rpc.ts 两侧同步
     const rpc = (ctx.get('connection') as { rpc: { call: ClientRpcCall } }).rpc
     const forceUpdate = () => rpc.call(`/${MODEL_FIX_NS}`, 'forceUpdate', {})

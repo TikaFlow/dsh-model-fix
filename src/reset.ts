@@ -55,7 +55,7 @@ export function planResetModels(config: PluginConfig, providers: Record<string, 
  * 重置全部推理级别：剔除各非排除 provider 模型上的 reasoningEfforts，其余模型字段
  * （含可在模型页自行设置的最大上下文 / 输出上限 / 图片模态）、用户自定义字段与配置段
  * （开关）原样保留——重置后修改配置仍按原开关触发填充。事件流守卫全程打开，写回触发的
- * settings/updated 事件被入口判定拦下，不会反向触发填充。
+ * settings/document-updated 事件被入口判定拦下，不会反向触发填充。
  * 返回受影响（至少剔除一个推理级别）的模型数；写失败先告警再抛出，由调用方转 RPC 失败结果。
  */
 export async function resetModels(ctx: Context): Promise<number> {

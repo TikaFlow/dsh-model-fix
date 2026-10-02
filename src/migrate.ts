@@ -355,7 +355,7 @@ export function canonicalizeCurrentOp(section: VersionedSection | undefined): Se
 
 /**
  * 0.1.7 现代栈下本插件 Config schema 命名空间由宿主 Loader 异步登记，晚于 apply——启动时 describe() 可能尚未含本 NS。
- * 有界轮询等待其出现后再迁移（dsh-settings 无"命名空间注册"事件或 ready promise，settings/document-updated 只在 RAW 段变更时发、且 provider 首次 publish 早于本插件 apply 故监听器错过）。旧栈（installSection）同步注册，首轮即命中、零等待。
+ * 有界轮询等待其出现后再迁移（dsh-settings 无"命名空间注册"事件或 ready promise，settings/document-updated 只在 RAW 段变更时发、且 provider 首次 publish 早于本插件 apply 故监听器错过）。
  */
 const MIGRATE_POLL_MS = 50
 const MIGRATE_WAIT_MS = 2000

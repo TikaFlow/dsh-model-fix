@@ -9,25 +9,24 @@
  * footer 左侧强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）、右侧放弃修改（仅未保存时渲染）/
  * 保存；三把写回键弹
  * 宿主 Modal 二次确认后经 Connection RPC 请求 Node 半。
- * 编辑只改本地草稿，「保存」才经 settingsScope 原子写当前版本快照键（efforts 取写入当刻实时值，
+ * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
  * 结果反馈一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）；不用宿主 Toast（官方设置面零调用）。
  */
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
-// primitives 由宿主模块表注入；chevron 图标随宿主代际改名（见 CHEVRON_DOWN）
+// primitives 由宿主模块表注入
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+// scope 类型来自本项目的 ConfigForm decode 包装层
+import type { DecodedScope } from '@/client/scope.new'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RpcResult } from '@/shared/types'
 import { PLUGIN_NAME } from '@/shared/constants'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 
-/** 瓦片 chevron：宿主 0.1.7 起该组件改名（旧名 IconChevronDownOutline14 已删除），按当前宿主实有符号取用（props 两代同形）。 */
+/** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标。 */
 type ChevronIcon = (props: { size?: number; className?: string }) => ReactElement
-const CHEVRON_DOWN: ChevronIcon =
-    primitives.IconChevronDownOutline14
-    ?? (primitives as typeof primitives & { IconChevronDownOutlineRegular?: ChevronIcon }).IconChevronDownOutlineRegular
+const CHEVRON_DOWN: ChevronIcon = primitives.IconChevronDownOutlineRegular
 const { Button, Modal } = primitives
 
 /** 项目仓库与反馈入口：README「安装 / 问题反馈」同源，改地址只改这两行 */
@@ -119,9 +118,9 @@ const TILE_ORDER: readonly (Group | 'excludes')[] = ['autoFill', 'allowUpdate', 
 /** 卡片组件 props（t 由 slots.register 的 locale 席位合成注入；scope/forceUpdate 由入口闭包传入） */
 export interface CardProps {
     t: TranslateNS<'settings.modelFix'>
-    scope: SettingsScope<Flags>
+    scope: DecodedScope<Flags>
     /** 宿主 llm-pi-ai 命名空间：只取 snapshot.user 的提供方 id，判定排除项是否命中 */
-    providersScope: SettingsScope<readonly unknown[]>
+    providersScope: DecodedScope<readonly unknown[]>
     /** 强制更新 RPC：channel 与端点在入口拼好，卡片只消费结果 */
     forceUpdate: () => Promise<RpcResult<unknown>>
     /** 重置推理级别 RPC：仅剔除模型上的 reasoningEfforts（最大上下文 / 输出上限 / 图片模态可在模型页自行设置，不清除；excludes 命中跳过），配置段原样保留；返回受影响的模型数 */
@@ -478,7 +477,6 @@ export function Card(props: CardProps) {
     const { t } = props
     // 根元素由席位决定：模型页 footer 是普通块，插件配置页在 <ul> 内须为 li（官方 PluginCard 同形）
     const Root = props.as ?? 'div'
-    // scope 的方法是类实例方法，须经箭头函数保 this 绑定后交给 uSES
     const snap = useSyncExternalStore(
         (listener) => scope.subscribe(listener),
         () => scope.getSnapshot(),

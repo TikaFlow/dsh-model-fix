@@ -1,15 +1,8 @@
-import z from '@deepseek-ai/schemastery'
 import { MIN_SUPPORTED_VERSION } from '@/constants'
 import { CONFIG_VERSION } from '@/shared/constants'
-import type { PluginConfig, VersionedSection } from '@/shared/types'
+import type { PluginConfig } from '@/shared/types'
 import { isPlainObject } from '@/shared/types'
 import { DEFAULT_CONFIG, parseSnapshot, parseVersion } from '@/shared/parse'
-
-/** 命名空间下的默认段值（版本快照容器） */
-export const DEFAULT_SECTION: VersionedSection = {}
-
-/** 命名空间整段的 schema：宽松字典，保证比当前代码更新的版本快照也能通过注册校验 */
-export const SectionSchema: z<VersionedSection> = z.dict(z.any())
 
 /**
  * 从版本快照段解析运行时配置：优先当前版本；否则取所有版本中 ≥ 最低支持的最高可解析快照
@@ -30,10 +23,10 @@ export function resolveConfig(section: unknown): PluginConfig {
     return best?.config ?? DEFAULT_CONFIG
 }
 
-// 生效配置源：ctx.settings.installSection 的 setSource 挂上 scope 后指向命名空间，否则回退默认
+// 生效配置源：index.ts 的 apply 挂上 Config 实时引用后指向命名空间，否则回退默认
 let configSource: () => PluginConfig = () => DEFAULT_CONFIG
 
-/** 挂载配置读取来源（由 index.ts 的 installSection setSource 调用） */
+/** 挂载配置读取来源（由 index.ts 的 apply 接线调用） */
 export function setConfigSource(current: () => PluginConfig): void {
     configSource = current
 }
