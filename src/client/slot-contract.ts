@@ -1,5 +1,5 @@
 /**
- * 本插件三个配置席位中两个的 SlotMap 键（本地结构复制，type-only，构建期擦除）：
+ * 本插件配置席位中两个的 SlotMap 键（本地结构复制，type-only，构建期擦除）：
  * - `plugins.bundle.config`（0.1.6+ 插件管理页「已安装」组里本 bundle 详情页的配置段）原声明在
  *   @deepseek-ai/dsh-client-ui-plugin-manager，该包不在宿主模块表基线内（值导入会被构建纯度门禁拦下、
  *   运行期 require 亦不命中）⇒ 不引依赖、本地复制；
@@ -9,6 +9,8 @@
  * 两处与宿主 dsh-client-ui-plugin-manager 及 dsh-client-ui-settings-plugins@0.1.2-rc.1 的
  * lib/types/client/slot-contract.d.ts 逐字对齐，升宿主须复核。
  * 旧席位在新宿主上因无声明方而经 slots.inject 空转（卡片不出现），属预期。
+ * （`settings.plugins.tab` 键由 @deepseek-ai/dsh-client-ui-settings 的 contract/slots.d.ts 声明，
+ * 入口已 type-only 引入该包，无需本地复制。）
  */
 
 import type {} from '@deepseek-ai/dsh-client-ui-slots'

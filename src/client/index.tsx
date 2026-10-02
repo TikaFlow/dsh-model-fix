@@ -36,9 +36,9 @@ import { makeScope, type ConfigFormLike } from '@/client/scope.new'
 const PROVIDERS_VIEW: readonly unknown[] = []
 
 /** 席位名：0.1.7+ 注册的两个（settings.plugin.item 自 0.1.6 起无宿主声明者，不注册） */
-const SEATS_NEW: readonly string[] = ['settings.models.footer', 'plugins.bundle.config']
+const SEATS_NEW: readonly string[] = ['settings.models.footer', 'plugins.bundle.config', 'settings.plugins.tab']
 /** 席位名：0.1.6 及更早的全量（「插件」选项卡的卡 0.1.5 及更早宿主继续可出现，0.1.6 上该席位空转） */
-const SEATS_ALL: readonly string[] = ['settings.models.footer', 'settings.plugin.item', 'plugins.bundle.config']
+const SEATS_ALL: readonly string[] = ['settings.models.footer', 'settings.plugin.item', 'plugins.bundle.config', 'settings.plugins.tab']
 
 export const name = PLUGIN_NAME
 // 标记服务不进父级 inject：父 fiber 在缺席代际上会永久 PENDING，卡死整条插件链
@@ -125,6 +125,18 @@ function boot(
         ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
             name: 'plugins.bundle.config',
             key: name,
+            locale: CARD_NS,
+        }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
+    }
+    if (seats.includes('settings.plugins.tab')) {
+        // 「设置 → 内置插件」的 tablist（list 席位，面板即本卡）：与官方「插件列表」tab 同级并排。
+        // tab label 走 thunk，section 每次读账本时求值、切语言即跟随
+        const t = ctx.locale.bind(CARD_NS)
+        ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
+            name: 'settings.plugins.tab',
+            id: MODEL_FIX_NS,
+            order: 20,
+            label: () => t('tabLabel'),
             locale: CARD_NS,
         }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
     }
