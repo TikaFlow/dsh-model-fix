@@ -6,7 +6,7 @@
  * 展开体为五张瓦片（顺序由 TILE_ORDER 单一分发）：布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 /
  * 用户体验）+ 动态集合瓦片（排除提供方，
  * summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）。瓦片手风琴：默认收起、同时只开一个。
- * footer 左侧强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）、右侧放弃修改（仅未保存时渲染）/
+ * footer 左侧强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）、右侧取消（仅未保存时渲染）/
  * 保存；三把写回键弹
  * 宿主 Modal 二次确认后经 Connection RPC 请求 Node 半。
  * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
@@ -125,9 +125,10 @@ interface Notice {
 const STYLE_ID = 'dsh-model-fix-card-css'
 
 /**
- * 内嵌样式表（类名 dsh-mf- 前缀防撞）。取值逐条照官方同类组件：外层卡＝ui-settings-plugins 的
- * PluginCard；内层瓦片＝ui-settings-plugin-inventory 的插件列表项卡（本卡是可展开的设置卡，
- * 与不可展开的 provider 行 .rowCard 非同类，不作基准）。颜色一律只用 --dsw-alias-* 令牌，
+ * 内嵌样式表（类名 dsh-mf- 前缀防撞）。取值逐条照官方同类组件：外层卡＝旧版宿主
+ * 「设置 → 插件 → 内置插件」的插件卡；内层瓦片＝旧版宿主「设置 → 插件 → 插件列表」的
+ * 插件行卡——两处基准均取旧版观感（用户裁定），未跟随 0.1.7-rc.2 现行插件清单卡改用
+ * settings-card 令牌族的改版。颜色一律只用 --dsw-alias-* 令牌，
  * 字面量仅作令牌缺失时的浅色守卫（取宿主主题 design-platform.css 真值）；官方源码引用但主题
  * 未定义的令牌（label-error、bg-layer-4）禁止照抄。
  */
@@ -173,17 +174,17 @@ const STYLE_TEXT = [
     '.dsh-mf-itemBody{border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));padding:10px 14px 12px;display:grid;gap:6px;background:var(--dsw-alias-bg-module-platform,#f5f6f7)}',
     '.dsh-mf-itemHint{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-itemRow{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,#0f1115)}',
-    // 输入框照 ModelsSection 的 .input，删除钮照同页 .iconButton
-    '.dsh-mf-input{box-sizing:border-box;width:100%;height:32px;padding:0 10px;border:0.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#0f1115);font:inherit;font-size:14px;line-height:22px}',
-    '.dsh-mf-input:focus{border-color:var(--dsw-alias-brand-primary,#0f1115);outline:none}',
+    // 输入框照 ModelsSection 的 .input，删除钮照同页 .iconButton（hover 用 .iconButtonDanger 变体）
+    '.dsh-mf-input{box-sizing:border-box;width:100%;height:32px;padding:0 10px;border:0.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#0f1115);font:inherit;font-size:14px;line-height:22px}',
+    '.dsh-mf-input:focus{border-color:var(--dsw-alias-state-business-primary,rgb(65,118,230));outline:none}',
     '.dsh-mf-input::placeholder{color:var(--dsw-alias-label-dimmed,#e1e5ee)}',
     '.dsh-mf-input:disabled{opacity:.6;cursor:default}',
     '.dsh-mf-fieldError{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313)}',
     // 一行一项：状态点在胶囊外（官方 trailing 同为 [点][胶囊] 兄弟节点）；删除钮 margin-left:auto 贴右成列
     '.dsh-mf-tagRow{position:relative;display:flex;align-items:center;gap:7px;min-width:0}',
     '.dsh-mf-tagText{min-width:0;overflow:hidden;text-overflow:ellipsis}',
-    '.dsh-mf-remove{box-sizing:border-box;flex:none;width:28px;height:28px;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;padding:0;border:none;border-radius:6px;background:0 0;color:var(--dsw-alias-label-tertiary,#81858c);cursor:pointer}',
-    '.dsh-mf-remove:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-primary,#0f1115)}',
+    '.dsh-mf-remove{box-sizing:border-box;flex:none;width:28px;height:28px;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;padding:0;border:none;border-radius:var(--dsw-radius-sm,8px);background:0 0;color:var(--dsw-alias-label-tertiary,#81858c);cursor:pointer}',
+    '.dsh-mf-remove:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger,rgba(236,19,19,.05));color:var(--dsw-alias-state-error-primary,#ec1313)}',
     '.dsh-mf-remove:disabled{cursor:default;opacity:.4}',
     // 只给读屏器的状态文案：照同页 .hiddenLabel 的裁剪手法
     '.dsh-mf-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
@@ -191,8 +192,10 @@ const STYLE_TEXT = [
     '@media (prefers-reduced-motion:reduce){.dsh-mf-itemChevron{transition:none}}',
     '.dsh-mf-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 0 0;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1))}',
     '.dsh-mf-actions{display:flex;align-items:center;gap:8px}',
-    // footer 三把按钮共用官方 .discard/.save 基座；危险键按官方语义为红字透明底（无实心红先例）
-    '.dsh-mf-discard,.dsh-mf-save,.dsh-mf-force{appearance:none;border:1px solid transparent;border-radius:8px;padding:5px 14px;font:inherit;font-size:13px;line-height:1.5;cursor:pointer}',
+    // footer 键度量照官方 SettingsForm .save（圆角 radius-md + focus 环同源）；force 红字透明底照
+    // models 页 .dangerButton 语义；discard 官方无同款（SettingsForm 不设 discard 键），度量与 save 成对
+    '.dsh-mf-discard,.dsh-mf-save,.dsh-mf-force{appearance:none;border:1px solid transparent;border-radius:var(--dsw-radius-md,12px);padding:5px 14px;font:inherit;font-size:13px;line-height:1.5;cursor:pointer}',
+    '.dsh-mf-discard:focus-visible,.dsh-mf-save:focus-visible,.dsh-mf-force:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,rgb(65,118,230)));outline-offset:1px}',
     '.dsh-mf-discard{border-color:var(--dsw-alias-border-l2,rgba(0,0,0,.1));background:none;color:var(--dsw-alias-label-secondary,#61666b)}',
     '.dsh-mf-discard:hover:not(:disabled){color:var(--dsw-alias-label-primary,#0f1115);border-color:var(--dsw-alias-label-dimmed,#e1e5ee)}',
     '.dsh-mf-save{background:var(--dsw-alias-label-primary,#0f1115);color:var(--dsw-alias-bg-layer-3,#fff)}',
@@ -544,7 +547,7 @@ export function Card(props: CardProps) {
                 setSubmitting(false)
             })
     }
-    // 放弃修改：草稿归 null 即回到「跟随已存值」形态，dirty 随之消失（不发任何写）
+    // 取消：草稿归 null 即回到「跟随已存值」形态，dirty 随之消失（不发任何写）
     const onDiscard = () => {
         if (submitting) return
         setNotice(null)
@@ -717,7 +720,7 @@ export function Card(props: CardProps) {
                     </button>
                 </span>
                 <span className="dsh-mf-actions">
-                    {/* 放弃修改只在有未保存编辑时出现（保存后自动隐去）；保存中保持可见但禁用 */}
+                    {/* 取消键只在有未保存编辑时出现（保存后自动隐去）；保存中保持可见但禁用 */}
                     {dirty ? (
                         <button
                             type="button"
