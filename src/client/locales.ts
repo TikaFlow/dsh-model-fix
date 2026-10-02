@@ -180,7 +180,7 @@ export const zh: Record<CardKey, string> = {
     readOnly: '当前环境为只读，无法保存',
     star: '点个 star',
     feedback: '问题反馈',
-    issueBody: '\\<用一句话描述你遇到的问题\\>\n\n### 问题现象\n\n### 环境\n- 插件版本：{version}\n- DSH 版本：\\<如 0.2.0\\>\n- 操作系统：\\<如 Windows 11\\>\n\n### 复现步骤\n1. \\<第一步做了什么\\>\n2. \\<第二步做了什么\\>\n\n### 期望行为',
+    issueBody: '--用一句话描述你遇到的问题--\n\n### 问题现象\n\n### 环境\n- 插件版本：{version}\n- DSH 版本：--如 0.2.0--\n- 操作系统：--如 Windows 11--\n\n### 复现步骤\n1. --第一步做了什么--\n2. --第二步做了什么--\n\n### 期望行为',
 }
 
 export const en: Record<CardKey, string> = {
@@ -251,5 +251,5 @@ export const en: Record<CardKey, string> = {
     readOnly: 'Read-only environment; cannot save',
     star: 'Star',
     feedback: 'Feedback',
-    issueBody: '\\<Describe the problem in one sentence\\>\n\n### What happened\n\n### Environment\n- Plugin version: {version}\n- DSH version: \\<e.g. 0.2.0\\>\n- OS: \\<e.g. Windows 11\\>\n\n### Steps to reproduce\n1. \\<What you did first\\>\n2. \\<What you did next\\>\n\n### Expected behavior',
+    issueBody: '--Describe the problem in one sentence--\n\n### What happened\n\n### Environment\n- Plugin version: {version}\n- DSH version: --e.g. 0.2.0--\n- OS: --e.g. Windows 11--\n\n### Steps to reproduce\n1. --What you did first--\n2. --What you did next--\n\n### Expected behavior',
 }
