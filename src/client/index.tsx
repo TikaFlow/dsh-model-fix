@@ -121,11 +121,12 @@ function boot(
     }
     if (seats.includes('plugins.bundle.config')) {
         // 插件详情页的配置段：keyed 按 entryKey 分发，key 是 npm 包名（不是 patch 条目 id）
+        // defaultOpen：配置段就是该页主体，默认收起等于让用户多点一次
         ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
             name: 'plugins.bundle.config',
             key: name,
             locale: CARD_NS,
-        }, (props) => <Card {...props} scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
+        }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
     }
 
     // 记忆监听子 fiber（宿主无 sessions/modelDirectories 时静默不启用）：纯监听，只订阅会话投影；

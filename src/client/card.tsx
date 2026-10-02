@@ -1,7 +1,9 @@
 /**
- * 模型参数填充卡片（浏览器半）：1:1 复刻官方 Web-UI 插件卡的可折叠卡片；另有无外壳的 view:'page'
- * 形态（插件详情页索取，标题/简介/面包屑/开关由页面自绘）。展开体为五张瓦片（顺序由 TILE_ORDER
- * 单一分发）：布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 / 用户体验）+ 动态集合瓦片（排除提供方，
+ * 模型参数填充卡片（浏览器半）：1:1 复刻官方 Web-UI 插件卡的可折叠卡片。三个挂载席位（模型页 footer /
+ * 插件配置页 li / 插件详情页）共用本外壳，差异只有根元素（`as`）与初始折叠态（`defaultOpen`，详情页席位
+ * 默认展开、另两席默认收起）；详情页仍自绘自己的图标 / 面包屑 / 开关，卡片头部只管本卡。
+ * 展开体为五张瓦片（顺序由 TILE_ORDER 单一分发）：布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 /
+ * 用户体验）+ 动态集合瓦片（排除提供方，
  * summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）。瓦片手风琴：默认收起、同时只开一个。
  * footer 左侧强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）、右侧放弃修改（仅未保存时渲染）/
  * 保存；三把写回键弹
@@ -57,7 +59,6 @@ import {
 } from '@/client/model'
 import type { CardKey } from '@/client/locales'
 import type { Flags, Group, RowKey } from '@/client/model'
-import type { PluginConfigViewProps } from '@/client/slot-contract'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from '@/client/locales'
 
 /** 瓦片渲染顺序：自动填充 / 允许更新 / 兼容性 / 排除提供方 / 用户体验（排除提供方之后紧接用户体验） */
@@ -77,8 +78,8 @@ export interface CardProps {
     restoreModels: () => Promise<RpcResult<unknown>>
     /** 根元素：插件配置席位把卡片渲在 `<ul>` 内须为 li（官方 PluginCard 同形；列表样式由 .dsh-mf-card 自清） */
     as?: 'div' | 'li'
-    /** 插件详情页（plugins.bundle.config 席位）传 'page'：只出不带外壳的配置体，标题/简介/开关由页面自绘 */
-    view?: PluginConfigViewProps['view']
+    /** 初始折叠态：插件详情页（plugins.bundle.config 席位）默认展开；另两席位不传即默认收起（与官方插件卡一致） */
+    defaultOpen?: boolean
 }
 
 /** 内联状态行：文本 + 色调（成功＝官方 .savedNotice 绿，失败＝.failed/.error 红） */
@@ -113,9 +114,6 @@ const STYLE_TEXT = [
     '.dsh-mf-pending{flex:none;border-radius:999px;corner-shape:round;padding:1px 8px;font-size:11px;line-height:17px;font-weight:500;white-space:nowrap;background:var(--dsw-alias-bg-module-platform,#f5f6f7);color:var(--dsw-alias-label-secondary,#61666b)}',
     // 展开体：左右内缩与 header 对齐；顶部 0.5px 分隔线隔开摘要与正文，12px 上边距撑开与瓦片的距离
     '.dsh-mf-body{margin:0 16px;padding:12px 0 8px;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));display:flex;flex-direction:column;gap:12px}',
-    // 插件详情页形态容器：页面已自绘标题/简介/面包屑故不画外壳；落在页面 .detailSection（flex 列 + 12px 间距）内
-    '.dsh-mf-page{display:flex;flex-direction:column;gap:12px}',
-    '.dsh-mf-page .dsh-mf-notice{padding:0}',
     // 状态行：内联承载一切结果反馈（官方设置面无 Toast）
     '.dsh-mf-notice{margin:0;padding:0 16px 12px;font-size:12px;line-height:18px}',
     '.dsh-mf-noticeSuccess{color:var(--dsw-alias-state-success-primary,#22c55e)}',
@@ -434,8 +432,8 @@ export function Card(props: CardProps) {
     // draft === null 表示未编辑、跟随已存值；首次点击即冻结当前显示值为草稿
     const [draft, setDraft] = useState<Flags | null>(null)
     const [submitting, setSubmitting] = useState(false)
-    // 折叠态为卡片本地状态（读姿而非配置），默认收起，与官方插件卡一致；草稿跨折叠存活
-    const [open, setOpen] = useState(false)
+    // 折叠态为卡片本地状态（读姿而非配置）：初始值取 defaultOpen（缺省收起、与官方插件卡一致）；草稿跨折叠存活
+    const [open, setOpen] = useState(props.defaultOpen ?? false)
     // 瓦片折叠态：官方手风琴语义（同时只开一个、默认全收起；各瓦片展开高度不同，同开两列底部参差）
     const [tileOpen, setTileOpen] = useState<string | null>(null)
     // 内联结果提示：常驻至下一次操作（官方 .savedNotice 无定时器，故不设自动淡出）
@@ -470,14 +468,8 @@ export function Card(props: CardProps) {
         if (!dirty) setOpen(false)
     }, [submitting, dirty])
 
-    // 插件详情页形态：该席位按宿主契约只传 view:'page'，标题与简介由页面自绘
-    const pageView = props.view === 'page'
-
     // 配置服务不可用：保留静态外壳（无展开语义）便于发现与排查
     if (snap.status === 'unavailable') {
-        if (pageView) {
-            return <p className="dsh-mf-line" role="status">{t('unavailable')}</p>
-        }
         return (
             <Root className="dsh-mf-card">
                 <div className="dsh-mf-header dsh-mf-headerStatic">
@@ -790,17 +782,6 @@ export function Card(props: CardProps) {
             />
         </>
     )
-
-    // 插件详情页的配置段：不画卡片外壳与标题行（页面自绘）
-    if (pageView) {
-        return (
-            <div className="dsh-mf-page">
-                {notices}
-                {body}
-                {confirms}
-            </div>
-        )
-    }
 
     return (
         <Root className={open ? 'dsh-mf-card dsh-mf-cardOpen' : 'dsh-mf-card'}>

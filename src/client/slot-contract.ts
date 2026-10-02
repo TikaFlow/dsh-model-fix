@@ -15,7 +15,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 
 /**
  * 配置条目被页面索取的视图：`summary` 只渲染一行简介，`page` 渲染带保存控件的表单。
- * 本插件用的 `plugins.bundle.config` 只有 `page`（页面自己画标题与简介）。
+ * 宿主对 `plugins.bundle.config` 恒传 `page`；本插件不据其分支渲染——三席统一走卡片外壳（见 card.tsx）。
  */
 export interface PluginConfigViewProps {
     /** `summary` 只渲染一行简介（页面把它放在标题下）；`page` 渲染表单本体 */
@@ -32,7 +32,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     interface SlotMap {
         /**
          * 一个已安装 bundle 自己的配置：以 bundle 的 **npm 包名**（profile manifest 的依赖键，
-         * 不是 patch 的条目 id）为 key，渲在该 bundle 详情页的描述与 rows 之间，页面只要 `view: 'page'`。
+         * 不是 patch 的条目 id）为 key，渲在该 bundle 详情页的描述与 rows 之间；页面恒传 `view: 'page'`。
          */
         'plugins.bundle.config': {
             kind: 'keyed'
