@@ -39,8 +39,6 @@ DSH[（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness) 插
 
 ### 方式一：通过插件管理页面安装（推荐）
 
-> 需要 DSH 版本 >= `0.1.6-alpha.2`。
-
 在 DSH 中，点击「插件」-->「添加插件」，复制以下链接到输入框，完成安装：
 
 ```
@@ -73,7 +71,7 @@ dsh plugin --profile web add github:TikaFlow/dsh-model-fix
 
 ### 支持范围
 
-DSH `0.1.2-rc.1` ~ `0.2.0-rc.2`
+DSH `0.1.7-rc.2` ~ `0.2.0-rc.2`
 
 ## 使用说明
 
