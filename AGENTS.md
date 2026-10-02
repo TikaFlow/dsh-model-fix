@@ -67,7 +67,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 - **路径 op 不支持数组下标中间段**（且各段必须是字符串），要改数组元素只能整段 `set` 覆盖 ⇒ `fix` 按 provider 整段写回 `providers[id].models`，未变更元素原样保留。
 - `unset` 的嵌套路径生效，但**不会折叠被清空的父对象** ⇒ 删掉路由 `compat` 里唯一的键要整段 `unset`，否则留下 `compat: {}` 这种脏壳（宿主语义等同未声明，但会反复触发写入判定）。
 - **命名空间装载时序（0.1.7）**：`llm-pi-ai` 由宿主内置注册、先于本插件 `apply`（provider 在 become injectable 前 `publish(await load())`，`describe()` 已含 `API_NS`，`captureBackup` 必可读）；**自有 NS 的 `Config` schema 由宿主 Loader 异步登记、晚于 apply** ⇒ 启动时 `describe()` 可能尚未含本命名空间，`migrateConfig` 有界轮询等待其出现后再迁移（见 `migrate.ts` 的 `MIGRATE_WAIT_MS`）。命名空间就是小写连字符串字面量。
-- 段 schema 宽松（`z.any()`）保证注册恒通过；`migrateConfig` 读不到命名空间则早退、不写任何东西。
+- `migrateConfig` 读不到命名空间则早退、不写任何东西。
 - **迁移必先于填充**，否则旧格式会被按新 schema 误解析。
 - **段事件可能在宿主 HMR 事务内同步派发（0.1.7）**：用户保存的写盘事务（`configEditor.edit` → `hmr.runExclusive`）内部的 `describe()`（Loader 调和触发）会在事务的 AsyncLocalStorage 上下文里同步回调 `settings/document-updated` 监听器；ALS 上下文随定时器传播且事务结束后仍残留 ⇒ 事务血缘里的写回经 `runExclusive` 会被以 `HMR transactions cannot be nested` 拒绝，**defer 到宏任务也逃不掉**（重试定时器同样继承该上下文）。解法是**在写 choke point 收口**：全部 settings 写回（fix 两处、自愈、迁移三处、重置、恢复）一律经 `src/host.ts` 的通用原语 `queueTask(ctx, task)` 以钩子形式包裹 mutate 调用——取 hmr 服务的私有 `executing` ALS 实例 `exit()` 摘出上下文（宿主 `watchConfig` 内部同款手法），重入检测放行后任务即经 runExclusive 的 promise 链正常**排队**等待宿主事务结束；原语本身不限写回，未来任何需脱离事务血缘的任务都可复用。**不放在事件入口包裹**的依据：choke point 让任何调用路径（含未来新增）天然安全，而事件入口包裹会漏掉写回之外新增的调用点。RPC（强制更新/重置/恢复）与启动链不在任何事务血缘内，本就不会嵌套（这正是此前事件 fix 全灭而 RPC 强制更新一直成功的分野）；client 半更无需处理：其写入执行在宿主 Node 侧请求处理血缘里，且浏览器无 `node:async_hooks`。实例不可得（hmr 服务缺席 / 字段漂移）时退回裸 mutate——无事务上下文即无嵌套风险，行为不变。升宿主须复核 hmr 服务 `executing` 字段名。
 

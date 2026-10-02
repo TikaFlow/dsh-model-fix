@@ -116,7 +116,7 @@ export interface CardProps {
     defaultOpen?: boolean
 }
 
-/** 内联状态行：文本 + 色调（成功＝官方 .savedNotice 绿，失败＝.failed/.error 红） */
+/** 内联状态行：文本 + 色调（成功＝官方 .savedNotice 绿，失败＝.error 红） */
 interface Notice {
     text: string
     tone: 'success' | 'error'
