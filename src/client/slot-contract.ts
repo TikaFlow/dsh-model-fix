@@ -1,8 +1,10 @@
 /**
- * 本插件配置席位中两个的 SlotMap 键（本地结构复制，type-only，构建期擦除）：
- * - `plugins.bundle.config`（0.1.6+ 插件管理页「已安装」组里本 bundle 详情页的配置段）原声明在
- *   @deepseek-ai/dsh-client-ui-plugin-manager，该包不在宿主模块表基线内（值导入会被构建纯度门禁拦下、
- *   运行期 require 亦不命中）⇒ 不引依赖、本地复制；
+ * 本插件配置席位中三个的 SlotMap 键（本地结构复制，type-only，构建期擦除）：
+ * - `plugins.bundle.config`（0.1.6+ 插件管理页「已安装」组里本 bundle 详情页的配置段）与
+ *   `plugins.row.config`（bundle patch 声明的单个组件实例自己的配置页，key = `<npm 包名>#<patch 条目 id>`；
+ *   注册后 bundle 详情页「包含的组件」里该实例的 title 变为可点按钮，进入组件详情页——返回按钮为插件名、
+ *   下方不再有组件列表）均原声明在 @deepseek-ai/dsh-client-ui-plugin-manager，该包不在宿主模块表基线内
+ *   （值导入会被构建纯度门禁拦下、运行期 require 亦不命中）⇒ 不引依赖、本地复制；
  * - `settings.plugin.item`（旧宿主「设置 → 插件 → 插件配置」的可配置插件卡）原声明在
  *   @deepseek-ai/dsh-client-ui-settings-plugins@0.1.2-rc.1；该包 0.1.6 起把官方配置页改注册进
  *   插件管理页、自身不再声明任何 SlotMap 键 ⇒ 旧席位键也改由本文件声明。
@@ -37,6 +39,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
          * 不是 patch 的条目 id）为 key，渲在该 bundle 详情页的描述与 rows 之间；页面恒传 `view: 'page'`。
          */
         'plugins.bundle.config': {
+            kind: 'keyed'
+            scope: 'root'
+            owner: PluginConfigViewProps
+        }
+        /**
+         * bundle patch 声明的一个组件实例自己的配置段（0.1.7+ 宿主声明），以
+         * `<bundle npm 包名>#<patch 条目 id>`（实例 id，不是插件名）为 key；页面以
+         * `view: 'summary'`（实例元数据缺描述时的一行简介）与 `view: 'page'` 两种请求渲染。
+         */
+        'plugins.row.config': {
             kind: 'keyed'
             scope: 'root'
             owner: PluginConfigViewProps

@@ -4,7 +4,7 @@
  * 两个 ctx.inject 子 fiber 各挂一代（缺席者永久 PENDING 空转，无报错）。
  * 编排体 boot 两代共用：0.1.7 路径经 makeScope 把 ConfigForm 适配为 SettingsScope，
  * 0.1.6 路径原栈 bind；卡片 / 排除命中判定 / 记忆监听两代零差别。
- * 四个席位两代全注册、无需按代际取子集：`ctx.slots.inject` 对无声明方的席位只挂一个
+ * 五个席位两代全注册、无需按代际取子集：`ctx.slots.inject` 对无声明方的席位只挂一个
  * pending wait（声明到达才跑回调，fiber 卸载即取消），故缺席者静默不发生（卡片不出现），
  * 这正是 0.1.7+ 上 `settings.plugin.item` 的情形。SlotMap 键经 models 包 declaration
  * merging 与本地 slot-contract.ts 提供；类型边全部 type-only（构建期擦除）。
@@ -91,10 +91,11 @@ function boot(
         // 记忆写入失败不影响会话本身（级别已在当前会话生效），故只吞掉 rejection
         void scope.mutate([{ op: 'set', path: [VERSION_KEY, 'efforts'], value: next }]).catch(() => {})
     }
-    // 四个席位一律注册：`ctx.slots.inject` 先有声明方才占格，无声明者只挂 pending wait、
+    // 五个席位一律注册：`ctx.slots.inject` 先有声明方才占格，无声明者只挂 pending wait、
     // 静默不发生 ⇒ 卡片/配置段不出现（0.1.7+ 上的 settings.plugin.item 即此情形）。
-    // 单元格标识按 kind：list 席位用 id、keyed 席位用 key（footer/bundle 分别是配置 NS 与 npm 包名，
-    // 不同 slot 即不同账本，无需后缀区分）；footer 以 order 排最前（list 渲染器按 order 单键重排）
+    // 单元格标识按 kind：list 席位用 id、keyed 席位用 key（footer 是配置 NS，bundle 是 npm 包名，
+    // row 是「包名#patch 条目 id」；不同 slot 即不同账本，无需后缀区分）；footer 以 order 排最前
+    // （list 渲染器按 order 单键重排）
     ctx.slots.inject('settings.models.footer', () => ctx.slots.register({
         name: 'settings.models.footer',
         id: MODEL_FIX_NS,
@@ -113,6 +114,15 @@ function boot(
     ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
         name: 'plugins.bundle.config',
         key: name,
+        locale: CARD_NS,
+    }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
+    // patch 声明的组件实例自己的配置页：key = `<npm 包名>#<patch 条目 id>`（宿主 rowConfigKey 拼接，
+    // 条目 id 即运行实例 id = MODEL_FIX_NS）。注册后「包含的组件」里该实例的 title 变为可点按钮，
+    // 进入组件详情页（返回按钮为插件名、下方不再有组件列表）；不注册则 title 是纯文本、无任何交互。
+    // 与 bundle 席位共用同一张卡（单实例 bundle 两层 UI 同体），defaultOpen 同 bundle 席位
+    ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
+        name: 'plugins.row.config',
+        key: `${name}#${MODEL_FIX_NS}`,
         locale: CARD_NS,
     }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
     // 「设置 → 内置插件」的 tablist（list 席位，面板即本卡）：与官方「插件列表」tab 同级并排。
