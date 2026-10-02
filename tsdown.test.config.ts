@@ -26,5 +26,10 @@ export default defineConfig({
     outputOptions: {
         // 钉死产物名，`pnpm test` 的 node 执行行不随 tsdown 默认扩展名漂移
         entryFileNames: 'index.mjs',
+        // 测试产物自清理：bundle 尾行删掉所在目录，测试完 .test-dist 不留盘。
+        // helper 的 summary 只设 exitCode、不 process.exit，尾行必执行；失败时同样删除——
+        // 用例是纯逻辑断言，FAIL 行自带详情，产物无复跑价值。getBuiltinModule 免顶层
+        // import（node >=22.3）；rmSync 直接收 file: URL
+        footer: `process.getBuiltinModule('node:fs').rmSync(new URL('.', import.meta.url), { recursive: true, force: true })`,
     },
 })
