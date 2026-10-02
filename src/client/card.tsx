@@ -1,8 +1,8 @@
 /**
  * 模型参数填充卡片（浏览器半）：1:1 复刻官方 Web-UI 插件卡的可折叠卡片。四个挂载席位（模型页 footer /
- * 插件配置页 li / 插件详情页 / 内置插件选项卡）共用本外壳，差异只有根元素（`as`）与初始折叠态
- * （`defaultOpen`：详情页与内置插件选项卡默认展开，另两席默认收起）；详情页仍自绘自己的图标 /
- * 面包屑 / 开关，卡片头部只管本卡。
+ * 插件配置页 li / 插件详情页 / 内置插件选项卡）共用本外壳，差异只有根元素（`as`）与折叠态策略
+ * （`defaultOpen`：详情页与内置插件选项卡默认展开且保存后不自动收起，另两席默认收起、保存后自动收起）；
+ * 详情页仍自绘自己的图标 / 面包屑 / 开关，卡片头部只管本卡。
  * 展开体为五张瓦片（顺序由 TILE_ORDER 单一分发）：布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 /
  * 用户体验）+ 动态集合瓦片（排除提供方，
  * summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）。瓦片手风琴：默认收起、同时只开一个。
@@ -79,7 +79,7 @@ export interface CardProps {
     restoreModels: () => Promise<RpcResult<unknown>>
     /** 根元素：插件配置席位把卡片渲在 `<ul>` 内须为 li（官方 PluginCard 同形；列表样式由 .dsh-mf-card 自清） */
     as?: 'div' | 'li'
-    /** 初始折叠态：插件详情页（plugins.bundle.config）与「内置插件」选项卡（settings.plugins.tab）默认展开；另两席位不传即默认收起（与官方插件卡一致） */
+    /** 初始折叠态：插件详情页（plugins.bundle.config）与「内置插件」选项卡（settings.plugins.tab）默认展开；另两席位不传即默认收起（与官方插件卡一致）。同时决定保存成功后是否自动收起——只在默认收起的席位上生效 */
     defaultOpen?: boolean
 }
 
@@ -435,6 +435,9 @@ export function Card(props: CardProps) {
     const [submitting, setSubmitting] = useState(false)
     // 折叠态为卡片本地状态（读姿而非配置）：初始值取 defaultOpen（缺省收起、与官方插件卡一致）；草稿跨折叠存活
     const [open, setOpen] = useState(props.defaultOpen ?? false)
+    // 保存后自动收起只对默认收起的席位有意义：默认展开的两席（插件详情页 / 内置插件选项卡）
+    // 保存后保持展开，否则用户刚配完就被收起、还得再点一次才看得见结果
+    const autoCollapse = props.defaultOpen !== true
     // 瓦片折叠态：官方手风琴语义（同时只开一个、默认全收起；各瓦片展开高度不同，同开两列底部参差）
     const [tileOpen, setTileOpen] = useState<string | null>(null)
     // 内联结果提示：常驻至下一次操作（官方 .savedNotice 无定时器，故不设自动淡出）
@@ -458,7 +461,8 @@ export function Card(props: CardProps) {
     // 命中集合按草稿算（编辑中即所见即所得），未命中项同样生效，只是当前无同名提供方
     const hits = useMemo(() => resolveHits(shown.excludes, providerIds), [shown.excludes, providerIds])
 
-    // 保存成功（submitting 结束且 dirty 归 false）后自动收起；写失败保留草稿与展开态可重试
+    // 保存成功（submitting 结束且 dirty 归 false）后自动收起，仅限默认收起的席位；
+    // 写失败保留草稿与展开态可重试
     useEffect(() => {
         if (submitting) {
             saveStarted.current = true
@@ -466,8 +470,8 @@ export function Card(props: CardProps) {
         }
         if (!saveStarted.current) return
         saveStarted.current = false
-        if (!dirty) setOpen(false)
-    }, [submitting, dirty])
+        if (!dirty && autoCollapse) setOpen(false)
+    }, [submitting, dirty, autoCollapse])
 
     // 配置服务不可用：保留静态外壳（无展开语义）便于发现与排查
     if (snap.status === 'unavailable') {
