@@ -4,8 +4,9 @@
  * 两个 ctx.inject 子 fiber 各挂一代（缺席者永久 PENDING 空转，无报错）。
  * 编排体 boot 两代共用：0.1.7 路径经 makeScope 把 ConfigForm 适配为 SettingsScope，
  * 0.1.6 路径原栈 bind；卡片 / 排除命中判定 / 记忆监听两代零差别。
- * 席位按代际取子集（SEATS_NEW / SEATS_ALL）：0.1.7+ 不注册 settings.plugin.item
- * （该键自 0.1.6 起无宿主声明者，注册了也空转）。SlotMap 键经 models 包 declaration
+ * 四个席位两代全注册、无需按代际取子集：`ctx.slots.inject` 对无声明方的席位只挂一个
+ * pending wait（声明到达才跑回调，fiber 卸载即取消），故缺席者静默不发生（卡片不出现），
+ * 这正是 0.1.7+ 上 `settings.plugin.item` 的情形。SlotMap 键经 models 包 declaration
  * merging 与本地 slot-contract.ts 提供；类型边全部 type-only（构建期擦除）。
  */
 
@@ -35,11 +36,6 @@ import { makeScope, type ConfigFormLike } from '@/client/scope.new'
 /** 提供方 scope 的解码占位值：本卡只消费 snapshot.user（原始用户层），value 无用途；decode 必须永不返回 undefined */
 const PROVIDERS_VIEW: readonly unknown[] = []
 
-/** 席位名：0.1.7+ 注册的两个（settings.plugin.item 自 0.1.6 起无宿主声明者，不注册） */
-const SEATS_NEW: readonly string[] = ['settings.models.footer', 'plugins.bundle.config', 'settings.plugins.tab']
-/** 席位名：0.1.6 及更早的全量（「插件」选项卡的卡 0.1.5 及更早宿主继续可出现，0.1.6 上该席位空转） */
-const SEATS_ALL: readonly string[] = ['settings.models.footer', 'settings.plugin.item', 'plugins.bundle.config', 'settings.plugins.tab']
-
 export const name = PLUGIN_NAME
 // 标记服务不进父级 inject：父 fiber 在缺席代际上会永久 PENDING，卡死整条插件链
 export const inject = ['slots', 'locale', 'connection']
@@ -54,7 +50,6 @@ export function apply(ctx: ClientContext): void {
         boot(ctx,
             makeScope(configForms.get(MODEL_FIX_NS), decodeSection),
             makeScope(configForms.get(PI_AI_NS), () => PROVIDERS_VIEW),
-            SEATS_NEW,
         )
     })
     // 0.1.6 及更早：settingsScope 存在 ⇒ 本 fiber 激活，原栈 scope 直绑后走 boot
@@ -63,7 +58,6 @@ export function apply(ctx: ClientContext): void {
         boot(ctx,
             settingsScope.bind<Flags>({ namespace: MODEL_FIX_NS, decode: decodeSection }),
             settingsScope.bind<readonly unknown[]>({ namespace: PI_AI_NS, decode: () => PROVIDERS_VIEW }),
-            SEATS_ALL,
         )
     })
 }
@@ -74,13 +68,11 @@ export function apply(ctx: ClientContext): void {
  *   声明过 inject，子 fiber 只声明了标记服务；子 ctx 只用于构造 scope）
  * @param scope - 本插件命名空间的 SettingsScope（卡片与记忆监听消费）
  * @param providersScope - llm-pi-ai 命名空间的 SettingsScope（只消费 user 层的提供方 id）
- * @param seats - 本宿主代际要注册的席位集合（缺声明者 slots.inject 空转）
  */
 function boot(
     ctx: ClientContext,
     scope: SettingsScope<Flags> & { dispose?: () => void },
     providersScope: SettingsScope<readonly unknown[]> & { dispose?: () => void },
-    seats: readonly string[],
 ): void {
     // 词典注册返回 disposer；经 effect 挂载，卸载/HMR 时自动撤销
     ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), `${name}: card dictionaries`)
@@ -99,47 +91,40 @@ function boot(
         // 记忆写入失败不影响会话本身（级别已在当前会话生效），故只吞掉 rejection
         void scope.mutate([{ op: 'set', path: [VERSION_KEY, 'efforts'], value: next }]).catch(() => {})
     }
-    // 席位先有声明方才能占格：无声明者时注册静默不发生 ⇒ 卡片/配置段不出现。
+    // 四个席位一律注册：`ctx.slots.inject` 先有声明方才占格，无声明者只挂 pending wait、
+    // 静默不发生 ⇒ 卡片/配置段不出现（0.1.7+ 上的 settings.plugin.item 即此情形）。
     // 单元格标识按 kind：list 席位用 id、keyed 席位用 key（footer/bundle 分别是配置 NS 与 npm 包名，
     // 不同 slot 即不同账本，无需后缀区分）；footer 以 order 排最前（list 渲染器按 order 单键重排）
-    if (seats.includes('settings.models.footer')) {
-        ctx.slots.inject('settings.models.footer', () => ctx.slots.register({
-            name: 'settings.models.footer',
-            id: MODEL_FIX_NS,
-            order: -999999,
-            locale: CARD_NS,
-        }, (props) => <Card {...props} scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
-    }
-    if (seats.includes('settings.plugin.item')) {
-        // 插件配置页把卡片渲在 <ul> 内（官方 PluginCard 即 <li>），故该席位的根元素须为 li
-        ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
-            name: 'settings.plugin.item',
-            key: MODEL_FIX_NS,
-            priority: -999999,
-            locale: CARD_NS,
-        }, (props) => <Card {...props} as="li" scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
-    }
-    if (seats.includes('plugins.bundle.config')) {
-        // 插件详情页的配置段：keyed 按 entryKey 分发，key 是 npm 包名（不是 patch 条目 id）
-        // defaultOpen：配置段就是该页主体，默认收起等于让用户多点一次
-        ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
-            name: 'plugins.bundle.config',
-            key: name,
-            locale: CARD_NS,
-        }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
-    }
-    if (seats.includes('settings.plugins.tab')) {
-        // 「设置 → 内置插件」的 tablist（list 席位，面板即本卡）：与官方「插件列表」tab 同级并排。
-        // tab label 走 thunk，section 每次读账本时求值、切语言即跟随
-        const t = ctx.locale.bind(CARD_NS)
-        ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
-            name: 'settings.plugins.tab',
-            id: MODEL_FIX_NS,
-            order: 20,
-            label: () => t('tabLabel'),
-            locale: CARD_NS,
-        }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
-    }
+    ctx.slots.inject('settings.models.footer', () => ctx.slots.register({
+        name: 'settings.models.footer',
+        id: MODEL_FIX_NS,
+        order: -999999,
+        locale: CARD_NS,
+    }, (props) => <Card {...props} scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
+    // 插件配置页把卡片渲在 <ul> 内（官方 PluginCard 即 <li>），故该席位的根元素须为 li
+    ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
+        name: 'settings.plugin.item',
+        key: MODEL_FIX_NS,
+        priority: -999999,
+        locale: CARD_NS,
+    }, (props) => <Card {...props} as="li" scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
+    // 插件详情页的配置段：keyed 按 entryKey 分发，key 是 npm 包名（不是 patch 条目 id）
+    // defaultOpen：配置段就是该页主体，默认收起等于让用户多点一次
+    ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+        name: 'plugins.bundle.config',
+        key: name,
+        locale: CARD_NS,
+    }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
+    // 「设置 → 内置插件」的 tablist（list 席位，面板即本卡）：与官方「插件列表」tab 同级并排。
+    // tab label 走 thunk，section 每次读账本时求值、切语言即跟随
+    const t = ctx.locale.bind(CARD_NS)
+    ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
+        name: 'settings.plugins.tab',
+        id: MODEL_FIX_NS,
+        order: 20,
+        label: () => t('tabLabel'),
+        locale: CARD_NS,
+    }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} />))
 
     // 记忆监听子 fiber（宿主无 sessions/modelDirectories 时静默不启用）：纯监听，只订阅会话投影；
     // 自动设置经宿主公开 directory.select，保存经自有 NS 的 settings scope 直写
