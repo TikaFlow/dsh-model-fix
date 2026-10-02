@@ -127,8 +127,10 @@ const STYLE_ID = 'dsh-model-fix-card-css'
 /**
  * 内嵌样式表（类名 dsh-mf- 前缀防撞）。取值逐条照官方同类组件：外层卡＝旧版宿主
  * 「设置 → 插件 → 内置插件」的插件卡；内层瓦片＝旧版宿主「设置 → 插件 → 插件列表」的
- * 插件行卡——两处基准均取旧版观感（用户裁定），未跟随 0.1.7-rc.2 现行插件清单卡改用
- * settings-card 令牌族的改版。颜色一律只用 --dsw-alias-* 令牌，
+ * 插件行卡——两处基准均取旧版观感（用户裁定），未跟随 0.1.7-rc.2 现行插件清单卡的
+ * settings-card 令牌族改版；仅两处例外采纳现行值（用户裁定）：瓦片底色
+ * `--dsw-alias-settings-card-fill`、瓦片行折叠钮焦点环（照现行 .cardContent）。
+ * 颜色一律只用 --dsw-alias-* 令牌，
  * 字面量仅作令牌缺失时的浅色守卫（取宿主主题 design-platform.css 真值）；官方源码引用但主题
  * 未定义的令牌（label-error、bg-layer-4）禁止照抄。
  */
@@ -157,7 +159,7 @@ const STYLE_TEXT = [
     // 配置组瓦片：栅格、项卡外壳、描边/阴影、行与展开体逐条照官方「插件列表」项卡（ui-settings-plugin-inventory）。
     // 描边用官方 elevation 令牌链（0.5px 发丝画在 box-shadow 里），字面兜底复刻其计算结果——有令牌即同源换色，无令牌同观感
     '.dsh-mf-items{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:10px}',
-    '.dsh-mf-item{min-width:0;overflow:hidden;border:0;border-radius:14px;background:var(--dsw-alias-bg-layer-3,#fff);box-shadow:var(--dsw-elevation-stroke,0 0 0 0.5px var(--dsw-alias-border-l4,rgba(0,0,0,.16)))}',
+    '.dsh-mf-item{min-width:0;overflow:hidden;border:0;border-radius:14px;background:var(--dsw-alias-settings-card-fill,#fff);box-shadow:var(--dsw-elevation-stroke,0 0 0 0.5px var(--dsw-alias-border-l4,rgba(0,0,0,.16)))}',
     // 展开态（官方 data-open 驱动）：描边换最浅的 l1 并叠两层柔光，summary 行保留淡底
     '.dsh-mf-item[data-open="true"]{--dsw-elevation-stroke-color:var(--dsw-alias-border-l1,rgba(0,0,0,.04));box-shadow:var(--dsw-elevation-panel,0 0 0 0.5px var(--dsw-alias-border-l1,rgba(0,0,0,.04)),0 3px 8px 0 rgba(0,0,0,.03),0 0 16px 0 rgba(0,0,0,.02))}',
     '.dsh-mf-item[data-open="true"]>.dsh-mf-itemHead{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
@@ -165,6 +167,8 @@ const STYLE_TEXT = [
     '.dsh-mf-itemHead:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
     // 整行折叠按钮：透明覆盖层承担点击与键盘；尾区抬 z-index 关掉 pointer-events、只放开开关本体（无 button 嵌套）
     '.dsh-mf-itemToggle{position:absolute;inset:0;padding:0;border:none;border-radius:14px;background:none;cursor:pointer}',
+    // 整行折叠钮照官方 .cardContent:focus-visible 补环：覆盖层 inset:0 与官方卡头按钮同范围，offset -2px 画行内缘（不被瓦片 overflow:hidden 裁剪）
+    '.dsh-mf-itemToggle:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,rgb(65,118,230)));outline-offset:-2px}',
     '.dsh-mf-itemTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:20px;font-weight:600}',
     '.dsh-mf-itemTrailing{position:relative;z-index:1;display:inline-flex;flex:none;align-items:center;gap:7px;pointer-events:none;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-itemSwitch{pointer-events:auto}',
