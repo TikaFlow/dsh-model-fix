@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'tsdown'
 
@@ -23,6 +24,13 @@ const PLATFORM_MODULES = [
 ]
 const isBaseline = (specifier: string): boolean =>
     (PLATFORM_MODULES as readonly string[]).includes(specifier)
+
+/**
+ * 版本号的唯一来源 = package.json。浏览器半运行在浏览器里、读不到磁盘，且构建纯度门禁禁止相对导入
+ * （package.json 无法作为值导入），故在构建期读入、由 define 内联成字符串字面量 ⇒ 运行期零成本、
+ * 零漂移：升版照常只改 package.json 一处，测试构建不涉及本标识（测试图只引 @/client/model 与 @/client/effort）。
+ */
+const PKG = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
 
 export default defineConfig([
     // ---------- Node 半：宿主侧插件本体 ----------
@@ -80,6 +88,8 @@ export default defineConfig([
             'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
             'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
             'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
+            // 卡片末尾的版本标记（声明见 src/client/card.tsx 的 __PLUGIN_VERSION__）
+            __PLUGIN_VERSION__: JSON.stringify(PKG.version),
         },
         deps: {
             // 基线 specifier 走宿主模块表（require），其余（react 之外的一切）一律打进包内
