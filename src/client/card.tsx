@@ -27,7 +27,7 @@ import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 /** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标。 */
 type ChevronIcon = (props: { size?: number; className?: string }) => ReactElement
 const CHEVRON_DOWN: ChevronIcon = primitives.IconChevronDownOutlineRegular
-const { Button, Modal, Switch, Tag, StateDot, IconTrashOutlineMedium } = primitives
+const { Button, Modal, Switch, Tag, StateDot, IconTrashOutlineRegular } = primitives
 
 /** 项目仓库与反馈入口：README「安装 / 问题反馈」同源，改地址只改这两行 */
 const REPO_URL = 'https://github.com/TikaFlow/dsh-model-fix'
@@ -402,7 +402,7 @@ function ExcludesTile(props: {
                                     disabled={props.disabled}
                                     onClick={() => { props.onRemove(excluded) }}
                                 >
-                                    <IconTrashOutlineMedium size={14} />
+                                    <IconTrashOutlineRegular size={14} />
                                 </button>
                             </div>
                         )
