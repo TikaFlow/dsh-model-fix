@@ -95,6 +95,11 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 
 总纲：**官方用导出组件，我们也用同一组件；官方自绘且无逐字同款的导出原语（或该件不导出无法导入），我们就在本地逐字复制其源码——数值零自造。** 最终目标是 UI 层与官方**源码级一致**，只有数据、文本与业务逻辑属于我们。三条判据：
 
+**运行时加载宿主原语：有意不遵循 `references/practices.md` §UI**
+该条禁止 `require('@deepseek-ai/dsh-client-ui-primitives')` 并要求把原语本地复刻。本仓有意不遵循：浏览器半是 TypeScript，宿主类型面全部 devDep type-only 导入，符号漂移由 typecheck 在构建期拦下；且宿主自身同此做法（`packages/client/AGENTS.md` §Export discipline 3 明确允许 `ui-primitives`、`platform.ts` 把它播种进浏览器模块表、官方包 141 处 `.tsx` 直接值导入）。
+**接受的风险**：宿主符号改名不通知我们，运行期拿到 `undefined` ⇒ React #130 打空整个 slot 条目，且只在渲染到该符号的 ready 态显形。缓释即既有两条规程——devDep 类型面 + 升宿主时复核全部宿主值导入的符号面。
+**复核触发**：升宿主时一并复核；任何一次 React #130 都先查这里的符号面。备选路径是改为本地逐字复刻全部原语（设计级返工），届时本段是唯一需要改写的地方。
+
 - **能导出的宿主组件优先用；官方自绘件若与某导出原语逐字同款，也用该原语**——同款即同观感，且随宿主原语演进。开关、命中/未命中徽标、状态点是官方在用的原语（`Switch`/`Tag`/`StateDot`）；未保存徽章与官方自绘 `.pending` 逐字同款，故同样用 `Tag`（tone `neutral`）。无同款原语的官方自绘件本地复刻：footer save 键照 `SettingsForm` 的 `.save`、危险键照 models 页 `.dangerButton` 的语义（discard 键官方无同款），不为了"用了原语"而偏离官方观感。官方在 Modal footer 里用了 `Button`，本卡的 `Modal` 亦用 `Button`。
 - **颜色只用宿主 `--dsw-alias-*` 令牌，且令牌存在性要逐个证实。** 字面量仅作令牌缺失时的浅色守卫，且必须取宿主主题 `design-platform.css` 的真值——例如 `brand-primary` 在浅色主题下解析为**近黑而非品牌蓝**。这样主题插件换色时我们与官方同步变化。官方源码里引用了但主题中**未定义**的令牌（`label-error`、`bg-layer-4`）禁止照抄（任何主题下都会失效）。
 - **取值基准是"同一类组件"而非"同一页面"。** 外层卡照旧版宿主「设置 → 插件 → 内置插件」的插件卡，内层配置组瓦片照旧版宿主「设置 → 插件 → 插件列表」的插件行卡——基准均取旧版观感（用户裁定），未跟随 0.1.7-rc.2 现行插件清单卡（`ui-settings-plugin-inventory`）改用 settings-card 令牌族的改版（仅瓦片底色 `settings-card-fill` 与瓦片行折叠钮焦点环两处采纳现行值，用户裁定）；同页 provider 行 `.rowCard` 是不可展开的列表行、与本卡非同类，不作基准。具体数值一律以 `src/client/card.tsx` 的 `STYLE_TEXT` 为准，本文档不复述。
