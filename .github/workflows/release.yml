@@ -35,10 +35,13 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Pack tarball
-        run: pnpm pack:release
+      - name: Verify and pack tarball
+        run: |
+          pnpm typecheck
+          pnpm test
+          pnpm pack:release
 
       - name: Inspect tarball contents
         run: tar -tzf dist/*.tgz | head -50

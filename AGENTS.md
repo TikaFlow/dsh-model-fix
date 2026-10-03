@@ -186,12 +186,12 @@ graph LR
 
 ## 命令
 
-- `pnpm build` / `pnpm run typecheck` / `pnpm test`（test 走 `tsdown.test.config.ts`，见「工具链陷阱」）；验证只需跑 `pnpm build`：其内部按 `pnpm test && tsdown` 串行，`test` 又含 `pnpm typecheck`，即一次 build 自动触发 typecheck → test → build 全流程
-- `pnpm install` 触发 `prepare` → build
-- `pnpm pack:release` → pack 自动触发 `prepare`（build = typecheck → test → tsdown），产出 `dist/dsh-model-fix.tgz`；勿加 `prepack`（pack 已跑 `prepare`，`prepack` 只会令 test 重复执行）
+- `pnpm build`（= `tsdown`，**只出 `lib/` 产物、不含任何校验**）/ `pnpm run typecheck`（全量类型检查）/ `pnpm test`（= 测试构建 + 跑测试，走 `tsdown.test.config.ts`，见「工具链陷阱」）三条命令各管一段、互不串接：**完整校验 = 依次跑 `pnpm typecheck` 与 `pnpm test`**（release.yml 在打包步骤内按此顺序前置执行），`build` 不顺带触发任何校验
+- `pnpm install` 触发 `prepare` → build（本地开发照此，装完即有 `lib/`）；**release.yml 用 `pnpm install --frozen-lockfile --ignore-scripts` 跳过这一次**（`prepare` 只留给 pack，见下）
+- `pnpm pack:release` → pack 自动触发 `prepare`（= build），产出 `dist/dsh-model-fix.tgz`；CI 里这是 `prepare` 的**唯一一次**触发（install 已用 `--ignore-scripts` 摘掉），产物也最新——tarball 里的 `lib/` 正是此刻构建的；故 `prepare` 里不得串任何校验（install 与 pack 若都触发，一次发布会把 typecheck + test 跑两遍，实测 action 日志出现两次 test），校验由 release.yml 显式执行一次——**与 `pnpm pack:release` 同处一个 `run:` 步骤、排在它前面**（GitHub 默认 shell 为 `bash -e`，任一命令失败即中止、不出包）。同理勿加 `prepack`（pack 已跑 `prepare`）。**依赖侧无后患**：本仓依赖树中无任何包声明 install/prepare 脚本（pnpm 10+ 本就默认拦依赖构建脚本），故 `--ignore-scripts` 只影响根项目自身
 
 ## 测试规范
 
 - `test/` 只收**不依赖 DSH 运行时的纯函数**：配置解析与迁移、路由 compat 写入计划（`src/compat.ts`）、拍平与条目校验、id 匹配、浏览器半纯映射层（`src/client/model.ts` 与其依赖的 `src/shared/*` 均纯函数故可直接单测）。涉及时序/框架的编排（`migrateConfig`、`fix`、`readCache`/`fetchLatest`、`refresh`、浏览器半组件）不进 `test/`，需要时用 stub ctx 临时脚本验证后删除。
 - 文件按被测模块命名 `test/<module>.test.ts`，导出 `run()`，在 `test/index.ts` 注册；断言与汇总用 `test/helper.ts`（`check` / 键序无关的 `stable` / `summary` 设退出码）。
-- 新增或修改纯函数必须同步补用例并 `pnpm test` 通过；断言优先覆盖边界与兼容性语义（非法输入兜底、幂等、版本回退），不追求逐行覆盖。
+- 新增或修改纯函数必须同步补用例，并让 `pnpm typecheck` 与 `pnpm test` 都通过（`test` 已不含 typecheck）；断言优先覆盖边界与兼容性语义（非法输入兜底、幂等、版本回退），不追求逐行覆盖。

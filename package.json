@@ -24,9 +24,9 @@
     "cordis.patch.yml"
   ],
   "scripts": {
-    "build": "pnpm test && tsdown",
+    "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm typecheck && tsdown --config tsdown.test.config.ts && node .test-dist/index.mjs",
+    "test": "tsdown --config tsdown.test.config.ts && node .test-dist/index.mjs",
     "pack:release": "pnpm pack --out=\"dist/%s.tgz\"",
     "prepare": "pnpm build"
   },
