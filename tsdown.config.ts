@@ -44,7 +44,7 @@ export default defineConfig([
         fixedExtension: false,
         dts: false,
         clean: true,
-        // public/ 下的文件逐个平铺复制到 outDir 根（public/icon.svg → lib/icon.svg、public/models-cache.json → lib/models-cache.json）。
+        // public/ 下的文件逐个平铺复制到 outDir 根
         // copy 传目录条目时会把目录名一起带进 outDir（public → lib/public），故用 glob + 默认 flatten:true 逐文件落位。
         copy: [{ from: 'public/*' }],
         alias: SRC_ALIAS,
