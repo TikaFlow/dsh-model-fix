@@ -37,7 +37,7 @@ export type RowKey =
 export type Flags = PluginConfig
 
 /**
- * 解码命名空间整段：只读当前版本快照 version-6（Node 半迁移保证启动后段内必有，见 migrateConfig）；
+ * 解码命名空间整段：只读当前版本快照 version-7（Node 半迁移保证启动后段内必有，见 migrateConfig）；
  * 段非法、快照缺失或非法均回退默认。永不返回 undefined（返回 undefined 会让宿主 scope 永挂 loading）。
  */
 export function decodeSection(section: unknown): Flags {

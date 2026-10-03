@@ -2,7 +2,7 @@
  * Node 半类型定义与纯类型守卫。
  *
  * 本文件只保留 Node 专属：models.dev 目录类型（`ModelEntry`/`CacheRecord`/…）、`isCapacity`、
- * 冻结历史版本（v1–v4）快照形态。跨半共享类型与守卫单一来源在 `src/shared/types.ts`，两半均直连。
+ * 冻结历史版本（v1–v6）快照形态。跨半共享类型与守卫单一来源在 `src/shared/types.ts`，两半均直连。
  */
 
 import { CAPACITY_UNLIMITED } from '@/constants'
@@ -182,4 +182,36 @@ export interface V5PluginConfigSnapshot {
     excludes: string[]
     efforts: EffortMemory
     userExperience: V5UserExperienceRules
+}
+
+// ---------- 历史版本（v6）冻结形态：引入 forgetRemoved 之前的快照（三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts, defaultHigh}）。 ----------
+// ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 6 时本段与 upgradeTo7 的 v6 解析一并移除 ----------
+
+/** 历史版本(v6)：字段规则 schema（与当前 FieldRules 同形，独立声明以冻结形态） */
+export interface V6FieldRules {
+    reasoning: boolean
+    context: boolean
+    image: boolean
+}
+
+/** 历史版本(v6)：兼容性规则 schema（与当前 CompatRules 同形，独立声明以冻结形态） */
+export interface V6CompatRules {
+    disableDeveloper: boolean
+}
+
+/** 历史版本(v6)：用户体验规则（冻结形态：含 rememberEfforts 与 defaultHigh，不含 v7 起的 forgetRemoved） */
+export interface V6UserExperienceRules {
+    rememberEfforts: boolean
+    defaultHigh: boolean
+}
+
+/** 历史版本(v6)配置快照（freeze；不引用当前版本的可演进定义） */
+export interface V6PluginConfigSnapshot {
+    configVersion: number
+    allowUpdate: V6FieldRules
+    autoFill: V6FieldRules
+    compat: V6CompatRules
+    excludes: string[]
+    efforts: EffortMemory
+    userExperience: V6UserExperienceRules
 }

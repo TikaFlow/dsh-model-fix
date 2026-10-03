@@ -56,6 +56,8 @@ function isSettingsConflict(error: unknown): boolean {
  *   但已删除模型的记忆条目一并清除，见 AGENTS.md 设计裁决）。重建结果与旧值经 `deepEqualJson`
  *   相同则零写入，不同才以自有 NS 的 revision 写回 `version-N.efforts`（独立于 llm-pi-ai 的写回批次，
  *   且先于模型写回、失败仅告警不影响主流程）。
+ *   整段受 `userExperience.forgetRemoved` 控制（默认开）：关闭时**不做任何操作**——不遍历、不重建、不写回，
+ *   已删除模型的记忆条目原样保留（见 AGENTS.md 设计裁决）。
  * 返回变更模型数（不含路由 compat 计数与记忆清理，保持 RPC 契约）；写回失败（冲突重试用尽等）
  * 先告警再抛出，由调用方决定后续处理（RPC 转失败结果回传，事件侧吞掉 rejection）。
  */
@@ -77,6 +79,8 @@ export async function fix(ctx: Context, force = false): Promise<number> {
         const excludes = new Set(cfg.excludes)
         const indexed = getCatalog()
         // 记忆清理 = 重建：旧记忆为基线，只保留循环里仍存在的 provider+model 条目，不存在的即被清除。
+        // 受「忘记已删除模型」开关控制：关闭时整段跳过（本循环也不重建），已删除模型的记忆原样保留。
+        const forgetRemoved = cfg.userExperience.forgetRemoved
         const oldEfforts = cfg.efforts
         const newEfforts: EffortMemory = {}
         const ops: SettingsPathOp[] = []
@@ -85,9 +89,9 @@ export async function fix(ctx: Context, force = false): Promise<number> {
         let excluded = 0
         for (const [providerId, provider] of Object.entries(providers)) {
             if (excludes.has(providerId)) {
-                // 已排除的提供方不执行填充，但要单独重建其记忆，逻辑与下方相同
+                // 已排除的提供方不执行填充，但要单独重建其记忆，逻辑与下方相同（开关关闭则整段不重建）
                 const models = isPlainObject(provider) ? provider.models : undefined
-                if (Array.isArray(models)) {
+                if (forgetRemoved && Array.isArray(models)) {
                     for (let i = 0; i < models.length; i++) {
                         const model = models[i]
                         if (!isPlainObject(model) || model.id === undefined || model.id === null) continue
@@ -107,9 +111,11 @@ export async function fix(ctx: Context, force = false): Promise<number> {
                     const model = models[i]
                     if (!isPlainObject(model) || model.id === undefined || model.id === null) continue
                     const modelId = String(model.id)
-                    // 记忆重建：该模型仍存在才重建其记忆条目（已删除的不重建，即被清除）；
-                    const kept = oldEfforts[providerId]?.[modelId]
-                    if (kept !== undefined) (newEfforts[providerId] ??= {})[modelId] = kept
+                    // 记忆重建：该模型仍存在才重建其记忆条目（已删除的不重建，即被清除；开关关闭则整段不重建）
+                    if (forgetRemoved) {
+                        const kept = oldEfforts[providerId]?.[modelId]
+                        if (kept !== undefined) (newEfforts[providerId] ??= {})[modelId] = kept
+                    }
                     const { reasoningEfforts, contextWindow, maxTokens } = model as {
                         reasoningEfforts?: unknown
                         contextWindow?: unknown
@@ -173,9 +179,8 @@ export async function fix(ctx: Context, force = false): Promise<number> {
             }
         }
 
-        try { // 重建记忆不影响主流程
-            const effortsChanged = own !== undefined && !deepEqualJson(newEfforts, oldEfforts)
-            if (own && effortsChanged) {
+        try { // 重建记忆不影响主流程；开关关闭时整段不执行（连同上面的重建遍历）
+            if (forgetRemoved && own && !deepEqualJson(newEfforts, oldEfforts)) {
                 await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, [{ op: 'set', path: [versionKey(CONFIG_VERSION), 'efforts'], value: newEfforts }], own.revision))
                 ctx.logger.info(`${PLUGIN_NAME}: 已重建推理级别记忆`)
             }

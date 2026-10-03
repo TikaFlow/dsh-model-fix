@@ -8,7 +8,7 @@ import { resolveConfig } from '@/config'
 import { queueTask } from '@/host'
 import { DEFAULT_CONFIG, parseEfforts, parseSnapshot, parseVersion, toStored, versionKey } from '@/shared/parse'
 import type { PluginConfigSnapshot, VersionedSection } from '@/shared/types'
-import type { V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot, V5CompatRules, V5FieldRules, V5PluginConfigSnapshot, V5UserExperienceRules } from '@/types'
+import type { V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot, V5CompatRules, V5FieldRules, V5PluginConfigSnapshot, V5UserExperienceRules, V6CompatRules, V6FieldRules, V6PluginConfigSnapshot, V6UserExperienceRules } from '@/types'
 import { isPlainObject } from '@/shared/types'
 
 // ---------- 历史版本（v1）迁移源代码：新命名空间版本快照体系内 v1 快照的冻结形态（见 types.ts 历史版本(v1) 段说明），不引用当前版本的可演进定义。 ----------
@@ -253,8 +253,8 @@ const V5ConfigSchema: z<Omit<V5PluginConfigSnapshot, 'configVersion' | 'efforts'
  */
 const V6_DEFAULT_HIGH_DEFAULT = false
 
-/** 升到 v6（当前版本）：低于 v6 的输入先由 upgradeTo5 逐级接力到 v5，再按 v5 冻结 schema 解析（非法整体回退 v5 默认），新增 userExperience.defaultHigh 并落默认；efforts 经 parseEfforts 宽松保留 */
-function upgradeTo6(config: unknown, fromVersion: number): PluginConfigSnapshot {
+/** 升到 v6：低于 v6 的输入先由 upgradeTo5 逐级接力到 v5，再按 v5 冻结 schema 解析（非法整体回退 v5 默认），新增 userExperience.defaultHigh 并落默认；efforts 经 parseEfforts 宽松保留 */
+export function upgradeTo6(config: unknown, fromVersion: number): V6PluginConfigSnapshot {
     const v5 = fromVersion < 5 ? upgradeTo5(config, fromVersion) : config
     let parsed: Omit<V5PluginConfigSnapshot, 'configVersion' | 'efforts'>
     try {
@@ -276,19 +276,90 @@ function upgradeTo6(config: unknown, fromVersion: number): PluginConfigSnapshot 
     }
 }
 
+// ---------- 历史版本（v6）迁移源代码：v6 快照的冻结形态（见 types.ts 历史版本(v6) 段说明），不引用当前版本的可演进定义。 ----------
+
+/** 历史版本(v6)：字段规则 schema（与 v5 同形，独立声明以冻结形态），dflt 为省略字段的默认值 */
+const v6FieldRules = (dflt: boolean): z<V6FieldRules> => z.object({
+    reasoning: z.boolean().default(dflt),
+    context: z.boolean().default(dflt),
+    image: z.boolean().default(dflt),
+})
+
+/** 历史版本(v6)：兼容性规则 schema（与 v5 同形，独立声明以冻结形态） */
+const v6CompatRules: z<V6CompatRules> = z.object({
+    disableDeveloper: z.boolean().default(true),
+})
+
+/** 历史版本(v6)：用户体验规则 schema（冻结形态：含 rememberEfforts 与 defaultHigh，无 v7 起的 forgetRemoved） */
+const v6UserExperienceRules: z<V6UserExperienceRules> = z.object({
+    rememberEfforts: z.boolean().default(true),
+    defaultHigh: z.boolean().default(false),
+})
+
+/** 历史版本(v6)：默认配置——解析失败兜底与 schema 整项缺省的唯一来源 */
+const V6_BASE: Omit<V6PluginConfigSnapshot, 'configVersion'> = {
+    allowUpdate: { reasoning: false, context: false, image: false },
+    autoFill: { reasoning: true, context: true, image: true },
+    compat: { disableDeveloper: true },
+    excludes: [],
+    efforts: {},
+    userExperience: { rememberEfforts: true, defaultHigh: false },
+}
+
+/**
+ * 历史版本(v6)：配置 schema（仅对象写法，configVersion 等多余键被 schema 忽略；默认取 V6_BASE 的展开副本）。
+ * efforts 是宽松记忆字段，不进 schema（坏结构只该回落 {} 而非拖垮整段），由 upgradeTo7 经 parseEfforts 单独保留。
+ */
+const V6ConfigSchema: z<Omit<V6PluginConfigSnapshot, 'configVersion' | 'efforts'>> = z.object({
+    allowUpdate: v6FieldRules(false).default({ ...V6_BASE.allowUpdate }),
+    autoFill: v6FieldRules(true).default({ ...V6_BASE.autoFill }),
+    compat: v6CompatRules.default({ ...V6_BASE.compat }),
+    excludes: z.array(z.string()).default([...V6_BASE.excludes]),
+    userExperience: v6UserExperienceRules.default({ ...V6_BASE.userExperience }),
+})
+
+/**
+ * forgetRemoved 的台阶默认值：v6 无该字段，升级到 v7 时落默认（true，即维持「忘记已删除模型」的既有行为）。
+ * 写字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.userExperience.forgetRemoved`——后者随当前版本演进，台阶产物形态必须恒定。
+ */
+const V7_FORGET_REMOVED_DEFAULT = true
+
+/** 升到 v7（当前版本）：低于 v7 的输入先由 upgradeTo6 逐级接力到 v6，再按 v6 冻结 schema 解析（非法整体回退 v6 默认），新增 userExperience.forgetRemoved 并落默认；efforts 经 parseEfforts 宽松保留 */
+function upgradeTo7(config: unknown, fromVersion: number): PluginConfigSnapshot {
+    const v6 = fromVersion < 6 ? upgradeTo6(config, fromVersion) : config
+    let parsed: Omit<V6PluginConfigSnapshot, 'configVersion' | 'efforts'>
+    try {
+        parsed = V6ConfigSchema((isPlainObject(v6) ? v6 : {}) as unknown as Omit<V6PluginConfigSnapshot, 'configVersion' | 'efforts'>)
+    } catch {
+        parsed = V6_BASE
+    }
+    // efforts 宽松保留（结构不符回落 {}）：记忆坏值不判整段快照非法，避免连累配置自愈重写丢配置
+    const efforts = parseEfforts(isPlainObject(v6) ? (v6 as { efforts?: unknown }).efforts : undefined)
+    // 产物版本固定为 7（本函数形态恒定），故不引用 CONFIG_VERSION
+    return {
+        configVersion: 7,
+        allowUpdate: parsed.allowUpdate,
+        autoFill: parsed.autoFill,
+        compat: { ...parsed.compat },
+        excludes: [...parsed.excludes],
+        efforts,
+        userExperience: { ...parsed.userExperience, forgetRemoved: V7_FORGET_REMOVED_DEFAULT },
+    }
+}
+
 /**
  * 配置版本迁移入口：只调用最新一级台阶，产物即当前 CONFIG_VERSION 的快照形态。
  * 新版本发布时：新增 `upgradeToN`（它负责把更低版本经 `upgradeToN-1` 接力上来），把本函数改指它，
  * 链上既有函数一律不改，并把上一级台阶的返回类型改指新冻结的 `V(N-1)PluginConfigSnapshot`。
- * 例如当前版本=7：
- *   upgradeConfig = (c, v) => upgradeTo7(c, v)
- *   upgradeTo7 = (c, v) => {
- *     const v6 = v < 6 ? upgradeTo6(c, v) : c
- *     // 在此升到 7 的字段并返回 v7 快照
+ * 例如当前版本=8：
+ *   upgradeConfig = (c, v) => upgradeTo8(c, v)
+ *   upgradeTo8 = (c, v) => {
+ *     const v7 = v < 7 ? upgradeTo7(c, v) : c
+ *     // 在此升到 8 的字段并返回 v8 快照
  *   }
  */
 export function upgradeConfig(config: unknown, fromVersion: number): PluginConfigSnapshot {
-    return upgradeTo6(config, fromVersion)
+    return upgradeTo7(config, fromVersion)
 }
 
 /** 全新用户的规范默认快照（与升级链对空输入的结果一致，由 test 守护）；物化函数单一来源在 src/shared/parse.ts 的 `toStored` */
@@ -335,19 +406,19 @@ export function pruneOps(
 
 /**
  * 当前版本快照的规范化 op：以「当前生效值」物化规范完整快照（`resolveConfig` → `toStored`），
- * 与盘上 v6 逐键比较；不一致才产出 set op，幂等——第二轮同值零写入即收敛。
- * 仅在 migrateConfig 的「当前版本已存在」分支调用（无 v6 时由迁移分支直接写规范快照）。
+ * 与盘上 v7 逐键比较；不一致才产出 set op，幂等——第二轮同值零写入即收敛。
+ * 仅在 migrateConfig 的「当前版本已存在」分支调用（无 v7 时由迁移分支直接写规范快照）。
  *
  * 覆盖三类重写动因：
- * - 非法：`parseSnapshot(onDisk)` 判 undefined（如用户手改坏、或 v6 为非对象）——`resolveConfig` 回落到段内最高可解析快照或默认；
+ * - 非法：`parseSnapshot(onDisk)` 判 undefined（如用户手改坏、或 v7 为非对象）——`resolveConfig` 回落到段内最高可解析快照或默认；
  * - 残缺：`parseSnapshot` 对缺失字段一律补默认，会把只有 `efforts` 的 `{efforts:{…}}` 判为合法完整配置，
  *   单纯「非法才自愈」不足以保证盘上是规范完整快照；此处按规范化结果比对，残缺即重写（保留 efforts/excludes 现值，补齐四组默认与 configVersion）；
- * - 多余键：v6 含当前 schema 未知的键时，`toStored` 物化只保留已知键，比对不一致即剥离重写。
+ * - 多余键：v7 含当前 schema 未知的键时，`toStored` 物化只保留已知键，比对不一致即剥离重写。
  */
 export function canonicalizeCurrentOp(section: VersionedSection | undefined): SettingsPathOp[] {
     if (!section) return []
     const key = versionKey(CONFIG_VERSION)
-    if (!(key in section)) return [] // v6 不存在 → 交给迁移分支，不在此产出
+    if (!(key in section)) return [] // v7 不存在 → 交给迁移分支，不在此产出
     const onDisk = section[key]
     const canonical = toStored(resolveConfig(section))
     return deepEqualJson(onDisk, canonical) ? [] : [{ op: 'set', path: [key], value: canonical }]
@@ -363,7 +434,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 
 /**
  * 启动时配置迁移：
- * - 有当前版本快照 → 规范化校验：以当前生效值物化规范完整快照，与盘上 v6 逐键比较；不一致（非法 / 字段残缺 / 含多余键）即重写自愈
+ * - 有当前版本快照 → 规范化校验：以当前生效值物化规范完整快照，与盘上 v7 逐键比较；不一致（非法 / 字段残缺 / 含多余键）即重写自愈
  *   （幂等——第二轮同值零写入即收敛），两阶段清理低版本旧快照：先清低于最低支持版本，再清低于当前版本且超出上限的 excess（高版本快照保留）
  * - 无当前版本 → 段内所有 ≥ 最低支持版本中取最高可解析快照：高版本降级解析（按当前 schema，多余键忽略、efforts 宽松保留）、
  *   低版本走升级链；均不可解析或段内无版本则视为全新用户，直接写入规范默认快照，确保后续读取必有当前版本

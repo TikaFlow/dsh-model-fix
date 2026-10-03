@@ -61,6 +61,13 @@ export interface UserExperienceRules {
      * 默认 false。
      */
     defaultHigh: boolean
+    /**
+     * 模型/提供方被删除时随之忘记该模型的推理级别记忆：开启时每次填充顺带**重建**记忆
+     * （借用填充循环，只保留当前仍存在的 provider + model 条目，已删除者即被清除）；
+     * 关闭则完全不做任何操作，已删除模型的记忆原样保留（若后来重建同名模型会恢复该记忆）。
+     * 默认 true。
+     */
+    forgetRemoved: boolean
 }
 
 /** 每模型推理级别记忆：provider id → model id → harness ModelThinkingLevel 字符串 */

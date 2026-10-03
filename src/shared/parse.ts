@@ -1,5 +1,5 @@
 /**
- * 跨半共享的当前版本（v6）配置解析、默认值与存储快照物化（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）。
+ * 跨半共享的当前版本（v7）配置解析、默认值与存储快照物化（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）。
  *
  * 浏览器半 `decodeSection` 与 Node 半 `resolveConfig`/`migrateConfig` 共用此处的解析函数（单一来源）；
  * `toStored` 为反方向的物化（配置 -> 规范存储快照），Node 半迁移落盘与浏览器半卡片「保存」共用。
@@ -15,21 +15,21 @@ import { CONFIG_VERSION, VERSION_PREFIX } from '@/shared/constants'
 import type { CompatRules, EffortMemory, FieldRules, PluginConfig, PluginConfigSnapshot, UserExperienceRules } from '@/shared/types'
 import { isPlainObject } from '@/shared/types'
 
-/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，排除列表为空，每模型推理级别记忆为空，记住推理级别开启，默认使用 high 关闭 */
+/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，排除列表为空，每模型推理级别记忆为空，记住推理级别开启，默认使用 high 关闭，忘记已删除模型开启 */
 export const DEFAULT_CONFIG: PluginConfig = {
     allowUpdate: { reasoning: false, context: false, image: false },
     autoFill: { reasoning: true, context: true, image: true },
     compat: { disableDeveloper: true },
     excludes: [],
     efforts: {},
-    userExperience: { rememberEfforts: true, defaultHigh: false },
+    userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: true },
 }
 
 /** 兼容性规则的省略字段默认（默认按旧版 API 处理：不使用 developer 角色） */
 const COMPAT_DEFAULTS: CompatRules = { disableDeveloper: true }
 
-/** 用户体验组的省略字段默认（默认记住推理级别、默认不使用 high） */
-const USER_EXPERIENCE_DEFAULTS: UserExperienceRules = { rememberEfforts: true, defaultHigh: false }
+/** 用户体验组的省略字段默认（默认记住推理级别、默认不使用 high、默认忘记已删除模型） */
+const USER_EXPERIENCE_DEFAULTS: UserExperienceRules = { rememberEfforts: true, defaultHigh: false, forgetRemoved: true }
 
 /** 模型参数行对应的字段键（自动填充 / 允许更新两组的行，渲染顺序与总控共用） */
 export const FIELD_KEYS = ['reasoning', 'context', 'image'] as const
@@ -37,8 +37,8 @@ export const FIELD_KEYS = ['reasoning', 'context', 'image'] as const
 /** 兼容性规则键（compat 组的行）；后续同组新增兼容性配置在此追加即可，不需要递增 CONFIG_VERSION */
 export const COMPAT_KEYS = ['disableDeveloper'] as const
 
-/** 用户体验组的行键；同组新增前端行为开关在此追加即可（新增顶层组才需递增 CONFIG_VERSION，同组加键仍属向后兼容，但 defaultHigh 经用户要求随 v6 一并升版落地） */
-export const USER_EXPERIENCE_KEYS = ['rememberEfforts', 'defaultHigh'] as const
+/** 用户体验组的行键；同组新增行键在此追加即可（新增顶层组才需递增 CONFIG_VERSION；已随 v6 / v7 落地的键见 migrate.ts 的升级台阶） */
+export const USER_EXPERIENCE_KEYS = ['rememberEfforts', 'defaultHigh', 'forgetRemoved'] as const
 
 /** 解析版本快照键 version-N；非法返回 undefined。严格匹配规范键（重建键名需与实际键一致，禁宽泛归一） */
 export function parseVersion(key: string): number | undefined {
@@ -154,7 +154,7 @@ export function parseSnapshot(value: unknown): PluginConfig | undefined {
 }
 
 /**
- * 运行时配置 -> 规范 v6 存储快照（configVersion + 四组 + excludes + efforts + userExperience 全显式）。
+ * 运行时配置 -> 规范 v7 存储快照（configVersion + 四组 + excludes + efforts + userExperience 全显式）。
  * Node 半 migrate（自愈重写/高版本降级落盘）与浏览器半卡片「保存」共用（单一来源）。
  * 各组浅拷贝、excludes 复制、`efforts` 引用传递（调用方以写入当刻的实时记忆覆盖传入）；产物仅供立即序列化写入。
  */

@@ -31,6 +31,7 @@ export type CardKey =
     | 'rowDisableDeveloper'
     | 'rowRememberEfforts'
     | 'rowDefaultHigh'
+    | 'rowForgetRemoved'
     | 'excludePlaceholder'
     | 'excludeAdd'
     | 'excludeInvalid'
@@ -94,6 +95,7 @@ export const ROW_KEYS: Record<RowKey, CardKey> = {
     disableDeveloper: 'rowDisableDeveloper',
     rememberEfforts: 'rowRememberEfforts',
     defaultHigh: 'rowDefaultHigh',
+    forgetRemoved: 'rowForgetRemoved',
 }
 
 /** 配置组（瓦片）标题键映射 */
@@ -133,6 +135,7 @@ export const zh: Record<CardKey, string> = {
     rowDisableDeveloper: '不使用 developer 角色',
     rowRememberEfforts: '记住推理级别',
     rowDefaultHigh: '默认使用 high',
+    rowForgetRemoved: '忘记已删除模型',
     excludePlaceholder: 'acme-gateway',
     excludeAdd: '添加排除的提供方',
     excludeInvalid: '需以小写字母开头，之后可用小写字母、数字和短横线。',
@@ -204,6 +207,7 @@ export const en: Record<CardKey, string> = {
     rowDisableDeveloper: 'Never use the developer role',
     rowRememberEfforts: 'Remember reasoning efforts',
     rowDefaultHigh: 'Default to high',
+    rowForgetRemoved: 'Forget removed models',
     excludePlaceholder: 'acme-gateway',
     excludeAdd: 'Add an excluded provider',
     excludeInvalid: 'Start with a lowercase letter; then lowercase letters, digits, and dashes.',
