@@ -12,7 +12,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 | --- | --- |
 | `src/index.ts` | Node 半入口：`export` + `Config`（0.1.7 宿主 settings 面经 `entry.fiber.runtime.Config` 取用；根 `.volatile()` 使宿主把整段作为实时引用注入 apply 第二参）+ **单一 `apply` 编排体**（captureBackup → 配置源与段变更接线 → installRpc → 启动链，卸载标记贯穿）：配置源经 apply 第二参的实时引用派生（`.get()` 在工厂内），段变更走 `settings/document-updated`（0.1.7 唯一段级事件，按 ns 分流）；两条段变更链（自有段「自愈→填充」、llm-pi-ai「填充→保鲜刷新」）共用同函数 |
 | `src/shared/` | **跨半共享层**（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`，两半值导入的唯一跨半来源，不经任何 facade 中转）：`constants.ts`（`API_NS`/`PLUGIN_NS`/`PLUGIN_NAME`/`CONFIG_VERSION`/`VERSION_PREFIX`）、`types.ts`（`isPlainObject`/`providersOf` + 共用类型）、`parse.ts`（`DEFAULT_CONFIG`/`parseSnapshot`/`parseEfforts`/`parseVersion`/`versionKey`/`toStored` + 各组解析函数与行键表） |
-| `src/types.ts` | Node 专属类型：models.dev 目录类型（`ModelEntry`/`CacheRecord`/…）、`isCapacity`、**冻结历史版本(v1-v6) 形态**（共用类型与守卫直连 `src/shared/types.ts`） |
+| `src/types.ts` | Node 专属类型：models.dev 目录类型（`ModelEntry`/`CacheRecord`/…）、`isCapacity`、**冻结历史版本(v3-v6) 形态**（共用类型与守卫直连 `src/shared/types.ts`） |
 | `src/constants.ts` | Node 专属常量（`CACHE_FILE` 带 `node:path`、保留上限、重试参数、`CAPACITY_UNLIMITED`、`HINTS`、兼容性落点 `DEVELOPER_COMPAT_APIS` / `DEVELOPER_COMPAT_FIELD`）；共享常量直连 `src/shared/constants.ts` |
 | `src/config.ts` / `src/migrate.ts` | `resolveConfig`/配置源 / 升级链与 `migrateConfig` 编排、`DEFAULT_STORED` 规范默认快照（物化函数 `toStored` 单一来源在 `src/shared/parse.ts`，两半直连） |
 | `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
@@ -75,15 +75,13 @@ Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置�
 
 ### 历史形态冻结
 
-- v1 = `tikaflow-model-fix` 版本快照体系的旧快照（引入 image 前的配置），其类型与 schema 一律不引用当前版本的可演进定义。
-- v2 = 引入 `compat` 前的快照（两组六布尔），冻结形态同上；台阶 `upgradeTo2` 的产物即该形态，故返回类型用冻结的 `V2PluginConfigSnapshot`。
-- v3 = 引入 `excludes` 前的快照（三组布尔 + compat），冻结形态同上；`upgradeTo3` 的返回类型即该冻结形态（**每次升版都要把上一级台阶的返回类型改指新冻结的 `V(N-1)PluginConfigSnapshot`**，否则当前类型演进会连带改写历史语义）。
+- v3 = 引入 `excludes` 前的快照（三组布尔 + compat），冻结形态同上；现由最低一级 `upgradeTo4` 的返回类型（`V4PluginConfigSnapshot`）与解析输入承载（**每次升版都要把上一级台阶的返回类型改指新冻结的 `V(N-1)PluginConfigSnapshot`**，否则当前类型演进会连带改写历史语义）。
 - v4 = 引入 `efforts` 前的快照（三组布尔 + compat + excludes），冻结形态同上；`upgradeTo4` 的返回类型即该冻结形态。
 - v5 = 引入 `defaultHigh` 前的快照（三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts}），冻结形态同上；`upgradeTo5` 的返回类型即该冻结形态。`efforts` 虽是宽松记忆字段，v5 已存在故在冻结形态内（其 V5 台阶 schema 不含 efforts，由 `upgradeTo6` 经 `parseEfforts` 单独保留，见下）。
 - v6 = 引入 `forgetRemoved` 前的快照（三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts, defaultHigh}），冻结形态同上；`upgradeTo6` 的返回类型即该冻结形态（其 V6 台阶 schema 同样不含 efforts，由 `upgradeTo7` 经 `parseEfforts` 单独保留）。
 - **只往 `compat` 对象里加键不算形态变化**：不递增 `CONFIG_VERSION`、不加台阶，前提是每个新键都有 schema 默认（旧快照解析后即获得默认）。**新增顶层组（如 `excludes` / `efforts`）则算形态变化**，必须升版——不升版会让旧插件的 `parseSnapshot` 剥掉新键并触发自愈重写，破坏版本快照体系赖以存在的"无损回退"。**`userExperience` 组内的 `defaultHigh` 与 `forgetRemoved` 均经用户要求随所在版本正式升版落地**（v5 周期内 `rememberEfforts` 曾以「同一版本周期内不同提交、无已发布旧 v5 形态可回退冲突」为由不升版加入；二者不复用该例外，`defaultHigh` 升 v6 加 `upgradeTo6`、v5 冻结为只含 `rememberEfforts` 的形态，`forgetRemoved` 升 v7 加 `upgradeTo7`、v6 冻结为含 `defaultHigh` 的形态）。
-- 升级台阶按**目标版本**命名 `upgradeToN`（名字只说明"我产出 vN"，如何从更低版本接力上来是其内部事务）：每级先 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力，再按 `vN-1` 冻结 schema 解析、补新增字段落默认；**产物版本号写固定字面量**（不引用 `CONFIG_VERSION`）。`upgradeConfig` 只调最新一级，链上既有函数的**逻辑**不改（返回类型标注随冻结形态更新除外）；最低一级 `upgradeTo2` 独占全链唯一的 `fromVersion < MIN_SUPPORTED_VERSION` 守卫（该常量等于这一级的输入下限，自维护，实际不会触发，仅挡误用）。
-- 提升 `MIN_SUPPORTED_VERSION` 时：该版本的冻结段与消费它的台阶（`upgradeTo该版本`）一并移除。
+- 升级台阶按**目标版本**命名 `upgradeToN`（名字只说明"我产出 vN"，如何从更低版本接力上来是其内部事务）：每级先 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力，再按 `vN-1` 冻结 schema 解析、补新增字段落默认；**产物版本号写固定字面量**（不引用 `CONFIG_VERSION`）。`upgradeConfig` 只调最新一级，链上既有函数的**逻辑**不改（返回类型标注随冻结形态更新除外）；最低一级（当前 `MIN_SUPPORTED_VERSION = 3` ⇒ `upgradeTo4`，其**输入**下限恰等于该常量）独占全链唯一的 `fromVersion < MIN_SUPPORTED_VERSION` 守卫（自维护，实际不会触发，仅挡误用）。
+- 提升 `MIN_SUPPORTED_VERSION` 到 M 时：低于 M 的冻结形态（`src/types.ts` 的类型 + `migrate.ts` 的 schema/基准）与产出它们的台阶（`upgradeTo2`…`upgradeToM`）一并移除——这些台阶的输入下限已被守卫拒绝，整段成为死代码；输入下限恰为 M 的那一级（`upgradeTo(M+1)`）转为最低一级、自持该守卫。
 
 ### 工具链陷阱
 

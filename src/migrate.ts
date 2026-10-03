@@ -8,47 +8,12 @@ import { resolveConfig } from '@/config'
 import { queueTask } from '@/host'
 import { DEFAULT_CONFIG, parseEfforts, parseSnapshot, parseVersion, toStored, versionKey } from '@/shared/parse'
 import type { PluginConfigSnapshot, VersionedSection } from '@/shared/types'
-import type { V1FieldRules, V1PluginConfigSnapshot, V2FieldRules, V2PluginConfigSnapshot, V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot, V5CompatRules, V5FieldRules, V5PluginConfigSnapshot, V5UserExperienceRules, V6CompatRules, V6FieldRules, V6PluginConfigSnapshot, V6UserExperienceRules } from '@/types'
+import type { V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot, V5CompatRules, V5FieldRules, V5PluginConfigSnapshot, V5UserExperienceRules, V6CompatRules, V6FieldRules, V6PluginConfigSnapshot, V6UserExperienceRules } from '@/types'
 import { isPlainObject } from '@/shared/types'
-
-// ---------- 历史版本（v1）迁移源代码：新命名空间版本快照体系内 v1 快照的冻结形态（见 types.ts 历史版本(v1) 段说明），不引用当前版本的可演进定义。 ----------
-
-/** 历史版本(v1)：字段规则 schema（无 image 字段），dflt 为省略字段的默认值 */
-const v1FieldRules = (dflt: boolean): z<V1FieldRules> => z.object({
-    reasoning: z.boolean().default(dflt),
-    context: z.boolean().default(dflt),
-})
-
-/** 历史版本(v1)：默认配置——解析失败兜底与 schema 整项缺省的唯一来源 */
-const V1_BASE: Omit<V1PluginConfigSnapshot, 'configVersion'> = { allowUpdate: { reasoning: false, context: false }, autoFill: { reasoning: true, context: true } }
-
-/** 历史版本(v1)：配置 schema（仅对象写法，configVersion 等多余键被 schema 忽略；默认取 V1_BASE 的展开副本） */
-const V1ConfigSchema: z<Omit<V1PluginConfigSnapshot, 'configVersion'>> = z.object({
-    allowUpdate: v1FieldRules(false).default({ ...V1_BASE.allowUpdate }),
-    autoFill: v1FieldRules(true).default({ ...V1_BASE.autoFill }),
-})
-
-// ---------- 历史版本（v2）迁移源代码：版本快照体系内 v2 快照的冻结形态（见 types.ts 历史版本(v2) 段说明），不引用当前版本的可演进定义。 ----------
-
-/** 历史版本(v2)：字段规则 schema（含 image，无 compat 对象），dflt 为省略字段的默认值 */
-const v2FieldRules = (dflt: boolean): z<V2FieldRules> => z.object({
-    reasoning: z.boolean().default(dflt),
-    context: z.boolean().default(dflt),
-    image: z.boolean().default(dflt),
-})
-
-/** 历史版本(v2)：默认配置——解析失败兜底与 schema 整项缺省的唯一来源 */
-const V2_BASE: Omit<V2PluginConfigSnapshot, 'configVersion'> = { allowUpdate: { reasoning: false, context: false, image: false }, autoFill: { reasoning: true, context: true, image: true } }
-
-/** 历史版本(v2)：配置 schema（仅对象写法，configVersion 等多余键被 schema 忽略；默认取 V2_BASE 的展开副本） */
-const V2ConfigSchema: z<Omit<V2PluginConfigSnapshot, 'configVersion'>> = z.object({
-    allowUpdate: v2FieldRules(false).default({ ...V2_BASE.allowUpdate }),
-    autoFill: v2FieldRules(true).default({ ...V2_BASE.autoFill }),
-})
 
 // ---------- 历史版本（v3）迁移源代码：版本快照体系内 v3 快照的冻结形态（见 types.ts 历史版本(v3) 段说明），不引用当前版本的可演进定义。 ----------
 
-/** 历史版本(v3)：字段规则 schema（与 v2 同形，独立声明以冻结形态），dflt 为省略字段的默认值 */
+/** 历史版本(v3)：字段规则 schema（与当前 FieldRules 同形，独立声明以冻结形态），dflt 为省略字段的默认值 */
 const v3FieldRules = (dflt: boolean): z<V3FieldRules> => z.object({
     reasoning: z.boolean().default(dflt),
     context: z.boolean().default(dflt),
@@ -76,63 +41,22 @@ const V3ConfigSchema: z<Omit<V3PluginConfigSnapshot, 'configVersion'>> = z.objec
 
 // ---------- 升级链（upgradeToN 的产物即 vN 快照；调用它即「升到 N」，更低版本由它在内部逐级回推） ----------
 
-/** 升到 v2（最低一级）：输入按 v1 冻结 schema 解析（非法整体回退 v1 默认），新增 image 字段并落各自默认（autoFill=true、allowUpdate=false） */
-function upgradeTo2(config: unknown, fromVersion: number): V2PluginConfigSnapshot {
+/**
+ * 排除列表的台阶默认值：升级到 v4 时落空列表。
+ * 写空字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.excludes`，理由同上（产物形态恒定）。
+ */
+const V4_EXCLUDES_DEFAULT: readonly string[] = []
+
+/** 升到 v4（最低一级）：输入按 v3 冻结 schema 解析（非法整体回退 v3 默认），新增 excludes 数组并落默认 */
+function upgradeTo4(config: unknown, fromVersion: number): V4PluginConfigSnapshot {
     // 全链唯一的最低版本守卫：本函数是最低一级，其输入版本下限恰为 MIN_SUPPORTED_VERSION（自维护常量），
     // 调用方已按该下限筛过迁移源，故此判断实际不会触发，只用于挡住误用。
     if (fromVersion < MIN_SUPPORTED_VERSION) {
         throw new Error(`无法从 v${fromVersion} 升级：低于最低支持版本 v${MIN_SUPPORTED_VERSION}`)
     }
-    let v1: Omit<V1PluginConfigSnapshot, 'configVersion'>
-    try {
-        v1 = V1ConfigSchema((isPlainObject(config) ? config : {}) as unknown as Omit<V1PluginConfigSnapshot, 'configVersion'>)
-    } catch {
-        v1 = V1_BASE
-    }
-    // 产物版本固定为 2（本函数形态恒定），更高版本由后续台阶接力，故不引用 CONFIG_VERSION
-    return {
-        configVersion: 2,
-        allowUpdate: { ...v1.allowUpdate, image: false },
-        autoFill: { ...v1.autoFill, image: true },
-    }
-}
-
-/**
- * 兼容性规则的台阶默认值：v2 无该对象，升级到 v3 时落默认。
- * 写字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.compat`——后者随当前版本演进，台阶产物形态必须恒定。
- */
-const V3_COMPAT_DEFAULT: V3CompatRules = { disableDeveloper: true }
-
-/** 升到 v3：低于 v3 的输入先由 upgradeTo2 逐级接力到 v2，再按 v2 冻结 schema 解析（非法整体回退 v2 默认），新增 compat 对象并落默认 */
-function upgradeTo3(config: unknown, fromVersion: number): V3PluginConfigSnapshot {
-    const v2 = fromVersion < 2 ? upgradeTo2(config, fromVersion) : config
-    let parsed: Omit<V2PluginConfigSnapshot, 'configVersion'>
-    try {
-        parsed = V2ConfigSchema((isPlainObject(v2) ? v2 : {}) as unknown as Omit<V2PluginConfigSnapshot, 'configVersion'>)
-    } catch {
-        parsed = V2_BASE
-    }
-    // 产物版本固定为 3（本函数形态恒定），更高版本由后续台阶接力，故不引用 CONFIG_VERSION
-    return {
-        configVersion: 3,
-        allowUpdate: parsed.allowUpdate,
-        autoFill: parsed.autoFill,
-        compat: { ...V3_COMPAT_DEFAULT },
-    }
-}
-
-/**
- * 排除列表的台阶默认值：v3 无该数组，升级到 v4 时落空列表。
- * 写空字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.excludes`，理由同上（产物形态恒定）。
- */
-const V4_EXCLUDES_DEFAULT: readonly string[] = []
-
-/** 升到 v4：低于 v4 的输入先由 upgradeTo3 逐级接力到 v3，再按 v3 冻结 schema 解析（非法整体回退 v3 默认），新增 excludes 数组并落默认 */
-function upgradeTo4(config: unknown, fromVersion: number): V4PluginConfigSnapshot {
-    const v3 = fromVersion < 3 ? upgradeTo3(config, fromVersion) : config
     let parsed: Omit<V3PluginConfigSnapshot, 'configVersion'>
     try {
-        parsed = V3ConfigSchema((isPlainObject(v3) ? v3 : {}) as unknown as Omit<V3PluginConfigSnapshot, 'configVersion'>)
+        parsed = V3ConfigSchema((isPlainObject(config) ? config : {}) as unknown as Omit<V3PluginConfigSnapshot, 'configVersion'>)
     } catch {
         parsed = V3_BASE
     }

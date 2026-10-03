@@ -2,7 +2,7 @@
  * Node 半类型定义与纯类型守卫。
  *
  * 本文件只保留 Node 专属：models.dev 目录类型（`ModelEntry`/`CacheRecord`/…）、`isCapacity`、
- * 冻结历史版本（v1–v6）快照形态。跨半共享类型与守卫单一来源在 `src/shared/types.ts`，两半均直连。
+ * 冻结历史版本（v3–v6）快照形态。跨半共享类型与守卫单一来源在 `src/shared/types.ts`，两半均直连。
  */
 
 import { CAPACITY_UNLIMITED } from '@/constants'
@@ -65,48 +65,10 @@ export function isCapacity(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0 && value !== CAPACITY_UNLIMITED
 }
 
-// ---------- 历史版本（v1）：新命名空间（tikaflow-model-fix）版本快照体系内 v1 快照的冻结形态（引入 image 前的配置）。 ----------
-// ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 1 时本段与 upgradeTo2 的 v1 解析一并移除 ----------
-
-/** 历史版本(v1)：按字段分别控制的规则（无 image 字段） */
-export interface V1FieldRules {
-    /** 推理级别字段 */
-    reasoning: boolean
-    /** 上下文窗口与输出上限，二者一体受此开关控制 */
-    context: boolean
-}
-
-/** 历史版本(v1)：version-1 快照的完整形态 */
-export interface V1PluginConfigSnapshot {
-    configVersion: number
-    allowUpdate: V1FieldRules
-    autoFill: V1FieldRules
-}
-
-// ---------- 历史版本（v2）：版本快照体系内 v2 快照的冻结形态（引入 compat 前的配置）。 ----------
-// ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 2 时本段与 upgradeTo3 的 v2 接力一并移除 ----------
-
-/** 历史版本(v2)：按字段分别控制的规则开关（与 v1 相比多出 image 字段） */
-export interface V2FieldRules {
-    /** 推理级别字段 */
-    reasoning: boolean
-    /** 上下文窗口与输出上限，二者一体受此开关控制 */
-    context: boolean
-    /** 图片/多模态（input 模态声明） */
-    image: boolean
-}
-
-/** 历史版本(v2)：version-2 快照的完整形态（无 compat 对象） */
-export interface V2PluginConfigSnapshot {
-    configVersion: number
-    allowUpdate: V2FieldRules
-    autoFill: V2FieldRules
-}
-
 // ---------- 历史版本（v3）：版本快照体系内 v3 快照的冻结形态（引入 excludes 前的配置）。 ----------
 // ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 3 时本段与 upgradeTo4 的 v3 接力一并移除 ----------
 
-/** 历史版本(v3)：按字段分别控制的规则开关（与 v2 同形，独立声明以冻结形态） */
+/** 历史版本(v3)：按字段分别控制的规则开关（与当前 FieldRules 同形，独立声明以冻结形态） */
 export interface V3FieldRules {
     /** 推理级别字段 */
     reasoning: boolean

@@ -2,7 +2,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** 最低支持（可升级读取）的版本；低于此值的版本快照视为已失效（运行时不读取、迁移时清理） */
-export const MIN_SUPPORTED_VERSION = 1
+export const MIN_SUPPORTED_VERSION = 3
 /**
  * 低于当前版本的旧快照保留上限，超出在启动时从最低版本清理（等于或高于当前版本的快照始终保留，供无损回退）。
  * 取 1 ⇒ 段内 <=当前版本 的快照合计最多 2 个（当前 + 1 个低版本）；当前版本 5 时段内 olds = {1,2,3,4} 超限，仅保留 v4。

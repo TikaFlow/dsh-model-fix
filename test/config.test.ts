@@ -94,20 +94,6 @@ export function run(): void {
         efforts: {},
         userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
     }), resolveConfig({ 'version-3': v3Entry }))
-    // 兼容语义：v2 无 compat 对象，经当前 schema 解析后落该项默认（等价于「按旧版 API 处理」）
-    const v2Entry = {
-        configVersion: 2,
-        autoFill: { reasoning: true, context: false, image: false },
-        allowUpdate: { reasoning: false, context: false, image: true },
-    }
-    check('v2 快照（无 compat）解析后落 compat 默认 true', stable(resolveConfig({ 'version-2': v2Entry })) === stable({
-        autoFill: { reasoning: true, context: false, image: false },
-        allowUpdate: { reasoning: false, context: false, image: true },
-        compat: { disableDeveloper: true },
-        excludes: [],
-        efforts: {},
-        userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
-    }), resolveConfig({ 'version-2': v2Entry }))
     check('布尔写法在 v4 快照中非法，回退默认', stable(resolveConfig({ 'version-4': { configVersion: 4, allowUpdate: true, autoFill: false } })) === DEFAULT_STABLE, resolveConfig({ 'version-4': { configVersion: 4, allowUpdate: true, autoFill: false } }))
     check('缺字段按整项默认补齐（含 image）', stable(resolveConfig({ 'version-4': { configVersion: 4, autoFill: { context: false } } })) === stable({
         allowUpdate: { reasoning: false, context: false, image: false },
@@ -145,15 +131,7 @@ export function run(): void {
     check('userExperience rememberEfforts false 原样生效', stable((resolveConfig({ 'version-4': { configVersion: 4, userExperience: { rememberEfforts: false } } }) as { userExperience: { rememberEfforts: boolean; defaultHigh: boolean; forgetRemoved: boolean } }).userExperience) === stable({ rememberEfforts: false, defaultHigh: true, forgetRemoved: true }))
     check('userExperience defaultHigh true 原样生效', stable((resolveConfig({ 'version-7': { configVersion: 7, userExperience: { defaultHigh: true } } }) as { userExperience: { rememberEfforts: boolean; defaultHigh: boolean; forgetRemoved: boolean } }).userExperience) === stable({ rememberEfforts: true, defaultHigh: true, forgetRemoved: true }))
     check('userExperience forgetRemoved false 原样生效', stable((resolveConfig({ 'version-7': { configVersion: 7, userExperience: { forgetRemoved: false } } }) as { userExperience: { rememberEfforts: boolean; defaultHigh: boolean; forgetRemoved: boolean } }).userExperience) === stable({ rememberEfforts: true, defaultHigh: true, forgetRemoved: false }))
-    check('v1 旧快照缺 image 按默认补齐后生效', stable(resolveConfig({ 'version-1': { configVersion: 1, autoFill: { reasoning: false, context: false } } })) === stable({
-        allowUpdate: { reasoning: false, context: false, image: false },
-        autoFill: { reasoning: false, context: false, image: true },
-        compat: { disableDeveloper: true },
-        excludes: [],
-        efforts: {},
-        userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
-    }), resolveConfig({ 'version-1': { configVersion: 1, autoFill: { reasoning: false, context: false } } }))
-    check('低于最低支持版本的快照被忽略回默认', stable(resolveConfig({ 'version-0': { allowUpdate: true } })) === DEFAULT_STABLE, resolveConfig({ 'version-0': { allowUpdate: true } }))
+    check('低于最低支持版本（MIN_SUPPORTED_VERSION = 3）的快照被忽略回默认', stable(resolveConfig({ 'version-2': { configVersion: 2, autoFill: { reasoning: false, context: false } } })) === DEFAULT_STABLE && stable(resolveConfig({ 'version-0': { allowUpdate: true } })) === DEFAULT_STABLE, resolveConfig({ 'version-2': { configVersion: 2, autoFill: { reasoning: false, context: false } } }))
     // 降级兼容语义：无当前版本时，取段内最高版本快照按当前 schema 解析（多余键忽略、缺失字段落默认）
     check('仅更高版本降级解析保留配置', stable(resolveConfig({ 'version-9': { autoFill: { reasoning: false, context: true, image: false }, compat: { disableDeveloper: false }, excludes: ['x'] } })) === stable({
         autoFill: { reasoning: false, context: true, image: false },

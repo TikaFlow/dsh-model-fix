@@ -14,60 +14,6 @@ export function run(): void {
     const EFFORTS: Record<string, Record<string, string>> = {}
     const USER_EXPERIENCE = { rememberEfforts: true, defaultHigh: true, forgetRemoved: true }
 
-    // ---------- v1 → v7：先按 v1 冻结 schema 解析（补 image 默认），再经 v2 → v3 补 compat、v3 → v4 补 excludes、v4 → v5 补 efforts/userExperience、v5 → v6 补 defaultHigh、v6 → v7 补 forgetRemoved ----------
-    check('v1 快照沿链升到 v7', stable(upgradeConfig({ configVersion: 1, allowUpdate: { reasoning: true, context: false }, autoFill: { reasoning: false, context: true } }, 1)) === stable({
-        configVersion: 7,
-        allowUpdate: { reasoning: true, context: false, image: false },
-        autoFill: { reasoning: false, context: true, image: true },
-        compat: COMPAT,
-        excludes: EXCLUDES,
-        efforts: EFFORTS,
-        userExperience: USER_EXPERIENCE,
-    }), upgradeConfig({ configVersion: 1, allowUpdate: { reasoning: true, context: false }, autoFill: { reasoning: false, context: true } }, 1))
-    check('v1 快照省略 autoFill 整项落默认', stable(upgradeConfig({ configVersion: 1, allowUpdate: { reasoning: true, context: true } }, 1)) === stable({
-        configVersion: 7,
-        allowUpdate: { reasoning: true, context: true, image: false },
-        autoFill: { reasoning: true, context: true, image: true },
-        compat: COMPAT,
-        excludes: EXCLUDES,
-        efforts: EFFORTS,
-        userExperience: USER_EXPERIENCE,
-    }), upgradeConfig({ configVersion: 1, allowUpdate: { reasoning: true, context: true } }, 1))
-    check('v1 垃圾输入回 v1 默认再升满链', stable(upgradeConfig('garbage', 1)) === stable({
-        configVersion: 7,
-        allowUpdate: { reasoning: false, context: false, image: false },
-        autoFill: { reasoning: true, context: true, image: true },
-        compat: COMPAT,
-        excludes: EXCLUDES,
-        efforts: EFFORTS,
-        userExperience: USER_EXPERIENCE,
-    }), upgradeConfig('garbage', 1))
-
-    // ---------- v2 → v7：六布尔原样沿用，补 compat（v2 无该对象）、excludes（v4 起）、efforts/userExperience（v5 起）、defaultHigh（v6 起）、forgetRemoved（v7 起） ----------
-    const v2Stored = {
-        configVersion: 2,
-        allowUpdate: { reasoning: true, context: false, image: true },
-        autoFill: { reasoning: false, context: true, image: false },
-    }
-    check('v2 快照升到 v7 并补 compat / excludes / efforts / userExperience / defaultHigh / forgetRemoved 默认', stable(upgradeConfig(v2Stored, 2)) === stable({
-        configVersion: 7,
-        allowUpdate: v2Stored.allowUpdate,
-        autoFill: v2Stored.autoFill,
-        compat: COMPAT,
-        excludes: EXCLUDES,
-        efforts: EFFORTS,
-        userExperience: USER_EXPERIENCE,
-    }), upgradeConfig(v2Stored, 2))
-    check('v2 快照缺字段按整项默认补齐后升 v7', stable(upgradeConfig({ autoFill: { reasoning: true } }, 2)) === stable({
-        configVersion: 7,
-        allowUpdate: { reasoning: false, context: false, image: false },
-        autoFill: { reasoning: true, context: true, image: true },
-        compat: COMPAT,
-        excludes: EXCLUDES,
-        efforts: EFFORTS,
-        userExperience: USER_EXPERIENCE,
-    }), upgradeConfig({ autoFill: { reasoning: true } }, 2))
-
     // ---------- v3 → v7：三组布尔与 compat 原样沿用，补 excludes（v4 起）、efforts/userExperience（v5 起）、defaultHigh（v6 起）、forgetRemoved（v7 起） ----------
     const v3Stored = {
         configVersion: 3,
@@ -230,17 +176,17 @@ export function run(): void {
     // v6 台阶冻结形态：upgradeTo6 产物只含 rememberEfforts 与 defaultHigh（无 forgetRemoved），确认历史台阶不被当前演进污染
     check('v6 台阶产物 userExperience 不含 forgetRemoved', stable(upgradeTo6('garbage', 6).userExperience) === stable({ rememberEfforts: true, defaultHigh: true }), upgradeTo6('garbage', 6).userExperience)
 
-    // ---------- 守卫：低于最低支持版本的输入由链上台阶拒绝 ----------
+    // ---------- 守卫：低于最低支持版本（MIN_SUPPORTED_VERSION = 3）的输入由链上台阶拒绝 ----------
     let guarded = ''
     try {
-        upgradeConfig({ autoFill: { reasoning: true } }, 0)
+        upgradeConfig({ autoFill: { reasoning: true } }, 2)
     } catch (error) {
         guarded = error instanceof Error ? error.message : String(error)
     }
     check('低于最低支持版本抛错', guarded.includes('低于最低支持版本'), guarded)
 
     // 默认快照与升级链的一致性（全新用户直写默认 vs 空配置走升级链，结果必须相同）
-    check('DEFAULT_STORED 与升级链空输入一致', stable(DEFAULT_STORED) === stable(upgradeConfig({}, 1)), { DEFAULT_STORED, chain: upgradeConfig({}, 1) })
+    check('DEFAULT_STORED 与升级链空输入一致', stable(DEFAULT_STORED) === stable(upgradeConfig({}, 3)), { DEFAULT_STORED, chain: upgradeConfig({}, 3) })
 
     // toStored：运行时配置 -> 当前版本快照（自愈重写与全新用户直写的唯一构造口）
     check('toStored 补 configVersion 且含三组布尔与排除列表与 efforts 与 userExperience（含 defaultHigh 与 forgetRemoved）', stable(toStored({
@@ -309,7 +255,12 @@ export function run(): void {
     // pruneOps：两阶段清理——先淘汰低于最低支持版本（Phase A），再淘汰低于当前版本且超出保留上限的 excess（Phase B）；
     // 等于/高于当前版本永不清理
     check('当前与高版本不参与清理', pruneOps([7, 8, 9, 10]).length === 0, pruneOps([7, 8, 9, 10]))
-    check('olds 超限淘汰最低（<=当前版本共保留 2 个）', pruneOps([1, 2, 3]).length === 2 && stable(pruneOps([1, 2, 3])) === stable([{ op: 'unset', path: ['version-1'] }, { op: 'unset', path: ['version-2'] }]), pruneOps([1, 2, 3]))
+    check('低于最低支持版本的快照由 Phase A 清理', stable(pruneOps([1, 2, 3, 4, 5, 6])) === stable([
+        { op: 'unset', path: ['version-1'] }, { op: 'unset', path: ['version-2'] }, { op: 'unset', path: ['version-3'] }, { op: 'unset', path: ['version-4'] }, { op: 'unset', path: ['version-5'] },
+    ]), pruneOps([1, 2, 3, 4, 5, 6]))
+    check('olds 超限淘汰最低（<=当前版本共保留 2 个）', stable(pruneOps([3, 4, 5, 6])) === stable([
+        { op: 'unset', path: ['version-3'] }, { op: 'unset', path: ['version-4'] }, { op: 'unset', path: ['version-5'] },
+    ]), pruneOps([3, 4, 5, 6]))
     check('olds 未超限不清理', pruneOps([3]).length === 0, pruneOps([3]))
     check('Phase A 清理低于最低支持版本', stable(pruneOps([1, 2, 3, 4], 6, 4, 3)) === stable([
         { op: 'unset', path: ['version-1'] }, { op: 'unset', path: ['version-2'] }, { op: 'unset', path: ['version-3'] },
