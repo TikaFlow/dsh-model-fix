@@ -15,21 +15,21 @@ import { CONFIG_VERSION, VERSION_PREFIX } from '@/shared/constants'
 import type { CompatRules, EffortMemory, FieldRules, PluginConfig, PluginConfigSnapshot, UserExperienceRules } from '@/shared/types'
 import { isPlainObject } from '@/shared/types'
 
-/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，排除列表为空，每模型推理级别记忆为空，记住推理级别开启，默认使用 high 关闭，忘记已删除模型开启 */
+/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，排除列表为空，每模型推理级别记忆为空，记住推理级别开启，默认使用 high 开启，忘记已删除模型开启 */
 export const DEFAULT_CONFIG: PluginConfig = {
     allowUpdate: { reasoning: false, context: false, image: false },
     autoFill: { reasoning: true, context: true, image: true },
     compat: { disableDeveloper: true },
     excludes: [],
     efforts: {},
-    userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: true },
+    userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
 }
 
 /** 兼容性规则的省略字段默认（默认按旧版 API 处理：不使用 developer 角色） */
 const COMPAT_DEFAULTS: CompatRules = { disableDeveloper: true }
 
-/** 用户体验组的省略字段默认（默认记住推理级别、默认不使用 high、默认忘记已删除模型） */
-const USER_EXPERIENCE_DEFAULTS: UserExperienceRules = { rememberEfforts: true, defaultHigh: false, forgetRemoved: true }
+/** 用户体验组的省略字段默认（默认记住推理级别、默认使用 high、默认忘记已删除模型） */
+const USER_EXPERIENCE_DEFAULTS: UserExperienceRules = { rememberEfforts: true, defaultHigh: true, forgetRemoved: true }
 
 /** 模型参数行对应的字段键（自动填充 / 允许更新两组的行，渲染顺序与总控共用） */
 export const FIELD_KEYS = ['reasoning', 'context', 'image'] as const

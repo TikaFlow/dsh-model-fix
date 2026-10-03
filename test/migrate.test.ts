@@ -8,11 +8,11 @@ import { check, stable } from '@test/helper'
 
 /** 执行本文件的全部用例 */
 export function run(): void {
-    // 台阶补的默认值：compat 组自 v3 起存在、excludes 自 v4 起存在、efforts 与 userExperience 自 v5 起存在、defaultHigh 自 v6 起存在、forgetRemoved 自 v7 起存在
+    // 台阶补的默认值（与当前版本默认同值：defaultHigh 与 forgetRemoved 的台阶默认值均为 true，故全新用户直写 DEFAULT_STORED 与走升级链结果一致）
     const COMPAT = { disableDeveloper: true }
     const EXCLUDES: string[] = []
     const EFFORTS: Record<string, Record<string, string>> = {}
-    const USER_EXPERIENCE = { rememberEfforts: true, defaultHigh: false, forgetRemoved: true }
+    const USER_EXPERIENCE = { rememberEfforts: true, defaultHigh: true, forgetRemoved: true }
 
     // ---------- v1 → v7：先按 v1 冻结 schema 解析（补 image 默认），再经 v2 → v3 补 compat、v3 → v4 补 excludes、v4 → v5 补 efforts/userExperience、v5 → v6 补 defaultHigh、v6 → v7 补 forgetRemoved ----------
     check('v1 快照沿链升到 v7', stable(upgradeConfig({ configVersion: 1, allowUpdate: { reasoning: true, context: false }, autoFill: { reasoning: false, context: true } }, 1)) === stable({
@@ -130,7 +130,7 @@ export function run(): void {
         compat: { disableDeveloper: false },
         excludes: ['acme-gateway'],
         efforts: {},
-        userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: true },
+        userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
     }), upgradeConfig(v4Stored, 4))
     check('v4 垃圾输入回 v4 默认再补 efforts / userExperience / defaultHigh / forgetRemoved', stable(upgradeConfig('garbage', 4)) === stable({
         configVersion: 7,
@@ -142,7 +142,7 @@ export function run(): void {
         userExperience: USER_EXPERIENCE,
     }), upgradeConfig('garbage', 4))
 
-    // ---------- v5 → v7：原样沿用三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts}，补 defaultHigh 默认 false 与 forgetRemoved 默认 true ----------
+    // ---------- v5 → v7：原样沿用三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts}，补 defaultHigh 与 forgetRemoved 默认 true ----------
     const v5Stored = {
         configVersion: 5,
         allowUpdate: { reasoning: true, context: false, image: true },
@@ -159,11 +159,11 @@ export function run(): void {
         compat: { disableDeveloper: false },
         excludes: ['acme-gateway'],
         efforts: { 'z-ai': { 'glm-5.2': 'high' } },
-        userExperience: { rememberEfforts: false, defaultHigh: false, forgetRemoved: true },
+        userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: true },
     }), upgradeConfig(v5Stored, 5))
     // v5 输入的 userExperience 经 v5 冻结 schema 解析：缺 rememberEfforts 落 v5 默认 true，非布尔回 v5 默认（不牵连其他组）
-    check('v5 输入 userExperience 缺字段落 v5 默认', stable((upgradeConfig({ ...v5Stored, userExperience: {} }, 5) as { userExperience: { rememberEfforts: boolean; defaultHigh: boolean; forgetRemoved: boolean } }).userExperience) === stable({ rememberEfforts: true, defaultHigh: false, forgetRemoved: true }), upgradeConfig({ ...v5Stored, userExperience: {} }, 5))
-    check('v5 输入 userExperience 非布尔回 v5 默认再补 defaultHigh / forgetRemoved', stable((upgradeConfig({ ...v5Stored, userExperience: { rememberEfforts: 'yes' } }, 5) as { userExperience: { rememberEfforts: boolean; defaultHigh: boolean; forgetRemoved: boolean } }).userExperience) === stable({ rememberEfforts: true, defaultHigh: false, forgetRemoved: true }), upgradeConfig({ ...v5Stored, userExperience: { rememberEfforts: 'yes' } }, 5))
+    check('v5 输入 userExperience 缺字段落 v5 默认', stable((upgradeConfig({ ...v5Stored, userExperience: {} }, 5) as { userExperience: { rememberEfforts: boolean; defaultHigh: boolean; forgetRemoved: boolean } }).userExperience) === stable({ rememberEfforts: true, defaultHigh: true, forgetRemoved: true }), upgradeConfig({ ...v5Stored, userExperience: {} }, 5))
+    check('v5 输入 userExperience 非布尔回 v5 默认再补 defaultHigh / forgetRemoved', stable((upgradeConfig({ ...v5Stored, userExperience: { rememberEfforts: 'yes' } }, 5) as { userExperience: { rememberEfforts: boolean; defaultHigh: boolean; forgetRemoved: boolean } }).userExperience) === stable({ rememberEfforts: true, defaultHigh: true, forgetRemoved: true }), upgradeConfig({ ...v5Stored, userExperience: { rememberEfforts: 'yes' } }, 5))
     // v5 输入的 efforts 宽松保留：坏结构只回落 {}，不拖垮整段配置
     check('v5 输入 efforts 坏结构回落空但保留其余字段', stable(upgradeConfig({ ...v5Stored, efforts: 'bad' }, 5)) === stable({
         configVersion: 7,
@@ -172,7 +172,7 @@ export function run(): void {
         compat: { disableDeveloper: false },
         excludes: ['acme-gateway'],
         efforts: {},
-        userExperience: { rememberEfforts: false, defaultHigh: false, forgetRemoved: true },
+        userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: true },
     }), upgradeConfig({ ...v5Stored, efforts: 'bad' }, 5))
     check('v5 垃圾输入回 v5 默认再补 defaultHigh / forgetRemoved', stable(upgradeConfig('garbage', 5)) === stable({
         configVersion: 7,
@@ -206,8 +206,8 @@ export function run(): void {
         userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: true },
     }), upgradeConfig(v6Stored, 6))
     // v6 输入的 userExperience 经 v6 冻结 schema 解析：缺字段落 v6 默认，非布尔回 v6 默认（不牵连其他组）
-    check('v6 输入 userExperience 缺字段落 v6 默认', stable((upgradeConfig({ ...v6Stored, userExperience: {} }, 6) as { userExperience: { rememberEfforts: boolean; defaultHigh: boolean; forgetRemoved: boolean } }).userExperience) === stable({ rememberEfforts: true, defaultHigh: false, forgetRemoved: true }), upgradeConfig({ ...v6Stored, userExperience: {} }, 6))
-    check('v6 输入 userExperience defaultHigh 非布尔回 v6 默认再补 forgetRemoved', stable((upgradeConfig({ ...v6Stored, userExperience: { rememberEfforts: true, defaultHigh: 'yes' } }, 6) as { userExperience: { rememberEfforts: boolean; defaultHigh: boolean; forgetRemoved: boolean } }).userExperience) === stable({ rememberEfforts: true, defaultHigh: false, forgetRemoved: true }), upgradeConfig({ ...v6Stored, userExperience: { rememberEfforts: true, defaultHigh: 'yes' } }, 6))
+    check('v6 输入 userExperience 缺字段落 v6 默认', stable((upgradeConfig({ ...v6Stored, userExperience: {} }, 6) as { userExperience: { rememberEfforts: boolean; defaultHigh: boolean; forgetRemoved: boolean } }).userExperience) === stable({ rememberEfforts: true, defaultHigh: true, forgetRemoved: true }), upgradeConfig({ ...v6Stored, userExperience: {} }, 6))
+    check('v6 输入 userExperience defaultHigh 非布尔回 v6 默认再补 forgetRemoved', stable((upgradeConfig({ ...v6Stored, userExperience: { rememberEfforts: true, defaultHigh: 'yes' } }, 6) as { userExperience: { rememberEfforts: boolean; defaultHigh: boolean; forgetRemoved: boolean } }).userExperience) === stable({ rememberEfforts: true, defaultHigh: true, forgetRemoved: true }), upgradeConfig({ ...v6Stored, userExperience: { rememberEfforts: true, defaultHigh: 'yes' } }, 6))
     // v6 输入的 efforts 宽松保留：坏结构只回落 {}，不拖垮整段配置
     check('v6 输入 efforts 坏结构回落空但保留其余字段', stable(upgradeConfig({ ...v6Stored, efforts: 'bad' }, 6)) === stable({
         configVersion: 7,
@@ -228,7 +228,7 @@ export function run(): void {
         userExperience: USER_EXPERIENCE,
     }), upgradeConfig('garbage', 6))
     // v6 台阶冻结形态：upgradeTo6 产物只含 rememberEfforts 与 defaultHigh（无 forgetRemoved），确认历史台阶不被当前演进污染
-    check('v6 台阶产物 userExperience 不含 forgetRemoved', stable(upgradeTo6('garbage', 6).userExperience) === stable({ rememberEfforts: true, defaultHigh: false }), upgradeTo6('garbage', 6).userExperience)
+    check('v6 台阶产物 userExperience 不含 forgetRemoved', stable(upgradeTo6('garbage', 6).userExperience) === stable({ rememberEfforts: true, defaultHigh: true }), upgradeTo6('garbage', 6).userExperience)
 
     // ---------- 守卫：低于最低支持版本的输入由链上台阶拒绝 ----------
     let guarded = ''
@@ -265,7 +265,7 @@ export function run(): void {
         compat: { disableDeveloper: true },
         excludes: [],
         efforts: {},
-        userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: true },
+        userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
     })), DEFAULT_STORED)
     check('DEFAULT_STORED 的 configVersion 为当前版本', DEFAULT_STORED.configVersion === CONFIG_VERSION, DEFAULT_STORED)
 
@@ -283,7 +283,7 @@ export function run(): void {
         compat: { disableDeveloper: false },
         excludes: ['x'],
         efforts: { 'z-ai': { 'glm-5.2': 'high' } },
-        userExperience: { rememberEfforts: false, defaultHigh: false, forgetRemoved: true },
+        userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: true },
     }), resolveConfig(healed))
     // 无任何可用快照时自愈为默认（回退语义：不静默保留坏值；更高版本垃圾快照同样不计）
     const allBroken = { 'version-7': 42, 'version-9': 42 }

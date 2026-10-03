@@ -100,7 +100,7 @@ tikaflow-model-fix:
     efforts: {}         # 每模型推理级别记忆（运行时自动维护，无需手动编辑）
     userExperience:     # 用户体验（前端行为开关），对所有提供方生效，不支持排除
       rememberEfforts: true
-      defaultHigh: false
+      defaultHigh: true     # 默认使用 high
       forgetRemoved: true   # 模型/提供方被删除时随之忘记其推理级别记忆
 ```
 

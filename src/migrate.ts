@@ -248,10 +248,11 @@ const V5ConfigSchema: z<Omit<V5PluginConfigSnapshot, 'configVersion' | 'efforts'
 })
 
 /**
- * defaultHigh 的台阶默认值：v5 无该字段，升级到 v6 时落默认（false）。
- * 写字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.userExperience.defaultHigh`——后者随当前版本演进，台阶产物形态必须恒定。
+ * defaultHigh 的台阶默认值：v5 无该字段，升级到 v6 时落默认（true，即默认使用 high）。
+ * 写字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.userExperience.defaultHigh`——后者随当前版本演进，台阶产物形态必须恒定；
+ * 两者当前取值一致，`DEFAULT_STORED 与升级链空输入一致` 的不变量才成立（调整默认值时须同步本字面量）。
  */
-const V6_DEFAULT_HIGH_DEFAULT = false
+const V6_DEFAULT_HIGH_DEFAULT = true
 
 /** 升到 v6：低于 v6 的输入先由 upgradeTo5 逐级接力到 v5，再按 v5 冻结 schema 解析（非法整体回退 v5 默认），新增 userExperience.defaultHigh 并落默认；efforts 经 parseEfforts 宽松保留 */
 export function upgradeTo6(config: unknown, fromVersion: number): V6PluginConfigSnapshot {
@@ -290,10 +291,10 @@ const v6CompatRules: z<V6CompatRules> = z.object({
     disableDeveloper: z.boolean().default(true),
 })
 
-/** 历史版本(v6)：用户体验规则 schema（冻结形态：含 rememberEfforts 与 defaultHigh，无 v7 起的 forgetRemoved） */
+/** 历史版本(v6)：用户体验规则 schema（冻结形态：含 rememberEfforts 与 defaultHigh，无 v7 起的 forgetRemoved）；defaultHigh 省略时落当前默认值 true */
 const v6UserExperienceRules: z<V6UserExperienceRules> = z.object({
     rememberEfforts: z.boolean().default(true),
-    defaultHigh: z.boolean().default(false),
+    defaultHigh: z.boolean().default(true),
 })
 
 /** 历史版本(v6)：默认配置——解析失败兜底与 schema 整项缺省的唯一来源 */
@@ -303,7 +304,7 @@ const V6_BASE: Omit<V6PluginConfigSnapshot, 'configVersion'> = {
     compat: { disableDeveloper: true },
     excludes: [],
     efforts: {},
-    userExperience: { rememberEfforts: true, defaultHigh: false },
+    userExperience: { rememberEfforts: true, defaultHigh: true },
 }
 
 /**

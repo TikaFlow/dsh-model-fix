@@ -30,6 +30,7 @@ import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/cli
 import { Card } from '@/client/card'
 import { CARD_NS, en, zh } from '@/client/locales'
 import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS } from '@/shared/constants'
+import { DEFAULT_CONFIG } from '@/shared/parse'
 import { VERSION_KEY, decodeSection } from '@/client/model'
 import type { Flags } from '@/client/model'
 import { applyEffort, classifyTransition, sameSelection } from '@/client/effort'
@@ -160,9 +161,11 @@ function boot(
                 }
                 const dirState = dir.store.getSnapshot()
                 // 开关仅门控「保存」；恢复用的记忆始终取真实 efforts（是否清空由卡片交互决定）
-                const rememberEfforts = scope.getSnapshot().value?.userExperience.rememberEfforts ?? true
-                const defaultHigh = scope.getSnapshot().value?.userExperience.defaultHigh ?? false
-                const memory = scope.getSnapshot().value?.efforts ?? {}
+                // 兜底取共享层默认（单一来源，段值不可用时与「全新用户」行为一致）
+                const flags = scope.getSnapshot().value
+                const rememberEfforts = flags?.userExperience.rememberEfforts ?? DEFAULT_CONFIG.userExperience.rememberEfforts
+                const defaultHigh = flags?.userExperience.defaultHigh ?? DEFAULT_CONFIG.userExperience.defaultHigh
+                const memory = flags?.efforts ?? {}
                 const transition = classifyTransition(prev, next, memory, dirState.groups, defaultHigh)
 
                 if (transition.kind === 'model-change') {
