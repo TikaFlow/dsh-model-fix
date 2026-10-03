@@ -22,8 +22,8 @@ export const RETRY_DELAY_MS = 5_000
 /** 事件驱动刷新的最小间隔（毫秒）：距上次成功拉取不足该时长时，事件只填充不重新拉取 */
 export const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000
 
-/** 缓存文件路径（基于模块路径定位，构建时复制；网络拉取成功后覆盖） */
-export const CACHE_FILE = join(dirname(fileURLToPath(import.meta.url)), 'public', 'models-cache.json')
+/** 缓存文件路径（基于模块路径定位，public/ 经构建平铺复制到 lib/ 根；网络拉取成功后覆盖） */
+export const CACHE_FILE = join(dirname(fileURLToPath(import.meta.url)), 'models-cache.json')
 
 /** 推理级别取值，与 harness 的 ModelThinkingLevel 一致 */
 export const LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
