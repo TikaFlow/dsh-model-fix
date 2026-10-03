@@ -1,42 +1,42 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 144 144" width="16" height="16">
     <defs>
         <!-- 中心圆 #658eff：左 → 右 -->
-        <linearGradient id="dsh-mf-center" gradientUnits="userSpaceOnUse" x1="53.25" y1="72" x2="75.75" y2="72">
+        <linearGradient id="dsh-mf-center" gradientUnits="userSpaceOnUse" x1="50.75" y1="72" x2="78.25" y2="72">
             <stop offset="0" stop-color="#90adfd"></stop>
             <stop offset=".5" stop-color="#658eff"></stop>
             <stop offset="1" stop-color="#3c70ff"></stop>
         </linearGradient>
         <!-- 组 1（左上）#4561ee：圆与线段共用同一渐变，轴向沿线段、自中心侧端点指向圆的最远端 -->
-        <linearGradient id="dsh-mf-node-1" gradientUnits="userSpaceOnUse" x1="59.28" y1="62.765" x2="42.715" y2="34.706">
+        <linearGradient id="dsh-mf-node-1" gradientUnits="userSpaceOnUse" x1="58.199" y1="60.848" x2="41.485" y2="32.530">
             <stop offset="0" stop-color="#6d82ef"></stop>
             <stop offset=".5" stop-color="#4561ee"></stop>
             <stop offset="1" stop-color="#1c3fee"></stop>
         </linearGradient>
         <!-- 组 2（左下）#a797fc：同上，轴向指向左下 -->
-        <linearGradient id="dsh-mf-node-2" gradientUnits="userSpaceOnUse" x1="59.28" y1="81.235" x2="42.715" y2="109.294">
+        <linearGradient id="dsh-mf-node-2" gradientUnits="userSpaceOnUse" x1="58.199" y1="83.152" x2="41.485" y2="111.470">
             <stop offset="0" stop-color="#c9c0fc"></stop>
             <stop offset=".5" stop-color="#a797fc"></stop>
             <stop offset="1" stop-color="#856ffb"></stop>
         </linearGradient>
         <!-- 组 3（右）#af65e2：同上，轴向水平向右 -->
-        <linearGradient id="dsh-mf-node-3" gradientUnits="userSpaceOnUse" x1="75.11" y1="72" x2="107" y2="72">
+        <linearGradient id="dsh-mf-node-3" gradientUnits="userSpaceOnUse" x1="77.31" y1="72" x2="109.5" y2="72">
             <stop offset="0" stop-color="#c089e6"></stop>
             <stop offset=".5" stop-color="#af65e2"></stop>
             <stop offset="1" stop-color="#9e3fdf"></stop>
         </linearGradient>
     </defs>
     <!-- 中心圆（外圈 + 中心镂空） -->
-    <path fill="url(#dsh-mf-center)" d="M53.25 72a11.25 11.25 0 1 1 22.5 0 11.25 11.25 0 1 1-22.5 0ZM64.5 68.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z"></path>
+    <path fill="url(#dsh-mf-center)" d="M50.75 72a13.75 13.75 0 1 1 27.5 0 13.75 13.75 0 1 1-27.5 0ZM64.5 68.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z"></path>
     <!-- 组 1：左上圆 -->
-    <path fill="url(#dsh-mf-node-1)" d="M37 44.5a11.25 11.25 0 1 1 22.5 0 11.25 11.25 0 1 1-22.5 0ZM44.5 44.5a3.75 3.75 0 1 0 7.5 0 3.75 3.75 0 0 0-7.5 0Z"></path>
-    <!-- 组 1：左上连接线段 -->
-    <path fill="url(#dsh-mf-node-1)" d="M56.015 64.61L50.84 55.45L57.15 51.38L62.545 60.92Z"></path>
+    <path fill="url(#dsh-mf-node-1)" d="M34.5 44.5a13.75 13.75 0 1 1 27.5 0 13.75 13.75 0 1 1-27.5 0ZM48.25 40.75a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z"></path>
+    <!-- 组 1：左上连接线段（两端落在切线上，与圆环无缝） -->
+    <path fill="url(#dsh-mf-node-1)" d="M62.552 58.388L59.434 52.873L50.728 57.793L53.846 63.308Z"></path>
     <!-- 组 2：左下圆 -->
-    <path fill="url(#dsh-mf-node-2)" d="M37 99.5a11.25 11.25 0 1 1 22.5 0 11.25 11.25 0 1 1-22.5 0ZM48.25 95.75a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z"></path>
-    <!-- 组 2：左下连接线段 -->
-    <path fill="url(#dsh-mf-node-2)" d="M62.545 83.08L57.15 92.62L50.84 88.55L56.015 79.39Z"></path>
+    <path fill="url(#dsh-mf-node-2)" d="M34.5 99.5a13.75 13.75 0 1 1 27.5 0 13.75 13.75 0 1 1-27.5 0ZM48.25 95.75a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z"></path>
+    <!-- 组 2：左下连接线段（两端落在切线上，与圆环无缝） -->
+    <path fill="url(#dsh-mf-node-2)" d="M53.846 80.692L50.728 86.207L59.434 91.127L62.552 85.612Z"></path>
     <!-- 组 3：右圆 -->
-    <path fill="url(#dsh-mf-node-3)" d="M84.5 72a11.25 11.25 0 1 1 22.5 0 11.25 11.25 0 1 1-22.5 0ZM95.75 68.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z"></path>
-    <!-- 组 3：右连接线段 -->
-    <path fill="url(#dsh-mf-node-3)" d="M75.11 68.25L85.14 68.25L85.14 75.75L75.11 75.75Z"></path>
+    <path fill="url(#dsh-mf-node-3)" d="M82 72a13.75 13.75 0 1 1 27.5 0 13.75 13.75 0 1 1-27.5 0ZM95.75 68.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z"></path>
+    <!-- 组 3：右连接线段（两端落在切线上，与圆环无缝） -->
+    <path fill="url(#dsh-mf-node-3)" d="M77.31 67L82.94 67L82.94 77L77.31 77Z"></path>
 </svg>
