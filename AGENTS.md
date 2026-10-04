@@ -68,7 +68,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown（rolldown）双配置构建到
 - 瓦片 summary 行要同时容纳整组开关与整行可点：透明空 `<button>` 绝对覆盖整行 + `aria-labelledby` 指向可见标题，开关所在尾区抬层分配点击权；**禁止把 `role="switch"` 嵌进 `<button>`**（非法 HTML）。
 - 宿主 Modal 的初始焦点控件标 `data-modal-autofocus`，不用 React `autoFocus`（模态层先存触发控件再移焦点，`autoFocus` 抢在前面会毁掉关闭后的回焦）。
 - 卡片外壳不写 `max-width`（宽度由所在 section 约束，官方同样不写）。宿主的 `expand`/`collapse` 文案只用于 `aria-label`，不要当死代码删。
-- UI 称谓跟随官方：provider-id 叫「提供方 / Provider ID」，功能名是「排除提供方」（en: Excluded providers），文案 / README / 注释一致。
+- UI 称谓跟随官方：provider-id 叫「提供方 / Provider ID」，功能名是「排除提供方」（en: Excluded providers），文案 / README / 注释一致。「取消」全卡片只留一个 `cancel` 键（弹层与 footer 同义：不想执行当前操作），确认键保持动作化（确认更新 / 确认重置 / 确认恢复 / 清空）。
 
 ## 设计裁决（代码里看不出动机）
 

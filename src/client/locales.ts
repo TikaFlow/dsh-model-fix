@@ -43,14 +43,13 @@ export type CardKey =
     | 'save'
     | 'saving'
     | 'saveDone'
-    | 'discard'
+    | 'cancel'
     | 'unsaved'
     | 'expand'
     | 'collapse'
     | 'force'
     | 'forceBusy'
     | 'forceConfirm'
-    | 'forceCancel'
     | 'forceGo'
     | 'close'
     | 'forceDone'
@@ -147,14 +146,13 @@ export const zh: Record<CardKey, string> = {
     save: '保存',
     saving: '保存中…',
     saveDone: '配置已保存。',
-    discard: '取消',
+    cancel: '取消',
     unsaved: '未保存',
     expand: '展开设置',
     collapse: '收起设置',
     force: '强制更新',
     forceBusy: '更新中…',
     forceConfirm: '将按 models.dev 目录当前值覆盖模型参数，此操作无法撤销。',
-    forceCancel: '取消',
     forceGo: '确认更新',
     close: '关闭',
     forceDone: '已强制更新 {count} 个模型。',
@@ -219,14 +217,13 @@ export const en: Record<CardKey, string> = {
     save: 'Save',
     saving: 'Saving…',
     saveDone: 'Settings saved.',
-    discard: 'Cancel',
+    cancel: 'Cancel',
     unsaved: 'Unsaved',
     expand: 'Show settings',
     collapse: 'Hide settings',
     force: 'Force update',
     forceBusy: 'Updating…',
     forceConfirm: 'Overwrites model parameters with current models.dev catalog values. This cannot be undone.',
-    forceCancel: 'Cancel',
     forceGo: 'Update',
     close: 'Close',
     forceDone: 'Force-updated {count} model(s).',

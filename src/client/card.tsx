@@ -728,7 +728,7 @@ export function Card(props: CardProps) {
                             disabled={submitting}
                             onClick={onDiscard}
                         >
-                            {t('discard')}
+                            {t('cancel')}
                         </button>
                     ) : null}
                     <button
@@ -765,7 +765,7 @@ export function Card(props: CardProps) {
                 closeLabel={t('close')}
                 description={t('forceConfirm')}
                 footer={<>
-                    <Button variant="outline" data-modal-autofocus onClick={() => { setConfirmOpen(false) }}>{t('forceCancel')}</Button>
+                    <Button variant="outline" data-modal-autofocus onClick={() => { setConfirmOpen(false) }}>{t('cancel')}</Button>
                     <Button variant="outline" className="dsh-mf-confirmDanger" onClick={runForce}>{t('forceGo')}</Button>
                 </>}
             />
@@ -776,7 +776,7 @@ export function Card(props: CardProps) {
                 closeLabel={t('close')}
                 description={t('resetConfirm')}
                 footer={<>
-                    <Button variant="outline" data-modal-autofocus onClick={() => { setResetConfirmOpen(false) }}>{t('forceCancel')}</Button>
+                    <Button variant="outline" data-modal-autofocus onClick={() => { setResetConfirmOpen(false) }}>{t('cancel')}</Button>
                     <Button variant="outline" className="dsh-mf-confirmDanger" onClick={runReset}>{t('resetGo')}</Button>
                 </>}
             />
@@ -788,7 +788,7 @@ export function Card(props: CardProps) {
                 closeLabel={t('close')}
                 description={t('restoreConfirm')}
                 footer={<>
-                    <Button variant="outline" data-modal-autofocus onClick={() => { setRestoreConfirmOpen(false) }}>{t('forceCancel')}</Button>
+                    <Button variant="outline" data-modal-autofocus onClick={() => { setRestoreConfirmOpen(false) }}>{t('cancel')}</Button>
                     <Button variant="outline" onClick={runRestore}>{t('restoreGo')}</Button>
                 </>}
             />
