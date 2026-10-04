@@ -43,7 +43,7 @@ const V3ConfigSchema: z<Omit<V3PluginConfigSnapshot, 'configVersion'>> = z.objec
 
 /**
  * 排除列表的台阶默认值：升级到 v4 时落空列表。
- * 写空字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.excludes`，理由同上（产物形态恒定）。
+ * 写字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.excludes`——后者随当前版本演进，台阶产物形态必须恒定。
  */
 const V4_EXCLUDES_DEFAULT: readonly string[] = []
 
@@ -103,7 +103,7 @@ const V4ConfigSchema: z<Omit<V4PluginConfigSnapshot, 'configVersion'>> = z.objec
 
 /**
  * 每模型推理级别记忆与用户体验规则的台阶默认值：v4 无这两个键，升级到 v5 时落默认。
- * 写空字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG`，理由同上（产物形态恒定）。
+ * 写字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG`——后者随当前版本演进，台阶产物形态必须恒定。
  * userExperience 用冻结的 V5UserExperienceRules（只含 rememberEfforts，无 v6 的 defaultHigh）。
  */
 const V5_EFFORTS_DEFAULT: Record<string, Record<string, string>> = {}
@@ -274,14 +274,8 @@ function upgradeTo7(config: unknown, fromVersion: number): PluginConfigSnapshot 
 
 /**
  * 配置版本迁移入口：只调用最新一级台阶，产物即当前 CONFIG_VERSION 的快照形态。
- * 新版本发布时：新增 `upgradeToN`（它负责把更低版本经 `upgradeToN-1` 接力上来），把本函数改指它，
- * 链上既有函数一律不改，并把上一级台阶的返回类型改指新冻结的 `V(N-1)PluginConfigSnapshot`。
- * 例如当前版本=8：
- *   upgradeConfig = (c, v) => upgradeTo8(c, v)
- *   upgradeTo8 = (c, v) => {
- *     const v7 = v < 7 ? upgradeTo7(c, v) : c
- *     // 在此升到 8 的字段并返回 v8 快照
- *   }
+ * 新版本发布时：新增 `upgradeToN`（它内部按 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力），
+ * 把本函数改指它，链上既有函数的逻辑一律不改，并把上一级台阶的返回类型改指新冻结的 `V(N-1)PluginConfigSnapshot`。
  */
 export function upgradeConfig(config: unknown, fromVersion: number): PluginConfigSnapshot {
     return upgradeTo7(config, fromVersion)

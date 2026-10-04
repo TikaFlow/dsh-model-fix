@@ -1,7 +1,7 @@
 /**
  * 跨半共享的类型声明与纯类型守卫（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）。
  * 两半均**直连**本层（统一经 `@/shared/types` 别名导入），不经任何 facade 中转；
- * Node 专属类型（`ModelEntry` / `CacheRecord` / 冻结历史 v1–v4 / `isCapacity` 等）留在 `src/types.ts`。
+ * Node 专属类型（`ModelEntry` / `CacheRecord` / 冻结历史 v3–v6 / `isCapacity` 等）留在 `src/types.ts`。
  * Connection RPC 契约等宿主类型不再在本仓声明：一律 type-only 导入 devDep 的宿主类型面（构建期擦除）。
  */
 
@@ -58,7 +58,7 @@ export interface UserExperienceRules {
     /**
      * 切换模型时若未设置推理级别、也无记住的级别、且目标模型公告 `high` 档位，则自动把推理级别设为 `high`。
      * 仅在「model-change」分支生效，不干预同模型切换级别（effort-change，含手动选「default」）。
-     * 默认 false。
+     * 默认 true。
      */
     defaultHigh: boolean
     /**

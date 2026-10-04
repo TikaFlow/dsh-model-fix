@@ -2,196 +2,105 @@
 
 ## 项目简介
 
-DSH 插件：为所有非官方（自定义）提供方的模型自动填充推理级别（`reasoningEfforts`）、最大上下文（`contextWindow`）、输出上限（`maxTokens`）与图片模态（`input`），数据来自 models.dev；并按兼容性规则为 openai-completions 提供方维护路由级 `compat`（当前一条：不使用 `developer` 角色）。另按提供方维度提供排除（`excludes`：命中的提供方本插件零操作）。每模型独立记住上次手动选择的推理级别，切换模型时自动恢复（`userExperience.rememberEfforts` 可关，关后不再保存新的、已记住的仍会恢复；该组不支持按提供方排除）。另有 `userExperience.defaultHigh`（默认开）：切换模型时若未设置推理级别、没有该模型的记忆且模型提供 `high` 档位，自动设为 `high`。再有 `userExperience.forgetRemoved`（默认开）：模型/提供方被删除时随之忘记其推理级别记忆（关掉则完全不做清理）。
+DSH 插件：按 [models.dev](https://models.dev) 为非官方（自定义）提供方的模型填充/同步 `reasoningEfforts`、`contextWindow`、`maxTokens`、`input`，并为 `api: openai-completions` 路由维护 `compat.supportsDeveloperRole`；`excludes` 命中的提供方零操作（只影响保存之后的行为，不撤销已写入内容）；`userExperience` 管会话侧体验（**不支持按提供方排除**）：`rememberEfforts` 每模型记住推理级别并在切换模型时恢复、`defaultHigh` 无记忆且未设级别时自动设 `high`、`forgetRemoved` 删除模型/提供方时随之忘记其记忆。
 
 ## 技术栈与目录
 
-Node.js（ESM）+ `@deepseek-ai/cordis` 插件；tsdown（rolldown）双配置构建到 `lib/`（Node 半 `index.js` + 浏览器半 `client.js`，clean 只由 Node 半配置承担）；TypeScript 严格模式。产物不带 sourcemap。
+Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown（rolldown）双配置构建到 `lib/`（Node 半 `index.js` + 浏览器半 `client.js`，clean 只由 Node 半承担）；TS 严格模式，产物不带 sourcemap。
 
-| 路径 | 职责（只标非显而易见的部分） |
+| 路径 | 职责（只写非显而易见的部分） |
 | --- | --- |
-| `src/index.ts` | Node 半入口：`export` + `Config`（0.1.7 宿主 settings 面经 `entry.fiber.runtime.Config` 取用；根 `.volatile()` 使宿主把整段作为实时引用注入 apply 第二参）+ **单一 `apply` 编排体**（captureBackup → 配置源与段变更接线 → installRpc → 启动链，卸载标记贯穿）：配置源经 apply 第二参的实时引用派生（`.get()` 在工厂内），段变更走 `settings/document-updated`（0.1.7 唯一段级事件，按 ns 分流）；两条段变更链（自有段「自愈→填充」、llm-pi-ai「填充→保鲜刷新」）共用同函数 |
-| `src/shared/` | **跨半共享层**（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`，两半值导入的唯一跨半来源，不经任何 facade 中转）：`constants.ts`（`API_NS`/`PLUGIN_NS`/`PLUGIN_NAME`/`CONFIG_VERSION`/`VERSION_PREFIX`）、`types.ts`（`isPlainObject`/`providersOf` + 共用类型）、`parse.ts`（`DEFAULT_CONFIG`/`parseSnapshot`/`parseEfforts`/`parseVersion`/`versionKey`/`toStored` + 各组解析函数与行键表） |
-| `src/types.ts` | Node 专属类型：models.dev 目录类型（`ModelEntry`/`CacheRecord`/…）、`isCapacity`、**冻结历史版本(v3-v6) 形态**（共用类型与守卫直连 `src/shared/types.ts`） |
-| `src/constants.ts` | Node 专属常量（`CACHE_FILE` 带 `node:path`、保留上限、重试参数、`CAPACITY_UNLIMITED`、`HINTS`、兼容性落点 `DEVELOPER_COMPAT_APIS` / `DEVELOPER_COMPAT_FIELD`）；共享常量直连 `src/shared/constants.ts` |
-| `src/config.ts` / `src/migrate.ts` | `resolveConfig`/配置源 / 升级链与 `migrateConfig` 编排、`DEFAULT_STORED` 规范默认快照（物化函数 `toStored` 单一来源在 `src/shared/parse.ts`，两半直连） |
-| `src/catalog.ts` / `src/lookup.ts` | 缓存与拉取、拍平与条目校验 / id 归一化匹配与档位转换 |
-| `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 两类 op 同批提交；`excludes` 命中的提供方在 provider 循环入口即整条跳过（两类 op 与 force 一起被排除，故不在各分支重复判断）；同一两层循环顺带**重建 `efforts` 记忆**（清除已删除模型/提供方的记忆，`excludes` 命中者在跳过处单独循环其模型同样重建、不产生对该提供方的写回；与旧值相同零写入，不同才以自有 NS 的 revision 写回 `version-N.efforts`；整段受 `userExperience.forgetRemoved` 控制，关时零操作，见「设计裁决」） |
-| `src/reset.ts` | 重置推理级别：仅剔除各非排除 provider 模型上的推理级别字段（`reasoningEfforts`；最大上下文/输出上限/图片模态可在模型页自行设置，不清除），配置段原样保留（开关不变，重置后改配置仍按原开关触发填充）；`planResetModels` 零 ctx 可单测，`resetModels` 全程打开事件流守卫（`isIgnoreAll`）防写回反向触发填充 |
-| `src/guard.ts` | 事件流守卫（模块级 `ignoreAll` + `startIgnoreAll`/`endIgnoreAll`/`isIgnoreAll`）：重置与恢复共用的写回保护，`index.ts` 的段变更事件入口最先判定 |
-| `src/host.ts` | 宿主 HMR 事务感知的通用执行原语 `queueTask(ctx, task)`：取 hmr 服务私有 `executing` ALS 实例 `exit()` 摘出事务上下文后执行 task（当前消费者是全部 settings 写回点，以钩子形式传入 mutate），任务正常排队而非被 nested 拒绝；hmr 服务缺席或字段漂移时直接执行。机制与裁决见「宿主 settings 的脾气」末条 |
-| `src/restore.ts` | 恢复备份：`captureBackup` 仅在 `apply` 最顶部（先于一切写回）读一次`llm-pi-ai` 的 **`providers` 段**并深拷贝为内存备份（不写盘，重启重建；绝不做延迟补捕，见设计裁决）；`providersOf` 收窄口径单一来源在 `src/shared/types.ts`（捕获与恢复共用）；`planRestore` 零 ctx 可单测，按**交集**语义只回退「备份与当前都存在」的 provider+model；`restoreModels` 与 reset 同样全程开守卫 |
-| `src/compat.ts` | 兼容性规则 → provider 路由 `compat` 的纯写入计划（添加 / 移除 / 删空整段 unset），零 ctx 依赖故可单测 |
-| `src/rpc.ts` / `src/rpc-route.ts` / `src/refresh.ts` | 三个 RPC 端点（`forceUpdate` 强制更新 / `resetModels` 重置推理级别 / `restoreModels` 恢复备份，以守卫互斥）/ 自注册 channel 路由（围栏 + 信封，见「设计裁决」）/ 刷新编排（含重试） |
-| `src/client/scope.ts` | 浏览器半：`makeScope(form, decode)` 把 `ctx.configForms.get(ns)` 的 ConfigForm 包装为 `DecodedScope`（ConfigForm/ConfigFormSnapshot 直引 devDep `@deepseek-ai/dsh-client-ui-settings/client` 类型面；快照稳定引用本地维护、user 层原样透传、写方法返回对齐 void、订阅随 dispose 释放）；转发 mutate 时 ops 浅拷贝为宿主 `SettingsPathOpView` 形态 |
-| `src/client/` | 浏览器半：`index.tsx` 入口（`inject = ['slots','locale','connection']`；`ctx.inject(['configForms'])` 子 fiber 经 `makeScope` 构造两个 scope 后调共用的 `boot` 编排体：词典/RPC 载体/席位注册/记忆监听子 fiber）、`card.tsx` 卡片（四席统一的可折叠卡片外壳，插件详情页、组件实例详情页与「内置插件」选项卡三席位经 `defaultOpen` 默认展开；展开体为四张布尔瓦片 + 一张排除集合瓦片 + footer 的「强制更新 / 重置推理级别」两危险键与「恢复备份」次级键；瓦片顺序由本地 `TILE_ORDER` 单一分发，排除集合夹在兼容性与用户体验之间）、`model.ts` 快照↔配置（四组布尔 + `excludes` + `efforts`）与命中判定的纯映射、`effort.ts` 每模型推理级别记忆的纯逻辑（`classifyTransition` / `lookupEffort` / `applyEffort` / `advertisesEffort` / `sameSelection`；宿主类型 `ModelSelection` / `ModelProviderGroup` type-only 取自 dsh-api-session-controller 的 `/types` 类型面）、`locales.ts` 中英词典 |
-| `public/` | 构建期由 `tsdown.config.ts` 的 `copy` 逐文件**平铺**复制到 `lib/` 根（`public/x` → `lib/x`）：`models-cache.json` 是 models.dev 拍平缓存（首启离线可用）。包根图标不在此处，见下一行 |
-| 包根图标 `icon.svg` | 与 `package.json` 同级的**包根静态资源**，不经 tsdown（`copy` 只服务 `public/`，留作该目录的通用通道）：编译产物进 `lib/`、静态资源留包根原样发布，与官方插件包一致（`@deepseek-ai/dsh-experimental-*` 的 `icon.svg` 与 `cordis.patch.yml`、`locale/*.json` 同在包根，`files` 单列）。故须在 `files` 里单列 `"icon.svg"` |
-| 包根图标声明（`package.json`） | 宿主读图标有**两条互不通气的路线**：`package.json` 顶层 `icon` 字段与 `exports` 的 `"./icon"` 子路径，缺一在对应宿主上静默退化为通用占位图。① **顶层 `icon` 字段**（`"./icon.svg"`）—— 宿主 ≥0.2.0 全支持，且在 0.2.1+ 里**优先级更高**（manifest 分支先命中）；② **`exports` 的 `"./icon"` 子路径**—— **只有 0.2.1+ 才读**：`0.2.0-rc.2` 的 `dsh-app-boot` 产物里 `iconOf(value, manifestPath)` 见 manifest 无 `icon` 即 `return undefined`，根本没有 `<包名>/icon` 的导出回退分支（该分支是 0.2.1 才加的）。**官方插件包只走 ①**（`files` 列 `icon.svg`、`exports` 无 `./icon`），本包随其只写 ①；两条路都要求图标文件在包目录内、≤256 KiB、扩展名 ∈ svg/png/jpg/jpeg/webp；图标本身不参与任何逻辑 |
-| `cordis.patch.yml` | DSH 补丁层对本插件的注册 |
+| `src/index.ts` | Node 半入口：`Config`（宿主经 `entry.fiber.runtime.Config` 取用）+ 单一 `apply` 编排体（captureBackup → 配置源与段变更接线 → installRpc → 启动链，全程带卸载标记） |
+| `src/shared/` | 跨半共享层（零 Node 依赖 / 零 schemastery / 零非基线 `@deepseek-ai/*`）：常量、`isPlainObject`/`providersOf`、当前版本配置的解析与物化（`parseSnapshot`/`toStored` 等）与各组行键表 |
+| `src/config.ts` `src/migrate.ts` `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 配置解析与配置源 / 升级链 `upgradeTo4..7` 与 `migrateConfig` / 缓存读写与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
+| `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 同批提交；`excludes` 命中者在 provider 循环入口整条跳过；同一两层循环顺带按模型重建 `efforts` 记忆 |
+| `src/reset.ts` `src/restore.ts` `src/guard.ts` `src/host.ts` | 重置推理级别（仅剔除 `reasoningEfforts`，配置段零写入）/ 启动备份捕获与交集恢复 / 事件流守卫（写回期间短路整条事件链）/ 全部 settings 写回必经的 `queueTask` |
+| `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 三个 RPC 端点（以守卫互斥）/ 自注册 channel 路由 / 保鲜刷新 |
+| `src/client/index.tsx` | 浏览器半入口：四个卡片刻位注册、词典、RPC 载体、记忆监听子 fiber |
+| `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片、footer 与末尾联系行；**全部样式数值在 `STYLE_TEXT`** |
+| `src/client/model.ts` / `effort.ts` / `scope.ts` / `locales.ts` | 快照↔配置纯映射 / 记忆纯逻辑 / ConfigForm 的 decode 包装 / 中英词典 |
+| `public/models-cache.json` | 构建期平铺复制到 `lib/` 根：models.dev 拍平缓存（首启离线可用） |
+| `icon.svg` / `cordis.patch.yml` / `locale/*.json` | 包根静态资源，不经 tsdown，`files` 单列；补丁行的 `id` 即 settings 命名空间键 |
 
 ## 硬约束（违反即坏）
 
 ### 跨半与宿主契约
 
-- **跨半共享层 `src/shared/`**（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）：常量（`API_NS`/`PLUGIN_NS`/`PLUGIN_NAME`/`CONFIG_VERSION`/`VERSION_PREFIX`）、类型与守卫（`isPlainObject`/`providersOf`/`PluginConfig`）、当前版本解析与物化（`parseSnapshot`/`parseEfforts`/`parseVersion`/`versionKey`/`DEFAULT_CONFIG`/`toStored`）的单一来源。两半均**直连**本层（统一经 `@/shared/*` 别名导入），任何半不得中转再导出。**导入别名纪律：src 与 test 的一切源码导入必须以 `@/`（→ `src/`）或 `@test/`（→ `test/`）开头，禁止相对路径**——映射声明在 tsconfig `paths`（typecheck/编辑器）与 tsdown 各配置的 `alias`（构建期；tsdown 不读 tsconfig paths，缺一不可）；别名键锚定 `@`（段边界匹配），不会吞 `@deepseek-ai/*` 等基线 specifier。`tsdown.config.ts` 的**双向**纯度门禁：client 半 `@/` 值导入只放行 `@/shared/*`（跨半共享层）与 `@/client/*`（本半内部），其余 `@/` 与一切相对导入抛错（防 `node:path`/schemastery 进浏览器包；type-only 被擦除不受限），node 半禁 `@/client*` 与一切相对导入（防反向耦合）。provider id 的合法性正则 `EXCLUDE_ID_PATTERN` 仍是宿主 models 页 `ROUTE_PATTERN` 的字面复制（跨仓复制无法消除），升宿主须复核。
-- 浏览器半 externals 只允许宿主模块表基线那几项，其余一律打进包；基线权威列表在宿主 `packages/client/web/src/platform.ts`，漂移的后果是运行期 `require` 未命中。
-- `package.json` 的 `dsh.client.inject` 是**依赖包图边**（填槽位所有者包），不是 cordis 服务名；服务名只写在 `src/client/index.tsx` 的 `export const inject`。
-- 浏览器半产物必须复刻宿主 client 的闭包工厂契约（`window.__ModuleLoader__.load` + banner/intro/footer 三段）。声明了 `dsh.client` 后，缺 `lib/client.js` 会让宿主**激活期聚合抛错** ⇒ **build 必须先于 link/安装到宿主**。
-- 卡片注册席位一律全注册（同一组件、各挂一个实例；宿主 settings 页 `renderSlot("settings.section", …, { only: active })` 同时只挂载一个 section，故 settings 席位间不会并存、草稿不会分叉）：`settings.models.footer`（list 席位，`id` = 配置 NS，「模型」选项卡底部，与提供方列表同页）；另三席 `plugins.bundle.config`、`plugins.row.config` 与 `settings.plugins.tab` 见下。keyed 席位的单元格标识是 `key` 而非 `id`/`order`；不同 slot 即不同账本，**无需加后缀区分**。**缺席席位由 `ctx.slots.inject` 自己消化**：宿主语义是「先有声明方才占格，已声明则同步跑回调、未声明则挂一个 pending wait，fiber 卸载即取消」，既不抛错也不占位 ⇒ 四个席位一律无条件注册，缺席者静默空转，不要维护席位清单常量做开关。
-- `plugins.bundle.config`（**第二个席位**，0.1.6+ 插件管理页，keyed，`key` = **npm 包名**）把配置段填进「已安装」组里本 bundle 详情页的描述与 rows 之间。key 必须是包名：宿主 `listBundles()` 从 profile manifest 取包名，详情页按 `entryKey: pkg.name` 分发、并用 `keysOf('plugins.bundle.config').has(pkg.name)` 判定该 bundle 有无配置段可渲 ⇒ 填配置 NS 会让配置段**静默整段消失**（无任何报错）。已安装组那张卡由 Node 侧 manifest 渲染、与本包浏览器半无关：本席位不注册时它仍有开关与 package.json 的 description。该席位宿主恒传 `view: 'page'`、页面自绘图标 / 面包屑 / 开关 ⇒ 不声明 `label`、无 summary 分支、不写 `order`/`priority`（keyed 单一分发点，位次无关）。卡片外壳四席统一（见「设计裁决」），本席位**不据 `view` 分支**、只多传 `defaultOpen`。
-- `plugins.row.config`（**第三个席位**，0.1.6+ 插件管理页，keyed，`key` = **`<npm 包名>#<patch 条目 id>`**）把配置页填给 bundle patch 声明的单个组件实例。key 由宿主 `rowConfigKey` 拼接，第二段是宿主端 `rowId: row.id`——patch 条目的 **id 字段（Loader 运行实例 id，即 `MODEL_FIX_NS`）**，不是插件名（`name` 字段进 `moduleName`，作 row 的 title 兜底）⇒ key 错段会让席位永远不命中（无报错）。注册后 bundle 详情页「包含的组件」里该实例的 title 变为可点按钮（宿主用 `keysOf('plugins.row.config').has(key)` 判定渲按钮还是纯文本），进入组件实例详情页（返回按钮为插件名、下方无 rows 段）；不注册则 title 不可点。页面以 `view: 'summary'`（实例元数据缺描述时的描述行兜底）与 `view: 'page'` 两种请求渲染；本包 manifest 的 description 非空 ⇒ summary 实际不被请求，仍与 bundle 席位一致**不据 `view` 分支**。与 bundle 席位共用同一张卡并同样传 `defaultOpen`（单实例 bundle 两层 UI 同体）。
-- `settings.plugins.tab`（**第四个席位**，「设置 → 内置插件」section 的 tablist，宿主公开扩展点）在宿主里是货真价实的公开扩展点，不是谁硬塞的：section 本体（`settings.section` 的 `id: 'plugins'`，所有者包 `@deepseek-ai/dsh-client-ui-settings-plugins`）以 `children: { 'settings.plugins.tab': { kind: 'list', scope: 'root' } }` 运行时声明它，类型面则在 `@deepseek-ai/dsh-client-ui-settings` 的 `contract/slots.ts`（owner props 为空标记，注释明写「type lives here so inventory and configuration plugins collaborate without depending on one another」）⇒ 无需本地复制 SlotMap 键，入口已 type-only 引入该包。section 把每个条目渲成一个 tab：`entries(席位).map({ id, order, label: resolveSlotLabel(label) }).sort(order)`，面板 `renderSlot('settings.plugins.tab', {}, { only: row.id })`；只有一条时连 tablist 都不出、直接出面板。选项即 list 席位三件套：`id`（tab 键，取配置 NS）、`order`（tab 位次）、`label`（thunk，每次读账本求值 ⇒ 切语言自动跟随），并声明 `locale: CARD_NS` 取回类型化的 `t`。官方占位：插件列表（`dsh-client-ui-settings-plugin-inventory`，`id: 'all'`、`order: 10`）；0.1.2 系列的插件配置 tab（`id: 'configurable'`、`order: 0`）在 0.1.6 起已随官方配置页迁走。本席位取 `order: 20` ⇒ 排在插件列表之后。**已访问过的 tab 面板保持挂载（仅 `hidden`）**，故同一 tablist 内任一时刻本卡只挂一个实例，不存在两份草稿。
-- **不注册 `plugins.item`**：该席位契约说明它由宿主平面官方配置页占用，bundle 的配置应放 `plugins.bundle.config` / `plugins.row.config`。它是唯一能拿到本地化标题的地方（`label` 是 thunk、描述由注册方的 summary 视图自绘，终端 / Agent 循环 / Subagent / 网页搜索即如此），但第三方 bundle 注册进去会与官方插件混在同一组、易被误认为官方插件，故不取。代价：已安装组的卡标题固定为 `shortName(package.name)`（先剥 scope 再剥 `dsh-` 前缀，`dsh-model-fix` → `model-fix`）、描述固定为 package.json 的 `description`，均无 locale 机制（`BUILTIN_COPY` 只硬编码 3 个官方 beta bundle，非扩展点）——宁可描述只有一句单语言，也不伪装成官方插件。
-- **`settings.models.footer` 席位排到列表最前**（宿主对 `priority`/`order` 一律"越小越靠前"，官方卡都是默认 0 ⇒ 取 `-999999`，给同样想抢首位的第三方插件留余量）：账本按 `priority → order` 排完后，渲染器**又按 `order` 单键稳定重排一次** ⇒ 决定位置的是 `order`，故该席位只声明 `order`（`priority` 仅在同 `order` 时当平手判据，同值碰撞概率极低，不值得抢）。该席位宿主侧目前零其他注册方，改动无可见差别。退化风险：若宿主日后改掉排序，后果只是卡片回到末尾，不坏功能。
-- 卡片外壳**不写 `max-width`**：宽度由所在 section 约束（模型页 720 / 插件配置页 760），官方 `PluginCard` 同样不写；写了会与插件配置页的官方卡参差。
-- **选项卡头部在任何宿主版本都没有席位**，别往那儿挂。
-- client 模块必须 `export const name`，且与包名一致。
-- **对外纪律：前端可用面一律以 npm 发布版为准**（`npm view @deepseek-ai/dsh dist-tags`）；宿主源码仓 HEAD 领先一切已发布版本，只作参照，**其工作树路径不得写进本项目文档**（未被版本追踪）。本插件的宿主依赖**总是跟随宿主 latest**：`@deepseek-ai/dsh-*`（`dsh-settings`、`dsh-util-values`、`dsh-host-webserver`、`dsh-api-session-controller`、`dsh-session` 与 11 个 `dsh-client-*`）取宿主 latest 的那个版本号（当前 `0.1.7-rc.2`），`peerDependencies` 同版作下限；`@deepseek-ai/cordis` / `schemastery` 不随宿主版本号，取宿主本体自己声明的那条线（`^4.0.4` / `^3.18.4`）。**官方包一律 optional peer + devDep 同版兜底，`dependencies` 恒为空**（生态惯例：awesome-dsh-plugin 贡献指南）：运行期裸导入经宿主安装闭包投影路由到宿主实例——`~/.dsh/profiles/node_modules` 为安装闭包逐包 junction（`dsh-util-values` / `dsh-settings` 是宿主 settings 栈的嵌套依赖、不在宿主 manifest 公开承诺里，宿主重构 settings 栈时须复核）；profile 的 pnpm `autoInstallPeers: false`，不会自动补装 peer。**坑**：这些子包各自的 `latest` tag 是陈旧的（如 `dsh-client-ui-slots` latest = `0.0.1-rc.1`），与宿主同号的线在它们的 `next` ⇒ 升级要写具体版本号，别用 `pkg@latest`。功能未生效即提示用户升级宿主（README「版本说明」）。
-- **宿主要求的声明面：顶层 `engines.dsh` + `dsh.engines.dsh`，但 `@deepseek-ai/dsh` 本体不写 peer。** 顶层 `engines.dsh` 是 DSH 的正统声明位（宿主本体当前既不校验也不展示，纯声明）；`dsh.engines.dsh` 是第三方插件市场（dsh-market）的回退读取位——它两种写法都读、同时存在时**顶层优先**，故两处须同值（range 一律 `>=` 不用 caret：市场对 engine 声明不做方向性软化，caret 的隐式 0.x 上界会被判成不兼容）。**不写 `@deepseek-ai/dsh` peer 的原因是本仓 `autoInstallPeers: true`**（lockfile `settings`）：根项目的缺失 peer 会被真装进 `importers["."].dependencies`，`optional: true` 只免告警、**不阻止安装**（实测 `react` / `@deepseek-ai/dsh` 均被装入），而 `@deepseek-ai/dsh` 会拖入整棵 CLI 树（node-pty / koffi 等原生构建脚本 + lockfile 数千行）；兼容性谓词改由 16 个 `@deepseek-ai/dsh-*` 子包 peer 承担——宿主兼容门（`evaluatePluginCompatibility`）与市场判定对 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 同式匹配（后者按 `^@deepseek-ai/dsh(?:-|$)` 过滤），故等效且零副作用。`@deepseek-ai/cordis` / `schemastery` 不在 DSH 锁步 0.x 线上，市场按该正则过滤、不参与版本判定。
-- 宿主 0.1.2 起 settings 面的搬迁：`deepEqualJson` 从 `@deepseek-ai/dsh-settings` 迁到 **`@deepseek-ai/dsh-util-values`**（宿主运行时依赖，且是宿主唯一的变更检测判据 ⇒ `fix` / `compat` 复用它，勿自写比较）。
-- **宿主 settings 面（0.1.7+，唯一支持代际）**：Node 半经 `Config` schema 注册命名空间（宿主 settings 经 `entry.fiber.runtime.Config` 取用），浏览器半经 `ctx.configForms` 读卡：
-  - Node 半 `src/index.ts` 的 `apply` 是**单一编排体**（captureBackup → 配置源与段变更接线 → installRpc → 启动链）：配置源经 apply 第二参的实时引用派生（根 `.volatile()` 使宿主把整段包成 Volatile，每次 `.get()` 取当前值；`.get()` 必须放在工厂内、不得在 apply 时刻取走，否则卡片保存后的新值读不进来）；段变更事件用 `settings/document-updated`（0.1.7 宿主 settings 面唯一段级事件，宿主 settings 服务每次写后重描述、仅对 raw 变化的 ns 发事件，按 ns 分流自有段与 llm-pi-ai 段）。两条段变更链是共用函数：自有段「自愈→填充」与 llm-pi-ai「填充→保鲜刷新」，守卫判定在链入口；事件链的 fix 失败一律吞 rejection（fix 内已告警）。`captureBackup` 与接线无关（apply 最顶、先于一切写回）。
-  - `Config` 导出 = `z.any().volatile()`：**不能用 `z.dict(z.any())`**——宿主 `projectForm` 对 `type === 'object'` 的 schema 逐字段投影，dict schema 的 `dict` 字段为 undefined 时投影结果是 `{}`，整段值会被抹掉（`z.any()` 的 type 非 `'object'` 故原样返回）；根 volatile 下写入面全路径放行（`isVolatilePath` 对根 volatile 恒真）、`describe()` 收录本命名空间、volatile 校验亦通过。
-  - **settings namespace 键 = Loader 条目 id，由 `cordis.patch.yml` 的 `id` 锚定**（`describe()` 输出 `ns: entry.options.id`，Loader `ensureId` 直接采用声明 id）⇒ patch 条目 id 必须与浏览器半 `configForms.get(NS)` 的 NS 及 Node 半写回 NS **同一字面量 `tikaflow-model-fix`**（曾用短名 `model-fix` 致浏览器半查无 NS、卡片显「配置不可用」）。升级传播无需用户操作：profile manifest 的 `dsh.profile.bundles` 只存包名，补丁行每次启动从安装的包内 `cordis.patch.yml` 实时读取（`loadProfileDirectory`），换包即换 id。
-  - 浏览器半读卡经 `configForms.get(ns)`（**宿主 `get` 只收一个 entryId 参数，不接受 decode spec**——`ConfigFormSpec` 类型虽有 `decode` 字段，`get` 从不转发）：段值解码由 `makeScope` 自身的 decode 完成；缺省路径的 value 校验走宿主默认 decode（对 plain object 段值经 `rehydrate`+`validate` 校验 wire schema，`z.any()` 恒通过），不是障碍。`configForms.get(ns)` 查无 NS 时 form 落 `unavailable`（`ConfigFormController.derive` 的 `view === undefined` 分支），卡片显「配置不可用」——这是 NS 键不匹配的判定特征，不是宿主缺服务；decode 失败则永停 `loading`，两者可区分。
-  - 浏览器半 `src/client/index.tsx` 以 `ctx.inject(['configForms'])` 子 fiber 注入标记服务后构造 scope：标记服务**不进父级 `inject`**（子 fiber 等服务就绪才激活，隔离服务缺席/未就绪风险）；子 fiber 只声明标记服务，**共享编排体 `boot` 一律走父 ctx**（`ctx.<name>` 属性读要求本 fiber 声明过 inject，`ctx.get(name)` 读全局服务表无此要求——插槽/RPC/locale/记忆监听在父 ctx 上执行，子 ctx 只用于构造 scope）；scope 经 `src/client/scope.ts` 的 `makeScope` 包装（ConfigForm 直引 devDep 类型面，快照稳定引用本地维护、user 层原样透传、写方法 `Promise<boolean>` 对齐 `Promise<void>`）。
-  - peerDependencies 下限 `>=0.1.7-rc.2`；devDeps 锁 0.1.7-rc.2 版本线（0.1.7-rc.2 之前的宿主不再受支持；宿主类型面已全部 type-only 导入 devDep，升宿主时由 typecheck 自动暴露不兼容）。
-- Connection RPC 契约类型（`ConnectionRpcResult` / `ConnectionRequestRejection` / `HostConnectionService` / `WebServer` 等）**type-only 导入宿主 devDep 的类型面**（`@deepseek-ai/dsh-client-connection` / `dsh-host-webserver` / `node:http`，构建期擦除、不落运行期依赖）：运行期服务仍经 `ctx` 注入取得，不 import 宿主值（官方包一律不落 dependencies，见「对外纪律」）；`ctx.get` 断言范式与宿主内置插件一致。信任围栏（loopback / 浏览器会话 cookie）由宿主施加。
-- 记忆监听面的会话与模型目录类型（`ISessions` / `SessionBinding` / `ModelDirectory` / `ModelSelection` / `ModelProviderGroup` / `SessionId` 等）同样 **type-only 导入宿主 devDep 的类型面**（`@deepseek-ai/dsh-api-session-controller` 的 `/types` + `/client`、`dsh-client-ui-model-selection` 的 `/client`、`dsh-session` 的 `/types`，构建期擦除、不落运行期依赖）：服务本体经 `ctx.inject(['sessions','modelDirectories'])` 子 fiber 取得，`/client` 的声明合并直接给出 `subCtx.sessions` / `subCtx.modelDirectories` 的宿主真类型（无需 `ctx.get` 断言）；会话 id 全程用品牌类型 `SessionId`（plain `string` 不可赋给品牌 id，跟踪账本 `Map` 的键亦同）。
-- 词典 `ctx.locale.register` 重复注册会抛错，必须经 `ctx.effect` 挂 disposer 保 HMR；卡片样式经模块级幂等 `<style>` 注入，带 `data-plugin` 标记供宿主 HMR 认领。
+- **导入别名纪律**：`src`/`test` 的一切源码导入必须以 `@/`（→`src/`）或 `@test/`（→`test/`）开头，禁止相对路径；映射须同时声明在 tsconfig `paths` 与 tsdown 各配置的 `alias`（tsdown 不读 paths）。别名键锚定 `@`，不吞 `@deepseek-ai/*`。
+- `tsdown.config.ts` 内置**双向纯度门禁**：浏览器半 `@/` 值导入只放行 `@/shared/*`（跨半共享层）与 `@/client/*`，node 半禁 `@/client*`，两侧禁相对导入（防 `node:path`/schemastery 进浏览器包）。新增跨半依赖前先判断该进 `src/shared` 还是走字面量/契约复制。
+- 浏览器半 externals 只允许宿主模块表基线那几项（权威列表在宿主 `packages/client/web/src/platform.ts`，本仓副本在 `tsdown.config.ts` 的 `PLATFORM_MODULES`），其余一律打进包。
+- `package.json` 的 `dsh.client.inject` 是**依赖包图边**（槽位所有者包），不是 cordis 服务名；服务名只写在 `src/client/index.tsx` 的 `export const inject`。client 模块必须 `export const name` 且等于包名，并复刻 `window.__ModuleLoader__.load` 闭包工厂契约（banner/intro/footer 三段）——声明了 `dsh.client` 后缺 `lib/client.js` 会让宿主激活期聚合抛错，故 **build 必须先于安装**。
+- settings 命名空间键 = `cordis.patch.yml` 的 `id`，须与浏览器半 `configForms.get(NS)`、Node 半写回 NS **同一字面量**（`PLUGIN_NS`）；换包即换 id，升级传播无需用户操作。
+- `Config` 导出 = `z.any().volatile()`：**不能用 dict**（宿主对 `type === 'object'` 的 schema 逐字段投影会把整段抹成 `{}`）；根 volatile 使宿主把整段作为实时引用注入 `apply` 第二参，`.get()` 必须留在工厂内。
+- 浏览器半：`configForms.get(ns)` 只收 entryId、不转发 decode spec，解码责任全在 `makeScope`，且 decode **永不返回 undefined**。`get` 查无 NS ⇒ 卡片显「配置不可用」（NS 不匹配的判定特征）；decode 失败则永停「加载中」，两者可区分。`ctx.inject(['configForms'])` 只是标记服务（**不进父级 `inject`**），共享编排体一律走父 ctx（`ctx.<name>` 属性读要求本 fiber 声明过 inject）。
+- 宿主类型面一律 type-only 导入 devDep 的 `/client`、`/types` 与 `node:http`，构建期擦除、不落运行期依赖；升宿主时 typecheck 即暴露不兼容。
+- **对外纪律**：前端可用面以 npm 发布版为准，宿主源码仓 HEAD 只作参照，其工作树路径不得写进本项目文档。宿主依赖跟随宿主 latest 的那个版本号（当前 `0.1.7-rc.2`），`peerDependencies` 同版作下限；`@deepseek-ai/cordis`/`schemastery` 取宿主本体自己声明的线。**官方包一律 optional peer + devDep 同版兜底，`dependencies` 恒为空**。顶层 `engines.dsh` 与 `dsh.engines.dsh` 两处同值、range 一律 `>=` 不用 caret（市场不软化 caret 的隐式上界）；**不写 `@deepseek-ai/dsh` peer**（本仓 `autoInstallPeers: true`，缺失 peer 会被真装进来并拖入整棵 CLI 树；兼容性谓词改由 `dsh-*` 子包 peer 承担，宿主与市场的匹配式同形）。包根图标只走 `package.json` 顶层 `icon` 字段（官方插件包的做法，`files` 单列 `icon.svg`、`exports` 不声明 `./icon`）。
+- 词典 `ctx.locale.register` 重复注册会抛错，须经 `ctx.effect` 挂 disposer 保 HMR；卡片样式经模块级幂等 `<style>` 注入并带 `data-plugin` 标记供宿主 HMR 认领。
 
 ### 宿主 settings 的脾气
 
-- **根写入要求纯对象**，故自有配置用 `version-N -> 快照` 的**映射**而非列表。
-- 段 schema 必须宽松（`z.any()`）：否则"比当前代码更新的版本快照"会让命名空间注册直接失败。严格校验只针对当前版本快照值（解析在 `parseSnapshot`）。
-- `makeScope` 的 decode **必须永不返回 undefined**：`configForms.get` 不转发 decode spec，解码责任全在调用侧，消费方（卡片 / 记忆监听）假定 value 形态可用。
-- **路径 op 不支持数组下标中间段**（且各段必须是字符串），要改数组元素只能整段 `set` 覆盖 ⇒ `fix` 按 provider 整段写回 `providers[id].models`，未变更元素原样保留。
-- `unset` 的嵌套路径生效，但**不会折叠被清空的父对象** ⇒ 删掉路由 `compat` 里唯一的键要整段 `unset`，否则留下 `compat: {}` 这种脏壳（宿主语义等同未声明，但会反复触发写入判定）。
-- **命名空间装载时序（0.1.7）**：`llm-pi-ai` 由宿主内置注册、先于本插件 `apply`（provider 在 become injectable 前 `publish(await load())`，`describe()` 已含 `API_NS`，`captureBackup` 必可读）；**自有 NS 的 `Config` schema 由宿主 Loader 异步登记、晚于 apply** ⇒ 启动时 `describe()` 可能尚未含本命名空间，`migrateConfig` 有界轮询等待其出现后再迁移（见 `migrate.ts` 的 `MIGRATE_WAIT_MS`）。命名空间就是小写连字符串字面量。
-- `migrateConfig` 读不到命名空间则早退、不写任何东西。
-- **迁移必先于填充**，否则旧格式会被按新 schema 误解析。
-- **段事件可能在宿主 HMR 事务内同步派发（0.1.7）**：用户保存的写盘事务（`configEditor.edit` → `hmr.runExclusive`）内部的 `describe()`（Loader 调和触发）会在事务的 AsyncLocalStorage 上下文里同步回调 `settings/document-updated` 监听器；ALS 上下文随定时器传播且事务结束后仍残留 ⇒ 事务血缘里的写回经 `runExclusive` 会被以 `HMR transactions cannot be nested` 拒绝，**defer 到宏任务也逃不掉**（重试定时器同样继承该上下文）。解法是**在写 choke point 收口**：全部 settings 写回（fix 两处、自愈、迁移三处、重置、恢复）一律经 `src/host.ts` 的通用原语 `queueTask(ctx, task)` 以钩子形式包裹 mutate 调用——取 hmr 服务的私有 `executing` ALS 实例 `exit()` 摘出上下文（宿主 `watchConfig` 内部同款手法），重入检测放行后任务即经 runExclusive 的 promise 链正常**排队**等待宿主事务结束；原语本身不限写回，未来任何需脱离事务血缘的任务都可复用。**不放在事件入口包裹**的依据：choke point 让任何调用路径（含未来新增）天然安全，而事件入口包裹会漏掉写回之外新增的调用点。RPC（强制更新/重置/恢复）与启动链不在任何事务血缘内，本就不会嵌套（这正是此前事件 fix 全灭而 RPC 强制更新一直成功的分野）；client 半更无需处理：其写入执行在宿主 Node 侧请求处理血缘里，且浏览器无 `node:async_hooks`。实例不可得（hmr 服务缺席 / 字段漂移）时退回裸 mutate——无事务上下文即无嵌套风险，行为不变。升宿主须复核 hmr 服务 `executing` 字段名。
+细节以宿主源码为准，不确定时现场验证再落地。
 
-### 历史形态冻结
+- 根写入要求纯对象 ⇒ 自有配置用 `version-N -> 快照` 的**映射**而非列表；段 schema 必须宽松（`z.any()`），严格校验只针对当前版本快照值。
+- 路径 op 不支持数组下标中间段 ⇒ 改数组元素只能整段 `set` 覆盖（`fix` 按 provider 整段写回 `models`，未变更元素原样保留）。
+- `unset` **不折叠**被清空的父对象 ⇒ 删空对象要整段 `unset`，否则留下脏壳反复触发写入判定。
+- 命名空间装载时序：`llm-pi-ai` 早于本插件 `apply` 可读；自有 NS 由宿主 Loader 异步登记、可能晚于 apply ⇒ `migrateConfig` 有界轮询等待（`MIGRATE_WAIT_MS`），读不到即早退不写。**迁移必先于填充**，否则旧格式会被按新 schema 误解析。
+- 宿主事件可能在其 HMR 事务的 AsyncLocalStorage 上下文里同步派发，且 defer 到宏任务也逃不掉 ⇒ **全部 settings 写回一律经 `queueTask`**（取 hmr 服务的私有 `executing` ALS `exit()` 摘出上下文后排队）。收口在写 choke point 而非事件入口，任何新增调用路径都天然安全；实例不可得时退回裸 mutate（无事务上下文即无嵌套风险）。RPC 与启动链不在事务血缘内，无需处理。
 
-- v3 = 引入 `excludes` 前的快照（三组布尔 + compat），冻结形态同上；现由最低一级 `upgradeTo4` 的返回类型（`V4PluginConfigSnapshot`）与解析输入承载（**每次升版都要把上一级台阶的返回类型改指新冻结的 `V(N-1)PluginConfigSnapshot`**，否则当前类型演进会连带改写历史语义）。
-- v4 = 引入 `efforts` 前的快照（三组布尔 + compat + excludes），冻结形态同上；`upgradeTo4` 的返回类型即该冻结形态。
-- v5 = 引入 `defaultHigh` 前的快照（三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts}），冻结形态同上；`upgradeTo5` 的返回类型即该冻结形态。`efforts` 虽是宽松记忆字段，v5 已存在故在冻结形态内（其 V5 台阶 schema 不含 efforts，由 `upgradeTo6` 经 `parseEfforts` 单独保留，见下）。
-- v6 = 引入 `forgetRemoved` 前的快照（三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts, defaultHigh}），冻结形态同上；`upgradeTo6` 的返回类型即该冻结形态（其 V6 台阶 schema 同样不含 efforts，由 `upgradeTo7` 经 `parseEfforts` 单独保留）。
-- **只往 `compat` 对象里加键不算形态变化**：不递增 `CONFIG_VERSION`、不加台阶，前提是每个新键都有 schema 默认（旧快照解析后即获得默认）。**新增顶层组（如 `excludes` / `efforts`）则算形态变化**，必须升版——不升版会让旧插件的 `parseSnapshot` 剥掉新键并触发自愈重写，破坏版本快照体系赖以存在的"无损回退"。**`userExperience` 组内的 `defaultHigh` 与 `forgetRemoved` 均经用户要求随所在版本正式升版落地**（v5 周期内 `rememberEfforts` 曾以「同一版本周期内不同提交、无已发布旧 v5 形态可回退冲突」为由不升版加入；二者不复用该例外，`defaultHigh` 升 v6 加 `upgradeTo6`、v5 冻结为只含 `rememberEfforts` 的形态，`forgetRemoved` 升 v7 加 `upgradeTo7`、v6 冻结为含 `defaultHigh` 的形态）。
-- 升级台阶按**目标版本**命名 `upgradeToN`（名字只说明"我产出 vN"，如何从更低版本接力上来是其内部事务）：每级先 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力，再按 `vN-1` 冻结 schema 解析、补新增字段落默认；**产物版本号写固定字面量**（不引用 `CONFIG_VERSION`）。`upgradeConfig` 只调最新一级，链上既有函数的**逻辑**不改（返回类型标注随冻结形态更新除外）；最低一级（当前 `MIN_SUPPORTED_VERSION = 3` ⇒ `upgradeTo4`，其**输入**下限恰等于该常量）独占全链唯一的 `fromVersion < MIN_SUPPORTED_VERSION` 守卫（自维护，实际不会触发，仅挡误用）。
-- 提升 `MIN_SUPPORTED_VERSION` 到 M 时：低于 M 的冻结形态（`src/types.ts` 的类型 + `migrate.ts` 的 schema/基准）与产出它们的台阶（`upgradeTo2`…`upgradeToM`）一并移除——这些台阶的输入下限已被守卫拒绝，整段成为死代码；输入下限恰为 M 的那一级（`upgradeTo(M+1)`）转为最低一级、自持该守卫。
+### 版本快照与冻结形态
+
+- 新增**顶层配置组**算形态变化，必须递增 `CONFIG_VERSION` 并加升级台阶；只往 `compat` 组内加键不算（新键须有 schema 默认，旧快照解析后即获得默认）。
+- `src/types.ts` 的 `V3`–`V6` 冻结类型与 `migrate.ts` 的 `upgradeTo4`–`upgradeTo7` 是历史形态，**不随当前类型演进**（否则历史语义会被当前类型改写，破坏无损回退）。台阶按目标版本命名 `upgradeToN`：每级先 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力，再按 vN-1 冻结 schema 解析、补新增字段落默认，产物版本号写固定字面量（不引用 `CONFIG_VERSION`）；`upgradeConfig` 只调最新一级。`DEFAULT_STORED`（全新用户直写，不经升级链）须与升级链空输入结果一致。
+- 提升 `MIN_SUPPORTED_VERSION` 到 M 时，低于 M 的冻结类型与台阶一并移除（其输入下限已被守卫拒绝，整段成为死代码），输入下限恰为 M 的一级转为最低一级、自持全链唯一的 `fromVersion < MIN_SUPPORTED_VERSION` 守卫。
 
 ### 工具链陷阱
 
-- `pnpm test` 走**专用单对象配置** `tsdown.test.config.ts`（entry/outDir/alias 内聚，`entryFileNames` 钉死 `index.mjs`）：历史上必须 `--no-config` 是因为 CLI 参数会合并进 tsdown.config.ts 数组配置的每一项、浏览器半的工厂 banner 会污染测试产物，且 `--no-config` 下 tsdown 不读 tsconfig paths、`@/` 别名无法解析——独立非数组配置同时消除这两个问题，禁止再把测试构建指回数组主配置。
-- **沙箱内的验证结果不可信，要提权跑**：文件沙箱禁止命名管道 ⇒ `tsdown`/`node` 子进程的输出捕获受阻，`pnpm test`/`pnpm build` 可能返回 exit 0 却既无汇总输出也不落产物（实测：`.test-dist` 未生成、`lib/index.js` 时间戳早于本次 build）。验证须一次性提权执行，并**以看到的汇总行与产物时间戳为准**（`ALL PASS (n)`、`lib/*.js` 大小与 mtime），只看 exit 码会把空跑当成通过。
-- `pnpm install` 的 `prepare` 会跑 build ⇒ `lib/` 装完即存在。
-- 宿主包的本地开发依赖全部走 devDeps：`dsh-client-*`（浏览器半类型面）、`dsh-settings`（`SettingsPathOp` 类型）、`schemastery` / `dsh-util-values`（typecheck 与 test 的类型+值面），**版本须与宿主 latest 同号**（见「对外纪律」），否则类型面与发布版实际能力脱节；升级只能写具体版本号，`pkg@latest` 会装到陈旧 tag。
-- 宿主依赖一律用 `pnpm add` 变更（`-E` 保精确、`--save-peer` 写 peer），不要手改 `package.json` 的依赖字段；`peerDependencies` 只声明下限范围时 pnpm 会归一成品版本号，需按项目惯例保留 `>=` 写法。
+- `pnpm test` 走专用单对象配置 `tsdown.test.config.ts`；**禁止指回数组主配置**（CLI 参数会合并进每一项、浏览器半的工厂 banner 会污染测试产物）。
+- **沙箱内验证结果不可信，要提权跑**：文件沙箱禁止命名管道，子进程输出捕获受阻，`pnpm test`/`pnpm build` 可能返回 exit 0 却既无汇总也不落产物。以看到的 `ALL PASS (n)` 与 `lib/*.js` 的大小/mtime 为准。
+- 宿主包本地依赖全走 devDeps 且须与宿主 latest 同号；一律用 `pnpm add` 变更（`-E` 保精确、`--save-peer` 写 peer），不手改 `package.json` 依赖字段（peer 的 `>=` 会被 pnpm 归一成成品版本号）。**升级只能写具体版本号**（各子包的 `latest` tag 陈旧，`pkg@latest` 会装到错版本）。
 
-## UI 无痕融合纪律（浏览器半一切样式与交互取舍的准绳）
+## UI 无痕融合纪律
 
-总纲：**官方用导出组件，我们也用同一组件；官方自绘且无逐字同款的导出原语（或该件不导出无法导入），我们就在本地逐字复制其源码——数值零自造。** 最终目标是 UI 层与官方**源码级一致**，只有数据、文本与业务逻辑属于我们。三条判据：
+总纲：**官方用导出组件就用同一组件；官方自绘且无同款导出原语（或不导出）就在本地逐字复刻其源码——数值零自造**，只有数据、文本与业务逻辑属于我们。**运行时值导入宿主原语是有意选择**（符号漂移由 typecheck 在构建期拦下，宿主自身同此做法）；风险是宿主改名后运行期拿到 `undefined` ⇒ React #130 打空该 slot 条目，缓释是 devDep 类型面 + 升宿主时复核全部宿主值导入的符号面（任何一次 #130 都先查这里）。
 
-**运行时加载宿主原语：有意不遵循 `references/practices.md` §UI**
-该条禁止 `require('@deepseek-ai/dsh-client-ui-primitives')` 并要求把原语本地复刻。本仓有意不遵循：浏览器半是 TypeScript，宿主类型面全部 devDep type-only 导入，符号漂移由 typecheck 在构建期拦下；且宿主自身同此做法（`packages/client/AGENTS.md` §Export discipline 3 明确允许 `ui-primitives`、`platform.ts` 把它播种进浏览器模块表、官方包 141 处 `.tsx` 直接值导入）。
-**接受的风险**：宿主符号改名不通知我们，运行期拿到 `undefined` ⇒ React #130 打空整个 slot 条目，且只在渲染到该符号的 ready 态显形。缓释即既有两条规程——devDep 类型面 + 升宿主时复核全部宿主值导入的符号面。
-**复核触发**：升宿主时一并复核；任何一次 React #130 都先查这里的符号面。备选路径是改为本地逐字复刻全部原语（设计级返工），届时本段是唯一需要改写的地方。
-
-- **能导出的宿主组件优先用；官方自绘件若与某导出原语逐字同款，也用该原语**——同款即同观感，且随宿主原语演进。开关、命中/未命中徽标、状态点是官方在用的原语（`Switch`/`Tag`/`StateDot`）；未保存徽章与官方自绘 `.pending` 逐字同款，故同样用 `Tag`（tone `neutral`）。无同款原语的官方自绘件本地复刻：footer save 键照 `SettingsForm` 的 `.save`、危险键照 models 页 `.dangerButton` 的语义（discard 键官方无同款），不为了"用了原语"而偏离官方观感。官方在 Modal footer 里用了 `Button`，本卡的 `Modal` 亦用 `Button`。
-- **颜色只用宿主 `--dsw-alias-*` 令牌，且令牌存在性要逐个证实。** 字面量仅作令牌缺失时的浅色守卫，且必须取宿主主题 `design-platform.css` 的真值——例如 `brand-primary` 在浅色主题下解析为**近黑而非品牌蓝**。这样主题插件换色时我们与官方同步变化。官方源码里引用了但主题中**未定义**的令牌（`label-error`、`bg-layer-4`）禁止照抄（任何主题下都会失效）。
-- **取值基准是"同一类组件"而非"同一页面"。** 外层卡照旧版宿主「设置 → 插件 → 内置插件」的插件卡，内层配置组瓦片照旧版宿主「设置 → 插件 → 插件列表」的插件行卡——基准均取旧版观感（用户裁定），未跟随 0.1.7-rc.2 现行插件清单卡（`ui-settings-plugin-inventory`）改用 settings-card 令牌族的改版（仅瓦片底色 `settings-card-fill` 与瓦片行折叠钮焦点环两处采纳现行值，用户裁定）；同页 provider 行 `.rowCard` 是不可展开的列表行、与本卡非同类，不作基准。具体数值一律以 `src/client/card.tsx` 的 `STYLE_TEXT` 为准，本文档不复述。
-
-需要知道"为什么"的手法：
-
-- 官方项卡的发丝描边与展开态柔光用 `--dsw-elevation-stroke`/`--dsw-elevation-panel`，该组令牌无法在本地可得的发布产物中证实存在（由宿主应用主题定义、随宿主应用发布）⇒ 采取**令牌优先 + 字面复刻其计算结果作兜底**：宿主有令牌即与官方同源换色，没有也得到同一观感。该组派生变量声明在 `body *` 上（官方注释：逐元素声明才吃得到组件自己的重绑），所以在同一元素重绑 `--dsw-elevation-stroke-color` 是有效手法。
-- 瓦片 summary 行要同时容纳「整组开关」和「整行可点」：宿主 `DisclosureRow` 在五个设置包全域**零使用**、chevron 在行左端、无右侧控件槽、发布版 CSS 无焦点环 ⇒ 自绘。写法是透明空 `<button>` 绝对覆盖整行 + `aria-labelledby` 指向可见标题，hover 底色画在行容器上，开关所在尾区抬层并用 `pointer-events` 分配点击权。**禁止把 `role="switch"` 嵌进 `<button>`**（非法 HTML）。
-- 排除瓦片的控件来源——输入框照 models 页 `.input` 自绘（0.5px border-l4 / 高 32 / 圆角 `var(--dsw-radius-md)` / padding 0 10px / 14-22 / 底色 `bg-layer-1` / focus 换 `state-business-primary` 且 `outline:none`；primitives `Input` 无 disabled 态样式故不用）、命中/未命中徽标用 primitives `Tag`（命中 `success` / 未命中 `neutral`；**0 命中也常驻、不得画成错误色**）、状态点用 `StateDot`（恒 aria-hidden，读屏语义由行内 `.dsh-mf-hidden` 文案承担；点仍是胶囊外部的兄弟节点）、删除钮容器照 `.iconButton`（28×28 / 圆角 `var(--dsw-radius-sm)` / hover 用 `.iconButtonDanger` 变体：danger 底 + 红字）、贴右成列用 `margin-left:auto`、读屏专用文案用 `.hiddenLabel` 的裁剪手法（权威来源：两包已发布 bundle 的内联 CSS，升宿主须复核）。
-- **宿主值导入的符号面以当前宿主实有为准**：primitives 的 chevron 图标取 `IconChevronDownOutlineRegular`（0.1.7 起的现名，经包根 `export * from './icons/index.tsx'` 导出）。外部模块由宿主模块表注入，符号名与宿主不符即运行期拿到 undefined ⇒ React #130（卡片整卡崩溃，且只在渲染到该符号的 ready 态显形，unavailable 态看不出来）；devDep 类型面快照 + typecheck 可在构建期拦截。`Button`/`Modal`/`Switch`/`Tag`/`StateDot`/`IconTrashOutlineRegular` 的调用面均已核对 0.1.7-rc.2 源码与发布版 `lib/types`；升宿主须复核**全部**宿主值导入的符号面。
-- **UI 称谓跟随官方**：provider-id 官方叫「提供方 / Provider ID」，不用"提供商/供应商"；功能名是「排除提供方」（en: Excluded providers），不是"豁免"——文案、README、注释三处一致。
+- 颜色只用宿主 `--dsw-alias-*` 令牌，字面量仅作令牌缺失时的浅色守卫且须取宿主主题真值；官方源码引用但主题未定义的令牌禁止照抄。
+- 取值基准是"同一类组件"而非"同一页面"：外层卡照「内置插件」的插件卡，内层配置组瓦片照「插件列表」的插件行卡。**具体数值一律以 `card.tsx` 的 `STYLE_TEXT` 为准，本文档不复述。**
+- 瓦片 summary 行要同时容纳整组开关与整行可点：透明空 `<button>` 绝对覆盖整行 + `aria-labelledby` 指向可见标题，开关所在尾区抬层分配点击权；**禁止把 `role="switch"` 嵌进 `<button>`**（非法 HTML）。
+- 卡片外壳不写 `max-width`（宽度由所在 section 约束，官方同样不写）。宿主的 `expand`/`collapse` 文案只用于 `aria-label`，不要当死代码删。
+- UI 称谓跟随官方：provider-id 叫「提供方 / Provider ID」，功能名是「排除提供方」（en: Excluded providers），文案 / README / 注释一致。
 
 ## 设计裁决（代码里看不出动机）
 
-- **配置解析优先级**：当前版本快照 → 所有版本中 ≥ 最低支持的最高可解析快照（含更高版本，按当前 schema 降级解析，多余键忽略、efforts 宽松保留）→ 内置默认。更高版本快照在**无当前版本时降级读取并落盘当前版本**，但仍**永不清理**，供再升级无损回退。
-- **当前版本快照非法时自愈重写**：不修就会长期停在"文件里是坏值、运行期按最高可解析版本或默认执行"的不一致态且无从纠正。重写目标取**当前生效值**（有可用旧快照——含高版本降级——则沿用其语义），而非强行落默认。
-- **全新用户直接写规范默认快照**（不经升级链），保证启动后段内必有当前版本快照；无当前版本但段内有更高版本时先降级解析最高版本快照落盘（取不到才落默认），写入用定向路径 op，不触碰用户手写键与高版本快照。
-- **`allowUpdate` 含缺失补写**，且 `autoFill` 关闭也拦不住它——语义是"以目录为准同步该字段"；对已有字段才是覆盖，且要求新值合法（档位/容量/模态各自校验），新旧相同则跳过。**数据无档位不删除已有配置**。
-- **`force` 是单次绕过**：`fix(ctx, true)` 等价三项临时为真但不落存储，且不重新拉取 models.dev（用当前内存目录，避免把网络耗时算进按钮反馈）。允许覆盖用户手动配置，Modal 已就此二次确认（含"无法撤销"提示）。
-- **写失败先告警再抛出**：事件类调用点 catch 吞掉 rejection（日志已在 `fix` 内），RPC 调用方转 `ok:false` 回传前端——同一个错误不能既静默又弹窗。
-- **`fix` 读 `descriptor.user`（原始用户段）而非解析值**：写回值与读回值同源，避免 schema 规范化后的形态与写入形态不一致而反复触发重写。写回携带 revision 做并发围栏，冲突时重读重算（限次）。
-- **空 `input` / 空 `compat` 一律删除**：harness 语义上与"未声明"等同，删除无损且操作幂等。
-- **兼容性规则「开启即添加、关闭即移除」，与模型参数的取向相反**：模型参数关闭只是不写、存量原地保留；`compat` 是本插件接管的路由字段，关掉开关若还留着旧值就等于开关没生效。因此默认 `disableDeveloper: true` 一升级就会给所有 openai-completions 路由写 `supportsDeveloperRole: false`，并覆盖用户手写的同字段——要自行管理 provider 的 compat 就把这一项关掉。
-- **compat 只写路由级、不写模型级**：宿主里模型级字段优先于路由级，写模型级会与用户逐模型的取值打架；且 `fix` 的模型整段写回已负责清理空 `compat`，两类 op 各管各的路径。
-- **compat 只发给 `api === 'openai-completions'` 的路由**：宿主按协议 gate 消费 compat，其他协议写了被静默跳过 ⇒ 主动过滤避免无意义写入与脏段；路由没有 `api`（协议靠内置目录推断）一律不碰。
-- **`force` 与 compat 无关**：兼容性规则不来自 models.dev，强制更新只绕过 `allowUpdate` 覆盖模型参数；`fix` 的返回值也仍只计模型变更数（记忆清理同样不计入），保持 RPC 与「强制更新」反馈的契约。
-- **`excludes` 是"零操作排除"而非"撤销"**：命中的提供方在 provider 循环入口即跳过，模型写回、路由 compat、`force` 全部不作用（等效对该提供方关闭插件）。它**只有预防性**——已写入的模型参数与 `compat.supportsDeveloperRole` 原地保留（插件无字段来源记录，分不清插件写的与用户手写的，做"清除"必然误删），故瓦片释义与 README 都必须写明"仅对保存之后的行为生效"。要保护新提供方的正确顺序是**先加排除、再建提供方**（新建即触发一次填充，晚一步来不及）。`efforts` 记忆清理**不豁免**排除提供方：跳过处不写回该提供方，但会**单独循环其模型**做同样的按模型重建——已删除模型的记忆条目一并清除（清理的是插件自有数据，不产生对该提供方的任何写回）；浏览器半只能为当前可选的现存模型写入记忆，故按模型重建不会误删正在使用的偏好。
-- **必须允许填入不存在的 id**：这是本功能的正用场景（先写 id 再建提供方），故不做任何"仅可选现有项"的控件（含 `<datalist>` 约束性候选）；UI 用「命中」样式表达"当前确有同名提供方、排除正在生效"，未命中为普通样式且**不得画成错误色**（0 命中/未命中都是正常态）。命中判据取 `llm-pi-ai` 的 **user 层 `providers` 键**——与 `fix` 遍历的同一份数据，零漂移；宿主目录里"已声明未配置"的提供方不算命中（本插件从不写它们）。
-- **不自动清理失效 id；顺序沿用录入、去重分层各管一段**：`fix` 在 `providers` 缺失/非对象时早退，早期顺手 prune 会清空用户列表，且给 `fix` 加"顺带写自己配置"的第二写入面（excludes 根本进不去 `fix` 的写回批次）⇒ `fix` 的写回**不碰自有 NS 的配置键**——`efforts` 记忆清理是唯一例外（见「模型变化后自动清理已删除模型的记忆」：只写 `version-N.efforts` 单字段、不涉 `excludes` 等配置键）。列表顺序是用户录入意图，草稿只由已存值经增删派生 ⇒ 脏检测用顺序敏感的逐位比较，不需要排序。去重分两层：**录入端**当场提示「已在列表中」并拒绝写入（不静默改写用户输入）；**onChange 自愈**（`migrate.ts` 的 `selfHealConfig` 套用 `dedupeExcludesOp`，handler 里先自愈再 fix）兜住手改 `settings.yaml` 的重复——守卫即终止条件：仅当 `Set` 收窄后**变短**才产出定向路径 op（保留首次出现），无重复零写入，故自愈写回引发的再次 onChange 不再产生任何写入，链条一轮收敛。`parseSnapshot` 原样保留数组（去重只发生在写回 op）。id 用 `Set.has` **精确匹配**不归一化（与 `lookup` 的"宁可漏不错配"一致）。
-- **图片模态只缓存正向信息**（支持图片才写 `true`，纯文本省略字段）：缓存体积是发布包大小主因；纯文本模型本就不声明，行为与未声明一致。数据源里的 `pdf`/`video`/`audio` 忽略不写（宿主 `input` 只接受 `text`/`image`）。
-- **容量哨兵**：`CAPACITY_UNLIMITED = 99999999` 是 models.dev 对"无限/未公布"的建模，媒体模型还会给 0——两者一律视为"无该字段"（写 0 会被宿主 schema 拒绝并连累整批）。
-- **id 匹配宁可漏不错配**：精确 → 词干 → 前缀三级，词干/前缀**多命中即判无命中**；无分隔符的短 id 只走精确。跨提供方同源模型靠 `HINTS`（模型名前缀 → 官方提供方）优先命中。
-- **词干拆分为 base/digits 而非整体移除数字，且数字串归一化**：`stem` 返回 `{ base, digits }`，`digits` 为**所有**日期式数字组（连字符分隔的 2/4 位数字组、总计 4/6/8 位，**不锚定末尾——中缀日期同样提取**，如 `xxx-20240831-preview` 中的 `20240831`）**剥除连字符后直接拼接的纯数字串**（无分隔符，故 `08-31` 与 `0831`、`2024-08-31` 与 `20240831` 视作同一数字串，消除格式差异导致的匹配失败），无则空串；**不丢任何数字**，主体在 `base`（去除各组及其相邻连字符、折叠残留 `--`、去首尾连字符）。词干比对要求 `base` 相同，且**仅当两边都有 `digits` 时**才比对 `digits`（相同才算命中）——同一 `base` 的多个日期变体（无论日期在中缀还是后缀、无论连字符写法）可凭 digits 精确区分，不再因词干多命中而 undefined；任一边无 `digits` 则退回 `base` 兜底（如本地 `gpt-5` 命中目录 `gpt-5-20240813`、本地 `gpt-5-20240831-preview` 命中目录 `gpt-5-preview`）。这是对上一条「多命中即判无命中」在日期变体场景的精度补强（一方面增加数字串比对减少歧义、一方面归一化数字串避免格式导致的误判），不放宽宁可漏不错配的总纲。
-- **卡片按钮文案取「保存」不取「应用」**：写 settings 即前端职责终点，填充由后端 `onChange → fix` 触发，其结果（填了几条）前端无法感知——叫「应用」会让人误以为按钮本身应用了目录值。
-- **瓦片默认收起、同时只展开一个**（手风琴）：各瓦片展开后高度不同，同时展开会让两列底部参差，官方即如此设计。
-- **卡片级折叠态四席统一，唯插件详情页、组件实例详情页与「内置插件」选项卡三席默认展开**：四个挂载席位（模型页 footer / 插件详情页 / 组件实例详情页 / 内置插件选项卡）共用同一 `Card` 外壳，差异只有折叠态策略。三处详情页席位传 `defaultOpen`——配置项就是那三处页面的主体，默认收起等于让用户多点一次；footer 席不传即默认收起（与官方插件卡一致）。宿主 owner 契约的 `view` 字段（`plugins.bundle.config` / `plugins.row.config`，来自 `@deepseek-ai/dsh-client-ui-plugin-manager/client` 类型面）不作渲染分支。
-- **`defaultOpen` 同时决定「保存成功后自动收起」**：卡片非手动折叠只此一处时机（`submitting` 结束且 `dirty` 归 false；写失败不折叠，保留草稿好重试），故收敛成一条规则——**默认收起才自动收起，默认展开则保存后保持展开**（`autoCollapse = props.defaultOpen !== true`）。理由与初值同源：默认展开的三席里配置项就是页面主体，保存后立刻收起等于把刚配好的结果从视野里拿走、还要再点一次；默认收起的 footer 席沿用官方「保存即收起、回到摘要行」的观感。手动折叠不受此约束，四席一律可点。
-- **卡片末尾固定一条项目链接行**（分割线 + 地址/版本 + 两个跳转键）：用户指定，位于 footer 按钮组之下、同样只在展开态出现，定位是**版权/联系行**——整行同一套描边小片 `.dsh-mf-chip`（1px `border-l2` / 圆角 8 / 3px 10px / 12px 字号 / `label-secondary`，hover 转 `label-primary` + `border-dimmed`），**不做主次层级**：曾按「点个 star 主样式（=.dsh-mf-save）、问题反馈次样式（=.dsh-mf-discard）」实现过，但用户观感为太显眼、与 footer 的实心保存键抢视线 ⇒ 三个元素改为完全同款；hover 只挂在 `a.dsh-mf-chip` 上（版本标记是只读 `<span>`，不该有可点反馈）。布局四处细节：① **不放「仓库地址」文字标签**——与 GitHub 图标语义重复，图标直接收进地址小片内；② **四段间距全为 12px**：footer 的 `padding-bottom` 归零、那段 4px 整体让给本行 `padding-top:12px`，于是「瓦片→footer 分割线」「footer 分割线→按钮组」「按钮组→本行分割线」「本行分割线→小片」四段等距（初版 footer 留 4px + 本行 12px，新分割线显得离按钮组更远）；③ 版本小片加一层 `color-mix(in srgb, var(--dsw-alias-border-l3) 50%, transparent)` 底色，等同开关 `:disabled`（`border-l3` 轨道 + `opacity .5`）压到卡片底上的观感——不用 `opacity` 整体压，否则文字一起变淡；④ 「问题反馈」指向 `/issues/new?body=`，正文预填「标准 issue 模板 + 插件版本」，**四段顺序按描述逻辑排：问题 → 环境 → 步骤 → 期望**（先说什么现象、在什么环境下、怎么复现、理想表现是什么；环境夹在问题与步骤之间，把「谁的机器上」摆在「怎么触发的」之前）。填充约定：**固定值/有限取值**的字段用 `--要填什么--` 占位（如 `--如 Windows 11--`），**开放式**的章节（问题现象 / 期望行为）只留空标题不塞提示；插件版本是唯一由代码预填的真值（构建期 define，见下条），放在「环境」段内。**占位符用双连字符、先后三种方案皆被否**：`<...>` 被 Markdown 当 HTML 标签吞掉，转义成 `\<...>` 又会在用户替换时留下裸反斜杠；`[...]` 本身渲染成文字，但它是链接语法的左半边，一旦后面沾到 `(url)` 或引用式 `[text][ref]` 就会静默变成链接。`--` 不属任何 Markdown 元字符（不成 setext 标题、不构成强调、单独成行的 `---` 才是分隔线而本模板不会出现），中英文自然、替换时无残留，沿用 YAML 注释的视觉习惯。四枚图标取自 **Octicons**（GitHub 官方图标集，MIT 可商用、纯 path 单色，16×16 / `viewBox 0 0 16 16` / `fill="currentColor"`），统一挂 `.dsh-mf-linkIcon` 并压到 12px 与文字齐平：`mark-github-16`（用户提供的官方 SVG）、`tag-16`（版本）、**`star-16` 与 `issue-opened-16` 仍是占位**、待用户替换——替换时只换 `<svg>` 内的 `<path>`，类名与 `aria-hidden` 保留即可，无需动样式。
-- **版本号经构建期 define 内联，不硬编码、不在运行期读盘**：浏览器半跑在浏览器里读不到磁盘，且构建纯度门禁禁止相对导入（`package.json` 无法作为值导入，`../package.json` 会被 `dsh-client-bundle-purity` 拦下）⇒ `tsdown.config.ts` 在**浏览器半**的 `define` 里把 `__PLUGIN_VERSION__` 换成从 `package.json` 读来的字符串字面量（`card.tsx` 侧 `declare const __PLUGIN_VERSION__: string`）。单一来源仍是 `package.json`，升版照常只改一处、零漂移；测试构建不涉及该标识（测试图只引 `@/client/model` 与 `@/client/effort`，不含 `card.tsx`）。
-- **展开体填 `bg-module-platform`、外层整卡不填**：前者在宿主语义里是"展开出来的内层面板"（同页 `.editor`/`.setupCard` 同令牌），后者填了会在页面上显成灰块。深色主题下官方瓦片本体与该填充同值、看不出差异，我们本体透明故可见——与同页一致，属预期。
-- **不引入 `failed` 态、不做「恢复默认」**：三组布尔恒合法、写入为单字段原子写，失败时 `dirty` 保留已完整传达该信息；官方 reset 依赖字段级 user/base 分层与"未填回落"语义，本插件是整体显式快照，二者不成立。
-- **`expand`/`collapse` 文案只用于 `aria-label`**（视觉只有箭头），官方同款——**不要当成死代码删除**。
-- **有意的布局偏离**：表头/瓦片里开关在文字左（矩阵列对齐需要，官方 `.toggleRow` 是左文右钮）、卡片内不写 `body[data-ds-dark-theme]` 镜像规则（宿主令牌自动切换）。焦点环已齐，两处来路不同：瓦片开关环由宿主 `Switch` 原语自带（`.switch:focus-visible` outline `--dsw-focus-ring-width` solid `--dsw-focus-ring-color`（fallback `--dsw-alias-state-business-primary`）+ `outline-offset:2px`，换用原语即自动存在，无需自绘）；整行折叠钮（`.dsh-mf-itemToggle` 覆盖层）照官方瓦片卡头按钮 `.cardContent:focus-visible` 补环——同款 outline 声明但 `outline-offset:-2px`：覆盖层 `inset:0` 铺满整行、与官方卡头按钮范围同构，画行内缘才不被瓦片 `overflow:hidden` 裁掉（外扩 offset 会被裁剪）。令牌存在性逐个证实：`--dsw-focus-ring-width`（`:root` 定义 `2px`）与 `--dsw-alias-state-business-primary`（两主题均定义，解析为 `--dsw-static-deepseek-500`）**有真值**；`--dsw-focus-ring-color` 在主题包**未定义**（仅 pointer 输入模态下被强制置 `transparent`），真值由宿主应用主题提供——与 `--dsw-elevation-stroke` 那组同类，官方那句自带 fallback 故照抄合规。
-- **「取消」键仅未保存时渲染**（用户指定的交互偏离；文本对齐官方 EditorFooter 的 cancel：zh「取消」/ en "Cancel"）：`dirty` 为假时不渲染该键，保存成功随 dirty 归假自动隐去；保存中 dirty 仍为真、保持可见但禁用。footer 的 `.dsh-mf-actions` 是 flex gap 布局，少一键不留空隙；header 的「未保存」胶囊不受影响。
-- **「重置推理级别」不写配置段、不改开关**：重置是"删掉模型上的推理级别字段"（仅 `reasoningEfforts`；最大上下文 / 输出上限 / 图片模态可在模型页自行设置，不清除），用户自定义字段与 `excludes` 命中的提供方一律不动；关掉开关等于修改了配置、用户不一定要，故配置段零写入——重置后修改配置仍按原开关触发填充。竞态防护不靠前端（不可靠），而是 Node 半模块级守卫 `ignoreAll`：`resetModels` 置位 → 写回 → finally 解除，`index.ts` 的段变更事件入口（`settings/document-updated`，按 ns 分流）最先判定 `isIgnoreAll()`，为 true 整条链（selfHeal / fix / refresh）短路，防止重置自身写回触发填充把刚删的字段重新填回；`forceUpdate` 端点同样被守卫拒绝（写回期间强制更新会把刚改动的字段填回）。置位先于 mutate 同步完成（await 前），宿主事件同步派发故覆盖写回触发的后续事件。
-- **「恢复备份」只回退交集，且备份只在启动时读一次**：备份 = `llm-pi-ai` 的 **`providers` 段**深拷贝，捕获与恢复都经 `providersOf` 收窄（曾出现捕获存整层 user、恢复按 providers 段消费，`planRestore` 把键名 `"providers"` 当 provider id ⇒ 永不交集、`changed` 恒 0）。捕获点唯一：`apply` 最顶部（`inject` 已声明 settings，注册与文档装载都先于 apply ⇒ 此刻必可读），严格早于一切写回；**绝不做"取不到就稍后补捕"**——若首次没取到而 `fix` 已写回，再捕到的是被填充过的内容，恢复会把改后值当原值写回，比没有备份更危险。仅存内存、不落盘 ⇒ 重启 DSH 即重建，语义是"本次运行内的后悔药"。恢复按**交集**语义：只有「备份与当前都存在」的 provider 里的「备份与当前都存在」的 model 才回退为启动取值，被用户删掉的 provider/model **不复活**——删除与插件填充无关，且宿主删 provider 时连 api-key 一并删除（本插件无从取得），复活只会造出能看见却用不了的坏路由；启动后新增的 provider/model 同样原样保留。备份是 model **整对象**快照，故连用户手写的同名键（如 name）一起回退——"恢复到当时取值"的应有之义；确认文案保持简短，细节见 README。三个 RPC 端点以守卫互斥（守卫已开时一律拒绝）：两个写回端点并发时，后到者的 `finally` 会提前解除守卫、令先到者写回失去保护，前端按钮禁用挡不住跨标签页并发，故 Node 半必须自己拦。确认弹窗确认键**不上红色 tint**、按钮取 discard 次级样式：操作不删用户任何东西，红色与语义不符。
-- **备份缺失／当前无 `providers` 段要显式抛错，不能回 0**：`changed: 0` 会被前端显示成「已恢复 0 个模型」，与"确实无可恢复"无法区分，用户只会以为按钮坏了。
-- **RPC channel 由本插件自注册，不用宿主 `connection.rpc.handle`**：`handle` 在**服务自己的 ctx** 上求值 `owner.webServer`（`get rpc() { const owner = this.ctx }`，与调用方 fiber 无关），而 connection 插件的 `inject` 从 0.1.2-rc.1 的 `["webServer","credentials"]` 缩成 ≥0.1.5 的 `["credentials"]`（三版的 `get rpc`/`register` 逐字未变）⇒ `owner.webServer` 抛 `cannot get property "webServer" without inject`，路由从不注册。故改在**本插件自己的子 fiber**（已注入 webServer）上 `webServer.register({kind:'prefix'})`，复用宿主的 `connection.requestRejection` 做围栏、按宿主 `rpcFetchHandler` 复刻信封与状态码，浏览器半 `connection.rpc.call` 完全无感。**给调用方注入 webServer 修不好宿主通道**——出问题的 ctx 是 connection 自己的。单一路径可行的依据：0.1.2-rc.1 与 0.1.6-alpha.2 的 `rpcFetchHandler` / 两个信封 schema / `ENDPOINT_SEGMENT_PATTERN` / `webServer.register` / `match` 逐字一致（已比对 npm 上两版源码），即该契约覆盖全支持范围；结论不能靠读代码拍板，要靠「真 HostConnectionService + 桩 webServer」的本地探针复核。
-
-- **「记住推理级别」是纯监听（不拦截），受「用户体验」瓦片开关控制**：前端**监听**（订阅）模型选择与推理级别选择的投影变化，不是拦截 / hook 宿主的 `directory.select`。UI「用户体验」瓦片含 `rememberEfforts` 开关（关闭时追加一个「是否清空已有记忆」的确认弹层）与同组 `defaultHigh` 开关（见下条），监听器做两件事：① 模型变化时从记忆读值并经 `directory.select` 自动恢复；② 级别变化时把记忆写进自有 NS 的 `efforts` 字段。`userExperience.rememberEfforts === false` 时**只停止②**（`effort-change` 分支跳过写入），①**照常进行**——传给 `classifyTransition` 的记忆始终取真实 `efforts`，不再做"假装没有记忆"的置空 hack；故**「关闭 === 无记忆」不再总是成立**：未清空时旧记忆仍可自动恢复，重新打开即恢复保存。是否清空由卡片交互决定——开关由开转关时**立即**（不等「保存」）弹确认问「是否清空已有记忆」，选清空则经前端 settings scope 直写 `efforts={}`（非 RPC、与「保存」同一条写通道；「有记忆」判据取实时值而非草稿里的副本，因卡片不拥有该字段；清空失败显式报错，避免"开关已关而记忆未清"无从察觉），记忆为空时不弹确认、直接关闭（用户确认）。Node 半**只负责持久化、解析与失效清理**（`parseEfforts` / 迁移 / 快照往返 / `fix` 重建记忆），不自动设置——后端写配置对当前会话无效（只影响新会话），「自动设置」必须走前端 `directory.select`。该开关**不读取 `excludes`**：记住推理级别对所有提供方（含被排除的）一律生效，故卡片释义与 README 都写明"不支持排除"。
-- **「默认使用 high」与「记住推理级别」同属「用户体验」瓦片、同条监听链，默认 true**（用户裁定由「默认关」改为「默认开」；当前版本默认 `DEFAULT_CONFIG.userExperience.defaultHigh`、v6 台阶默认值 `V6_DEFAULT_HIGH_DEFAULT` 与 v6 冻结 schema 的 `defaultHigh` 默认三者同步改为 true，故「DEFAULT_STORED 与升级链空输入一致」的不变量仍成立，快照里没有该字段的旧配置升级上来即默认开启；快照里已显式写 `defaultHigh: false` 的保持原值，不被静默改写）：`classifyTransition` 的「model-change」分支在「自动恢复记忆」逻辑之后接一个**无记忆**分支——原逻辑无记忆即无操作，开启 `defaultHigh` 后改为：未设置推理级别（`next.reasoningEffort === undefined`）、未记住该模型级别（`remembered === undefined`）、且目标模型公告 `high` 档位时，把推理级别改写为 `high`。三条护栏：① **记忆优先**——有记忆（即便因未受支持而未恢复）即跳过 defaultHigh，不覆盖用户偏好；② **不覆盖既有级别**——`next.reasoningEffort` 非 undefined 时不改写（模型已带级别即尊重之）；③ **不干预 effort-change**——同模型改级别（含手动选「provider default」即 undefined）是 `effort-change` 分支，defaultHigh 只在模型变化时生效，故用户手动选 default 不会被反向填回 high。自动设置经 `directory.select(resolved)` 走与「恢复记忆」同一 `pendingAutoSet` 守卫，反向触发的投影变化被跳过、不写记忆（故 defaultHigh 自动填的 high **不会被保存为记忆**，下次切回该模型若无新记忆仍走 defaultHigh，行为稳定）。该开关同样**不读取 `excludes`**，对所有提供方一致。属 v6、随 `defaultHigh` 字段正式升版（见「历史形态冻结」）。
-- **`efforts` 是运行时记忆而非用户配置**：结构 `{ provider: { model: level } }` 用嵌套对象而非拼接 `provider/model`（model-id 可能含 `/`，拼接无法还原）；不纳入 `parseSnapshot` 的严格字段校验，由其单独**宽松**解析（结构不符回落 `{}`）——记忆坏值若判整段快照非法，会连累配置自愈重写丢配置。`isDirty` 也不比较它，故记忆变化不触发「未保存更改」徽章；卡片「保存」写整段快照时 `efforts` 取**写入当刻的实时值**（卡片不拥有该字段，用草稿里的旧快照会把"开卡后切过模型"的那段记忆覆盖回去）。
-- **`efforts` 由浏览器半经自有 NS 的 settings scope 直写**：与卡片「保存」同一条通道（`['version-7','efforts']` 路径 op）：它是一次写回即生效、无需回执的记忆写入，用不到 RPC 端点。写入失败只吞 rejection（级别已在当前会话生效）。
-- **自动设置的前置校验**：恢复记忆前必须确认目标模型的 `groups`（catalog）公告该级别，未公告就不改写选择（回落默认）——投喂宿主不支持的级别会被拒；`groups` 未加载时同样不改写。
-- **「provider default」= `undefined` → 清除记忆**：UI 上选「provider default」提交的 `reasoningEffort` 是 `undefined`（省略键），即 `delete efforts[provider][model]`；保存路径统一（存字符串 / 删除），恢复路径统一（仅字符串级别改写）。
-- **`lastAutoSet` 守卫防止自动设置反向触发重复保存**：自动设置 `directory.select(resolved)` 后投影 `next` 会反向变化并被监听器捕获，无守卫会被判成 `effort-change` 再存一次（幂等但多余）。守卫逻辑：设置前记 `pendingAutoSet`，下一次投影变化与它相同则清除标记并跳过。
-- **`efforts` 跨 reset/restore 保留**：两个操作只动 `llm-pi-ai` 的模型字段，记忆在自有 NS，互不相干——重置推理级别 / 恢复备份不应清掉用户记住的推理级别偏好（两操作全程开守卫短路 `fix`，故记忆清理也不会在其中触发）。
-- **模型变化后自动清理已删除模型的记忆（重建语义，落在 `fix`）**：`fix` 复用其 provider 两层循环重建 `efforts`——以旧记忆为基线，只把「当前 `llm-pi-ai` 里仍存在的 provider+model」的条目重建进 `newEfforts`；已删除的模型/提供方**不重建即被清除**（不存在 = 删除，故无需另遍历记忆）。`excludes` 命中的提供方在跳过处**单独循环其模型**同样按模型重建（零操作排除只管不写回该提供方；记忆是插件自有数据，见上）。重建结果与旧值经 `deepEqualJson` 相同则**零写入**——这是 `fix` 写自有 NS 触发 `onChange → fix` 再入后的收敛条件（第二轮同值零写入即停；`deepEqualJson` 对象比较按键成员判定、不看键序，重建产生的键序变化不会造成多余写入）；不同才以自有 NS 的 revision 写回 `['version-N','efforts']`（与浏览器半记忆直写同一路径，revision 与 `llm-pi-ai` 各自独立）。记忆写回**先于模型写回且独立容错**：自带 try/catch 只告警不抛出、不参与重试环——清理失败不影响填充主流程；随后 `ops` 为空即早退返回（清理已在早退前执行），`ops` 非空再以重试环提交 `llm-pi-ai` 批次。`providers` 缺失/非对象沿用早退**不清理**（不可枚举即不判删），自有 NS 描述缺失时跳过清理。清理只动 `efforts` 单字段、不计返回值，故 RPC 契约与 `force` 语义不变。
-- **「忘记已删除模型」（`userExperience.forgetRemoved`）是上条清理的开关，默认 true（即维持既有行为）**：关闭时 `fix` 的记忆重建**整段不执行**——既不遍历重建（排除提供方处的补循环也一并跳过）、也不比对也不写回，等价于「不做任何操作」，已删除模型/提供方的记忆条目原样保留（若日后重建同名模型，偏好会一并回来）。放在 `userExperience` 组而非独立组：它调整的正是上面那条记忆行为本身，只对所有提供方一致、同样不读 `excludes`，与 `rememberEfforts` / `defaultHigh` 同属一组；卡片瓦片行文案为「忘记已删除模型」/ Forget removed models，随 `USER_EXPERIENCE_KEYS` 自动出现在「用户体验」瓦片末行（含整组总控与脏检测，无需另加 UI 分支）。属 v7、随 `forgetRemoved` 字段正式升版（见「历史形态冻结」）；因为默认值 true，v6 及更旧快照升级上来即保持原行为，无静默行为变化。
+- **配置解析优先级**：当前版本快照 → ≥ 最低支持的最高可解析快照（含更高版本，按当前 schema 降级解析，多余键忽略、`efforts` 宽松保留）→ 内置默认。更高版本快照降级落盘后仍**永不清理**，供再升级无损回退。当前版本快照非法**或残缺**时按**当前生效值**规范化重写（残缺会被 `parseSnapshot` 补默认判为合法，故须按规范化结果比对而非只判非法）。
+- **`allowUpdate` 含缺失补写**，且 `autoFill` 关闭也拦不住——语义是"以目录为准同步该字段"；新旧相同则跳过，**数据无档位不删除已有配置**。
+- **`force` 是单次绕过**（三项临时为真、不落存储、不重新拉取目录，避免把网络耗时算进按钮反馈）；与 compat 无关，且 `fix` 返回值只计模型变更数（记忆清理与 compat 不计入，保持 RPC 反馈契约）。
+- **`fix` 读 `descriptor.user`（原始用户段）**：避免规范化形态与写入形态不一致而反复触发重写；写回带 revision 围栏，冲突时重读重算（限次）。写失败先告警再抛出——事件侧吞 rejection，RPC 转 `ok:false`。
+- **空 `input` / 空 `compat` 一律删除**（宿主语义等同未声明，删除无损幂等）。
+- **compat「开启即添加、关闭即移除」，与模型参数取向相反**（后者关闭只是不写、存量保留）——`compat` 是本插件接管的路由字段，关掉开关却留着旧值等于开关没生效。只写路由级不写模型级（宿主里模型级优先，会与用户逐模型取值打架），且只发给 `api === 'openai-completions'` 的路由（宿主按协议 gate 消费，其他协议写了被静默跳过）。
+- **`excludes` 是"零操作排除"而非"撤销"**：命中者在 provider 循环入口即跳过，填充 / compat / `force` 全部不作用；已写入的值原地保留——插件无字段来源记录，分不清插件写的与用户手写的，做"清除"必然误删。瓦片释义与 README 必须写明"仅对保存之后的行为生效"，正确顺序是**先加排除、再建提供方**。记忆清理**不豁免**排除提供方：跳过处单独循环其模型做同样的按模型重建（已删除模型的记忆一并清除），但不产生对该提供方的任何写回。
+- **必须允许填入不存在的 id**，故不做任何候选约束控件；UI 用「命中」表达"当前确有同名提供方、排除正在生效"，未命中是普通样式、**不得画成错误色**（0 命中也常驻）。命中判据取 `llm-pi-ai` 的 user 层 `providers` 键——与 `fix` 遍历同一份数据，零漂移。
+- **不自动清理失效 id**（顺手 prune 会清空用户列表）：列表顺序是用户录入意图，脏检测用顺序敏感的逐位比较。去重分两层——录入端当场提示并拒绝写入；`selfHealConfig` 兜住手改配置文件，仅当 `Set` 收窄后**变短**才产出 op（无重复零写入，一轮收敛）。`fix` 的写回不碰自有 NS 的配置键，`efforts` 重建是唯一例外。
+- **图片模态只缓存正向信息**（纯文本省略字段以控体积；`pdf`/`video`/`audio` 忽略）。**容量哨兵**：`99999999` 与 0 一律视为无该字段（写 0 会被宿主 schema 拒绝并连累整批）。
+- **id 匹配宁可漏不错配**：精确 → 词干 → 前缀三级，词干 / 前缀多命中即判无命中。词干拆为 `{base, digits}`：digits 取所有日期式数字组剥除连字符后的拼接（消除格式差异，中缀日期同样提取），仅当两边都有 digits 才比对，据此区分同一 base 的多个日期变体；任一边无 digits 则退回 base 兜底。
+- **`efforts` 是运行时记忆而非用户配置**：嵌套对象（model-id 可能含 `/`，拼接无法还原）、宽松解析（坏结构回落 `{}`，不判整段快照非法以免连累自愈重写）、`isDirty` 不比较它；卡片「保存」写整段快照时 `efforts` 取**写入当刻的实时值**（卡片不拥有该字段，用草稿副本会覆盖"开卡后切过模型"的那段记忆）。
+- **Node 半只负责记忆的持久化、解析与失效清理，不自动设置级别**（后端写配置只影响新会话）——自动恢复与自动设 `high` 必须走前端 `directory.select`，且自动设置不写记忆（经 `pendingAutoSet` 守卫跳过反向触发的投影变化）。
+- **`rememberEfforts` 关闭只停止"保存新的"**（effort-change 分支跳过），"恢复"照常取真实记忆；是否清空由卡片在开关由开转关时**立即**确认（经 settings scope 直写，与「保存」同一条写通道；"有记忆"判据取实时值，清空失败显式报错，避免开关已关而记忆未清无从察觉）。
+- **`defaultHigh` 三条护栏**：记忆优先（有记忆即跳过，即便因不受支持而未恢复）、不覆盖既有级别、不干预同模型改级别（含手动选「provider default」）。它与 `rememberEfforts` 同属「用户体验」瓦片的同一条监听链，两个开关都**不读 `excludes`**。
+- **重置推理级别不写配置段、不改开关**（关掉开关等于修改配置，用户不一定要）：只剔除 `reasoningEfforts`，容量 / 输出上限 / 图片模态与用户自定义字段保留。竞态防护靠 Node 半模块级守卫而非前端（置位先于 mutate 同步完成，覆盖写回同步派发的事件），`forceUpdate` 端点同样被守卫拒绝（写回期间强制更新会把刚改动的字段填回）。
+- **恢复备份只回退交集**（备份与当前都存在的 provider 内的 model）：被删的 provider / model 不复活（宿主删 provider 时连 api-key 一并删除，复活只会造出能看见却用不了的路由），启动后新增的原样保留；备份是 model **整对象**快照，故用户手写的同名键一起回退。备份只在 `apply` 最顶部捕获一次、仅存内存（重启即重建），**绝不做延迟补捕**——晚于写回捕到的是被填充过的内容，比没有备份更危险。备份缺失或当前无 `providers` 段要**显式抛错**，不能回 0（前端会显示成「已恢复 0 个模型」，与"确实无可恢复"无法区分）。两个写回端点以守卫互斥（并发时后到者的 `finally` 会提前解除守卫）。
+- **RPC channel 由本插件在已注入 webServer 的子 fiber 上自注册**，不用宿主 `connection.rpc.handle`（后者在服务自己的 ctx 上求值 `owner.webServer`，而 connection 已不再注入它，必然抛错）；复用宿主 `requestRejection` 做信任围栏、按宿主 `rpcFetchHandler` 复刻信封与状态码。契约以宿主 `rpcFetchHandler` 为准，改动前用「真 HostConnectionService + 桩 webServer」本地探针复核，不能只读代码拍板。
+- **卡片按钮取「保存」不取「应用」**：写 settings 即前端职责终点，填充由后端触发、填了几条前端无法感知。**瓦片默认收起、同时只展开一个**（官方手风琴语义）。`defaultOpen` 同时决定保存成功后是否自动收起：默认收起才自动收起（模型页 footer 席），默认展开的三席保持展开（收起等于把刚配好的结果从视野里拿走）。**「取消」键仅未保存时渲染**。
+- **卡片末尾固定一条版权 / 联系行**（分割线 + 地址 / 版本 + 两个跳转键），三个元素完全同款、不做主次层级；「问题反馈」指向 `/issues/new?body=` 并预填「标准 issue 模板 + 插件版本」，占位符用 `--要填什么--`（不属任何 Markdown 元字符，替换时无残留）。
+- **不引入 `failed` 态、不做「恢复默认」**：三组布尔恒合法、写入为单字段原子写，失败时 `dirty` 已完整传达该信息；官方 reset 依赖字段级 user/base 分层与"未填回落"语义，本插件是整体显式快照，二者不成立。
 
 ## 数据流骨架
 
-`apply` 顶部先捕获 llm-pi-ai 内存备份（「恢复备份」的回退基准，必须先于一切写回），随后启动一条链：**迁移 → 读缓存 → 填充 → 异步刷新（拉取成功则覆盖索引与缓存后再填充）**，该链全程由一个 effect 管理，卸载置位后在途结果不触碰已销毁上下文；刷新与缓存写入失败都是"固定间隔、含首次共最多 3 次、最终仅告警"，不影响本次运行。缓存内容与新拉数据无变化时跳过写盘。
-
-```mermaid
-graph LR
-    B[apply 顶部 captureBackup 内存备份] --> M[migrateConfig]
-    M --> C[readCache 逐条校验]
-    C --> F[fix 填充]
-    F --> X[fetchLatest 拉取]
-    X -->|数据非空| I[替换索引 + 覆盖缓存]
-    I --> F
-```
-
-## 配置说明
-
-- 自有命名空间 `tikaflow-model-fix`（由本插件注册），仅对象写法，如 `tikaflow-model-fix: { version-7: { autoFill: { reasoning: true, context: false, image: true }, compat: { disableDeveloper: true }, excludes: [ "acme-gateway" ], efforts: { "z-ai": { "glm-5.2": "high" } }, userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true } } }`；首次启动或版本升级时自动写入当前版本快照。
-- `compat` 与两组填充规则平行，键按「规则 → provider 路由 compat 字段」映射（当前仅 `disableDeveloper` → `supportsDeveloperRole: false`）；往该对象加新键不需要递增配置版本。
-- `excludes` 是提供方 id 字符串数组（`providers.<id>` 的 `<id>`，即界面上的「Provider ID / 路由标识」），命中的提供方本插件零操作；非数组或元素非字符串判整段快照非法（与其余组同严格度，浏览器半与 Node 半共用 `src/shared/parse.ts` 的 `parseSnapshot`）。
-- `efforts` 是每模型推理级别记忆（运行时自动维护，非用户配置），结构为 `{ "<provider>": { "<model>": "<level>" } }`；宽松解析（结构不符回落 `{}`），不纳入 schema 校验、不参与 `isDirty`。模型/提供方被删除后，对应记忆在下次 `fix` 时自动清除（重建语义，见「设计裁决」）；`excludes` 命中的提供方同样按模型重建（现存模型的记忆保留、已删除模型的记忆一并清除）。
-- `userExperience` 是用户体验组（**前端行为与记忆行为**开关，与 `compat` 同严格度：整项非对象/字段非布尔判整段非法，由 `src/shared/parse.ts` 的 `parseSnapshot` 统一解析），含 `rememberEfforts`（默认 `true`）、`defaultHigh`（默认 `true`，用户裁定由关改开）与 `forgetRemoved`（默认 `true`）。`rememberEfforts` 关掉后浏览器半**不再保存**推理级别，但**仍用已记住的自动恢复**（卡片在开关关闭时会立即询问是否清空已有记忆，清空后即无记忆可恢复，见「设计裁决」）；`defaultHigh` 开启后，模型变化时若未设置级别、未记住级别、且模型公告 `high` 档位，则自动把推理级别设为 `high`（详见「设计裁决」）；`forgetRemoved` 是 Node 半 `fix` 重建记忆的开关，关闭时整段清理不执行、已删除模型的记忆原样保留（详见「模型变化后自动清理已删除模型的记忆」及下一条）。该组**不读取 `excludes`**——对所有提供方（含被排除的）一律生效，卡片释义与 README 均写明"不支持排除"。版本沿革：`rememberEfforts` 原在 v5 周期内以「无已发布旧 v5 形态可回退冲突」为由不升版加入，`defaultHigh` 不复用该例外、正式升 v6（加 `upgradeTo6` 台阶），`forgetRemoved` 同样经用户要求正式升 v7（加 `upgradeTo7` 台阶，见「历史形态冻结」）。
-- 也可经 Web 设置的卡片修改（宿主跟随 latest，见「对外纪律」），两种途径写的是同一个东西。
-- 推理级别取值与 harness `ModelThinkingLevel` 一致：`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`；提供方与模型列表在 `llm-pi-ai` 命名空间的 `providers` 下。
+段变更按 ns 分流为两条链：自有段「自愈 → 填充」、llm-pi-ai 段「填充 → 保鲜刷新」，入口先判事件流守卫。浏览器半：`configForms` → `makeScope` → 四席共用同一张卡 + 记忆监听子 fiber。
 
 ## 命令
 
-- `pnpm build`（= `tsdown`，**只出 `lib/` 产物、不含任何校验**）/ `pnpm run typecheck`（全量类型检查）/ `pnpm test`（= 测试构建 + 跑测试，走 `tsdown.test.config.ts`，见「工具链陷阱」）三条命令各管一段、互不串接：**完整校验 = 依次跑 `pnpm typecheck` 与 `pnpm test`**（release.yml 在打包步骤内按此顺序前置执行），`build` 不顺带触发任何校验
-- `pnpm install` 触发 `prepare` → build（本地开发照此，装完即有 `lib/`）；**release.yml 用 `pnpm install --frozen-lockfile --ignore-scripts` 跳过这一次**（`prepare` 只留给 pack，见下）
-- `pnpm pack:release` → pack 自动触发 `prepare`（= build），产出 `dist/dsh-model-fix.tgz`；CI 里这是 `prepare` 的**唯一一次**触发（install 已用 `--ignore-scripts` 摘掉），产物也最新——tarball 里的 `lib/` 正是此刻构建的；故 `prepare` 里不得串任何校验（install 与 pack 若都触发，一次发布会把 typecheck + test 跑两遍，实测 action 日志出现两次 test），校验由 release.yml 显式执行一次——**与 `pnpm pack:release` 同处一个 `run:` 步骤、排在它前面**（GitHub 默认 shell 为 `bash -e`，任一命令失败即中止、不出包）。同理勿加 `prepack`（pack 已跑 `prepare`）。**依赖侧无后患**：本仓依赖树中无任何包声明 install/prepare 脚本（pnpm 10+ 本就默认拦依赖构建脚本），故 `--ignore-scripts` 只影响根项目自身
+`pnpm build` / `typecheck` / `test` / `pack:release`（定义见 `package.json` scripts）；build 产物进 `lib/`，提交前必跑。
 
 ## 测试规范
 
-- `test/` 只收**不依赖 DSH 运行时的纯函数**：配置解析与迁移、路由 compat 写入计划（`src/compat.ts`）、拍平与条目校验、id 匹配、浏览器半纯映射层（`src/client/model.ts` 与其依赖的 `src/shared/*` 均纯函数故可直接单测）。涉及时序/框架的编排（`migrateConfig`、`fix`、`readCache`/`fetchLatest`、`refresh`、浏览器半组件）不进 `test/`，需要时用 stub ctx 临时脚本验证后删除。
-- 文件按被测模块命名 `test/<module>.test.ts`，导出 `run()`，在 `test/index.ts` 注册；断言与汇总用 `test/helper.ts`（`check` / 键序无关的 `stable` / `summary` 设退出码）。
-- 新增或修改纯函数必须同步补用例，并让 `pnpm typecheck` 与 `pnpm test` 都通过（`test` 已不含 typecheck）；断言优先覆盖边界与兼容性语义（非法输入兜底、幂等、版本回退），不追求逐行覆盖。
+`test/` 只收不依赖 DSH 运行时的纯函数与零 ctx 编排（配置解析与迁移、compat 计划、`planResetModels`/`planRestore`、守卫、`rpc-route` 的纯信封逻辑 + node:http 桩、`fix` 编排 + `test/ctx.ts` 的常驻内存 settings 桩、浏览器半纯映射层）；浏览器半组件与真实 fs / 网络不进 `test/`。`indexedCache` 与 `configSource` 是模块级单例，每个用例前调 `resetModules()`。

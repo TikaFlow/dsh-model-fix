@@ -22,7 +22,6 @@ export interface DecodedScope<T> {
     getSnapshot(): ConfigFormSnapshot<T>
     subscribe(listener: () => void): () => void
     set(field: string, value: unknown): Promise<void>
-    unset(field: string): Promise<void>
     mutate(ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>
     dispose(): void
 }
@@ -61,7 +60,6 @@ export function makeScope<T>(form: ConfigForm<unknown>, decode: (raw: unknown) =
             return () => { listeners.delete(listener) }
         },
         set: (field, value) => form.set(field, value).then(() => undefined),
-        unset: (field) => form.unset(field).then(() => undefined),
         mutate: (ops, expectedRevision) => {
             const result = form.mutate(
                 ops.map((op) => ({ op: op.op, path: [...op.path], ...(op.op === 'set' ? { value: op.value } : {}) })) as Parameters<ConfigForm<unknown>['mutate']>[0],

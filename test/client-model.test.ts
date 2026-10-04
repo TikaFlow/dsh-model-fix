@@ -1,8 +1,7 @@
 /** src/client/model.ts 纯映射层用例：解码（只读 version-7，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化 */
 
 import { check, stable } from '@test/helper'
-import { API_NS, API_NS as PI_AI_NS, CONFIG_VERSION, CONFIG_VERSION as PLUGIN_CONFIG_VERSION, PLUGIN_NS, PLUGIN_NS as MODEL_FIX_NS } from '@/shared/constants'
-import { DEFAULT_CONFIG, DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
+import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 import {
     EXCLUDE_ID_PATTERN,
     VERSION_KEY,
@@ -170,11 +169,6 @@ export function run(): void {
     // 带 forgetRemoved false 的往返一致（关掉「忘记已删除模型」的存取回路）
     const WITHOUT_FORGET: Flags = { ...ALL_ON, userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: false } }
     check('snapshot -> decode 往返含 forgetRemoved false', stable(decodeSection({ [VERSION_KEY]: toStored(WITHOUT_FORGET) })) === stable(WITHOUT_FORGET))
-    // ---------- 跨半别名一致性（两半同取 src/shared 单一来源，此处守护别名与正名仍指同一共享项） ----------
-    check('MODEL_FIX_NS 与 PLUGIN_NS 一致', MODEL_FIX_NS === PLUGIN_NS, MODEL_FIX_NS)
-    check('PI_AI_NS 与 API_NS 一致', PI_AI_NS === API_NS, PI_AI_NS)
-    check('CONFIG_VERSION 与 constants 侧一致', CONFIG_VERSION === PLUGIN_CONFIG_VERSION, CONFIG_VERSION)
-    check('DEFAULT_FLAGS 与 DEFAULT_CONFIG 一致', stable(DEFAULT_FLAGS) === stable(DEFAULT_CONFIG), { DEFAULT_FLAGS, DEFAULT_CONFIG })
     // ---------- 组总控显示：任一为开则开，全关才关 ----------
     check('master 全开为开', masterValue(ALL_ON, 'autoFill') === true)
     check('master 全关为关', masterValue(DEFAULT_FLAGS, 'allowUpdate') === false)

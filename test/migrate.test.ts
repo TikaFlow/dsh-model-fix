@@ -1,8 +1,7 @@
 // migrate.ts 纯函数测试：upgradeConfig 升级链 / DEFAULT_STORED / toStored / pruneOps 清理规则 / canonicalizeCurrentOp 规范化 / excludes 去重 op
 import { DEFAULT_STORED, canonicalizeCurrentOp, dedupeExcludesOp, pruneOps, upgradeConfig, upgradeTo5, upgradeTo6 } from '@/migrate'
 import { resolveConfig } from '@/config'
-import { parseEfforts, toStored } from '@/shared/parse'
-import { versionKey } from '@/shared/parse'
+import { parseEfforts, toStored, versionKey } from '@/shared/parse'
 import { CONFIG_VERSION } from '@/shared/constants'
 import { check, stable } from '@test/helper'
 

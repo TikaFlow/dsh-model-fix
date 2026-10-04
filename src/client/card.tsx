@@ -1,14 +1,13 @@
 /**
- * 模型参数填充卡片（浏览器半）：1:1 复刻官方 Web-UI 插件卡的可折叠卡片。四个挂载席位（模型页 footer /
- * 插件详情页 / 组件实例详情页 / 内置插件选项卡）共用同一外壳，差异只有折叠态策略
- * （`defaultOpen`：三处详情席位默认展开且保存后不自动收起，footer 席默认收起、保存后自动收起）；
- * 详情页仍自绘自己的图标 / 面包屑 / 开关，卡片头部只管本卡。
- * 展开体为五张瓦片（顺序由 TILE_ORDER 单一分发）：布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 /
- * 用户体验）+ 动态集合瓦片（排除提供方，
- * summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）。瓦片手风琴：默认收起、同时只开一个。
- * footer 左侧强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）、右侧取消（仅未保存时渲染）/
- * 保存；三把写回键弹
- * 宿主 Modal 二次确认后经 Connection RPC 请求 Node 半。
+ * 模型参数填充卡片（浏览器半）：复刻官方插件卡的可折叠卡片。四个挂载席位（模型页 footer / 插件详情页 /
+ * 组件实例详情页 / 内置插件选项卡）共用同一外壳，差异只有折叠态策略（`defaultOpen`：三处详情席位默认展开
+ * 且保存后不自动收起，footer 席默认收起、保存后自动收起）；详情页仍自绘自己的图标 / 面包屑 / 开关，
+ * 卡片头部只管本卡。
+ * 展开体为五张瓦片（顺序由 TILE_ORDER 单一分发）：四张布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 /
+ * 用户体验）+ 一张动态集合瓦片（排除提供方，summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）。
+ * 瓦片手风琴：默认收起、同时只开一个。
+ * footer 左侧为强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键），右侧为取消（仅未保存时渲染）/ 保存；
+ * 三把写回键与「清空记忆」均先弹宿主 Modal 二次确认，再经 Connection RPC 或 settings scope 请求 Node 半。
  * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
  * 结果反馈一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）。
@@ -21,6 +20,23 @@ import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DecodedScope } from '@/client/scope'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
+import {
+    EXCLUDE_ID_PATTERN,
+    GROUP_KEYS,
+    VERSION_KEY,
+    addExclude,
+    applyGroup,
+    groupValue,
+    isDirty,
+    masterValue,
+    providerIdsOf,
+    removeExclude,
+    resolveHits,
+    toggleCell,
+} from '@/client/model'
+import type { Flags, Group, RowKey } from '@/client/model'
+import type { CardKey } from '@/client/locales'
+import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from '@/client/locales'
 import { PLUGIN_NAME } from '@/shared/constants'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 
@@ -40,8 +56,7 @@ declare const __PLUGIN_VERSION__: string
 const PLUGIN_VERSION = __PLUGIN_VERSION__
 
 /** 行内项目链接行的图标：Octicons（GitHub 官方图标集，MIT、可商用、纯 path 单色），
- * 统一 16×16 / viewBox 0 0 16 16 / `fill="currentColor"`（随 .dsh-mf-linkIcon 取宿主令牌色）。
- * star 与 issue 两枚现为**占位**：待替换时只换 <svg> 内的 <path>，类名与 aria-hidden 保留即可。 */
+ * 统一 16×16 / viewBox 0 0 16 16 / `fill="currentColor"`（随 .dsh-mf-linkIcon 取宿主令牌色）。 */
 
 /** 仓库图标：Octicons mark-github-16（https://primer.style/octicons/mark-github-16/） */
 function IconGitHub() {
@@ -61,7 +76,7 @@ function IconTag() {
     )
 }
 
-/** star 键图标（占位）：Octicons star-16（https://primer.style/octicons/star-16/） */
+/** star 键图标：Octicons star-16（https://primer.style/octicons/star-16/） */
 function IconStar() {
     return (
         <svg className="dsh-mf-linkIcon" viewBox="0 0 16 16" width="16" height="16" aria-hidden>
@@ -70,7 +85,7 @@ function IconStar() {
     )
 }
 
-/** 问题反馈键图标（占位）：Octicons issue-opened-16（https://primer.style/octicons/issue-opened-16/） */
+/** 问题反馈键图标：Octicons issue-opened-16（https://primer.style/octicons/issue-opened-16/） */
 function IconIssue() {
     return (
         <svg className="dsh-mf-linkIcon" viewBox="0 0 16 16" width="16" height="16" aria-hidden>
@@ -79,23 +94,6 @@ function IconIssue() {
         </svg>
     )
 }
-import {
-    EXCLUDE_ID_PATTERN,
-    GROUP_KEYS,
-    VERSION_KEY,
-    addExclude,
-    applyGroup,
-    groupValue,
-    isDirty,
-    masterValue,
-    providerIdsOf,
-    removeExclude,
-    resolveHits,
-    toggleCell,
-} from '@/client/model'
-import type { CardKey } from '@/client/locales'
-import type { Flags, Group, RowKey } from '@/client/model'
-import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from '@/client/locales'
 
 /** 瓦片渲染顺序：自动填充 / 允许更新 / 兼容性 / 排除提供方 / 用户体验（排除提供方之后紧接用户体验） */
 const TILE_ORDER: readonly (Group | 'excludes')[] = ['autoFill', 'allowUpdate', 'compat', 'excludes', 'userExperience']
@@ -112,7 +110,7 @@ export interface CardProps {
     resetModels: () => Promise<ConnectionRpcResult<unknown>>
     /** 恢复备份 RPC：回退启动时备份（交集 provider+model）到当前配置；返回被恢复的模型数 */
     restoreModels: () => Promise<ConnectionRpcResult<unknown>>
-    /** 初始折叠态：插件详情页（plugins.bundle.config）与「内置插件」选项卡（settings.plugins.tab）默认展开；另两席位不传即默认收起（与官方插件卡一致）。同时决定保存成功后是否自动收起——只在默认收起的席位上生效 */
+    /** 初始折叠态：插件详情页（plugins.bundle.config）、组件实例详情页（plugins.row.config）与「内置插件」选项卡（settings.plugins.tab）默认展开；模型页 footer 席不传即默认收起（与官方插件卡一致）。同时决定保存成功后是否自动收起——只在默认收起的席位上生效 */
     defaultOpen?: boolean
 }
 
