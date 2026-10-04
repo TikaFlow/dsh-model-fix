@@ -6,7 +6,7 @@ DSH 插件：按 [models.dev](https://models.dev) 为非官方（自定义）提
 
 ## 技术栈与目录
 
-Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown（rolldown）双配置构建到 `lib/`（Node 半 `index.js` + 浏览器半 `client.js`，clean 只由 Node 半承担）；TS 严格模式，产物不带 sourcemap。
+Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown（rolldown）双配置构建到 `lib/`（Node 半 `index.js` + 浏览器半 `client.js`，clean 只由 Node 半承担）；TS 严格模式，产物不带 sourcemap；ESLint 10 扁平配置 `eslint.config.js`（规则与陷阱见「工具链陷阱」）。
 
 | 路径 | 职责（只写非显而易见的部分） |
 | --- | --- |
@@ -54,6 +54,8 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown（rolldown）双配置构建到
 ### 工具链陷阱
 
 - `pnpm test` 走专用单对象配置 `tsdown.test.config.ts`；**禁止指回数组主配置**（CLI 参数会合并进每一项、浏览器半的工厂 banner 会污染测试产物）。
+- **TS 7 与 ESLint 并存靠 npm 别名**：TS 7 原生版无 JS API，typescript-eslint 见之即抛错。故 `typescript` = `npm:@typescript/typescript6@^6.0.2`（TS6 的 JS API，bin 为 `tsc6`），TS 7 挂别名 `@typescript/native`（bin 仍是 `tsc`）。pnpm 的 override 对自动安装的 peer 无效，别指望它解这冲突。
+- `pnpm lint` 走 `eslint.config.js`：忽略 `lib/`、`dist/`、`.test-dist/`、`public/`、`.tmp-dsh/`；除官方 recommended 外只加两条硬约束（`src`/`test` 禁相对导入、`consistent-type-imports`）。
 - **沙箱内验证结果不可信，要提权跑**：文件沙箱禁止命名管道，子进程输出捕获受阻，`pnpm test`/`pnpm build` 可能返回 exit 0 却既无汇总也不落产物。以看到的 `ALL PASS (n)` 与 `lib/*.js` 的大小/mtime 为准。
 - 宿主包本地依赖全走 devDeps 且须与宿主 latest 同号；一律用 `pnpm add` 变更（`-E` 保精确、`--save-peer` 写 peer），不手改 `package.json` 依赖字段（peer 的 `>=` 会被 pnpm 归一成成品版本号）。**升级只能写具体版本号**（各子包的 `latest` tag 陈旧，`pkg@latest` 会装到错版本）。
 
@@ -97,7 +99,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown（rolldown）双配置构建到
 
 ## 命令
 
-`pnpm build` / `typecheck` / `test` / `pack:release`；build 产物进 `lib/`，提交前必跑。
+`pnpm build` / `typecheck` / `lint` / `test` / `pack:release`；build 产物进 `lib/`，提交前必跑。
 
 ## 测试规范
 

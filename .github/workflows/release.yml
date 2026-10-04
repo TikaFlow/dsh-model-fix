@@ -39,6 +39,7 @@ jobs:
 
       - name: Verify and pack tarball
         run: |
+          pnpm lint
           pnpm typecheck
           pnpm test
           pnpm pack:release
