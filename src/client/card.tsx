@@ -6,6 +6,7 @@
  * 展开体为五张瓦片（顺序由 TILE_ORDER 单一分发）：四张布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 /
  * 用户体验）+ 一张动态集合瓦片（排除提供方，summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）。
  * 瓦片手风琴：默认收起、同时只开一个。
+ * 布尔瓦片的每一行标题带一个说明键：悬停或键盘聚焦时经宿主 Tooltip 气泡给出该设置项释义（组释义在首行、项释义在气泡）。
  * footer 左侧为强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键），右侧为取消（仅未保存时渲染）/ 保存；
  * 三把写回键与「清空记忆」均先弹宿主 Modal 二次确认，再经 Connection RPC 或 settings scope 请求 Node 半。
  * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
@@ -36,13 +37,16 @@ import {
 } from '@/client/model'
 import type { Flags, Group, RowKey } from '@/client/model'
 import type { CardKey } from '@/client/locales'
-import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from '@/client/locales'
+import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locales'
 import { PLUGIN_NAME } from '@/shared/constants'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 
 /** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
 const CHEVRON_DOWN = primitives.IconChevronDownOutlineRegular
-const { Button, Modal, Switch, Tag, StateDot, IconTrashOutlineRegular } = primitives
+const { Button, Modal, Switch, Tag, StateDot, Tooltip, IconInfoOutlineRegular, IconTrashOutlineRegular } = primitives
+
+/** 说明气泡宽度上限（px）：宿主 Tooltip 默认半视口，气泡会盖满整行开关区，故按瓦片列宽收窄 */
+const TIP_MAX_WIDTH = 300
 
 /** 项目仓库与反馈入口：README「安装 / 问题反馈」同源，改地址只改这两行 */
 const REPO_URL = 'https://github.com/TikaFlow/dsh-model-fix'
@@ -173,6 +177,14 @@ const STYLE_TEXT = [
     '.dsh-mf-itemBody{border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));padding:10px 14px 12px;display:grid;gap:6px;background:var(--dsw-alias-bg-module-platform,#f5f6f7)}',
     '.dsh-mf-itemHint{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-itemRow{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,#0f1115)}',
+    // 行内标签组：照官方 settings-form .labelGroup（inline-flex、gap 4px、min-width:0），标签过长时省略号截断
+    '.dsh-mf-itemLabelGroup{display:inline-flex;align-items:center;gap:4px;min-width:0}',
+    '.dsh-mf-itemLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    // 说明键：度量与形态照官方 settings-form .helpButton（24×24 无边框图标钮），hover 底色改取本卡 header 同款
+    // interactive-bg-hover（官方写的 bg-layer-4 主题未定义，见本表抬头）
+    '.dsh-mf-help{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;padding:0;border:0;border-radius:var(--dsw-radius-sm,8px);background:none;color:var(--dsw-alias-label-tertiary,#81858c);cursor:pointer}',
+    '.dsh-mf-help:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-secondary,#61666b)}',
+    '.dsh-mf-help:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,rgb(65,118,230)));outline-offset:1px}',
     // 输入框照 ModelsSection 的 .input，删除钮照同页 .iconButton（hover 用 .iconButtonDanger 变体）
     '.dsh-mf-input{box-sizing:border-box;width:100%;height:32px;padding:0 10px;border:0.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#0f1115);font:inherit;font-size:14px;line-height:22px}',
     '.dsh-mf-input:focus{border-color:var(--dsw-alias-state-business-primary,rgb(65,118,230));outline:none}',
@@ -239,7 +251,8 @@ function truncateMessage(value: string): string {
     return value.length > 120 ? `${value.slice(0, 119)}…` : value
 }
 
-/** 配置组瓦片（官方「插件列表」项卡同款）：summary 为组名 + 整组开关 + 折叠箭头，展开体为组释义 + 子开关行；
+/** 配置组瓦片（官方「插件列表」项卡同款）：summary 为组名 + 整组开关 + 折叠箭头，展开体为组释义 + 子开关行
+ * （每行标题旁带一个说明键，气泡给该设置项释义）；
  * 整行可点由 .dsh-mf-itemToggle 覆盖层承担（无 button 嵌套），可访问名用 aria-labelledby 指向可见标题。 */
 function GroupTile(props: {
     group: Group
@@ -280,17 +293,30 @@ function GroupTile(props: {
             {open ? (
                 <div className="dsh-mf-itemBody" id={`${id}-body`}>
                     <p className="dsh-mf-itemHint">{t(HINT_KEYS[group])}</p>
-                    {GROUP_KEYS[group].map((key) => (
-                        <div key={key} className="dsh-mf-itemRow">
-                            <span>{t(ROW_KEYS[key])}</span>
-                            <Switch
-                                checked={groupValue(props.flags, group, key)}
-                                disabled={props.disabled}
-                                label={`${t(ROW_KEYS[key])} ${title}`}
-                                onChange={() => { props.onCell(key) }}
-                            />
-                        </div>
-                    ))}
+                    {GROUP_KEYS[group].map((key) => {
+                        const tip = t(TIP_KEYS[key])
+                        return (
+                            <div key={key} className="dsh-mf-itemRow">
+                                <span className="dsh-mf-itemLabelGroup">
+                                    <span className="dsh-mf-itemLabel">{t(ROW_KEYS[key])}</span>
+                                    {/* 设置项释义用宿主 Tooltip 原语（悬停 / 键盘聚焦起气泡），锚点形态照官方 settings-form
+                                     * 的 .helpButton（信息图标键）。portal 必需：瓦片 overflow:hidden 加上 box-shadow 构成的
+                                     * 层叠上下文会把定位于锚点的气泡裁掉，气泡须挂到 body 上才不被行内裁剪 */}
+                                    <Tooltip label={tip} side="right" maxWidth={TIP_MAX_WIDTH} portal>
+                                        <button type="button" className="dsh-mf-help" aria-label={tip}>
+                                            <IconInfoOutlineRegular size={12} />
+                                        </button>
+                                    </Tooltip>
+                                </span>
+                                <Switch
+                                    checked={groupValue(props.flags, group, key)}
+                                    disabled={props.disabled}
+                                    label={`${t(ROW_KEYS[key])} ${title}`}
+                                    onChange={() => { props.onCell(key) }}
+                                />
+                            </div>
+                        )
+                    })}
                 </div>
             ) : null}
         </div>

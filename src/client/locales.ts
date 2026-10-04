@@ -32,6 +32,13 @@ export type CardKey =
     | 'rowRememberEfforts'
     | 'rowDefaultHigh'
     | 'rowForgetRemoved'
+    | 'tipReasoning'
+    | 'tipContext'
+    | 'tipImage'
+    | 'tipDisableDeveloper'
+    | 'tipRememberEfforts'
+    | 'tipDefaultHigh'
+    | 'tipForgetRemoved'
     | 'excludePlaceholder'
     | 'excludeAdd'
     | 'excludeInvalid'
@@ -113,6 +120,17 @@ export const HINT_KEYS: Record<Group, CardKey> = {
     userExperience: 'hintUserExperience',
 }
 
+/** 行内设置项的 tooltip 释义键映射（瓦片展开体每行的帮助气泡） */
+export const TIP_KEYS: Record<RowKey, CardKey> = {
+    reasoning: 'tipReasoning',
+    context: 'tipContext',
+    image: 'tipImage',
+    disableDeveloper: 'tipDisableDeveloper',
+    rememberEfforts: 'tipRememberEfforts',
+    defaultHigh: 'tipDefaultHigh',
+    forgetRemoved: 'tipForgetRemoved',
+}
+
 export const zh: Record<CardKey, string> = {
     title: '模型参数填充',
     tabLabel: '模型填充',
@@ -135,6 +153,13 @@ export const zh: Record<CardKey, string> = {
     rowRememberEfforts: '记住推理级别',
     rowDefaultHigh: '默认使用 high',
     rowForgetRemoved: '忘记已删除模型',
+    tipReasoning: '该模型可选的推理档位（如 high、medium、low），写入后模型页才能选择推理级别。',
+    tipContext: '模型的上下文窗口长度（contextWindow）与单次回复的输出上限（maxTokens）决定能装下多少历史、一次回答能有多长。',
+    tipImage: '模型的输入模态。目录标注支持图片时写入 ["text","image"]，模型页即可选择图片模态。',
+    tipDisableDeveloper: '禁用 developer 角色，系统提示退回旧版兼容的 system 角色。',
+    tipRememberEfforts: '按模型记住你手动选择的推理级别，切换模型时自动恢复。',
+    tipDefaultHigh: '切换到某模型时，若它未设推理级别、也没有它的记忆，且该模型支持 high，则自动设为 high。',
+    tipForgetRemoved: '删除模型或提供方时，一并清除其推理级别记忆。',
     excludePlaceholder: 'acme-gateway',
     excludeAdd: '添加排除的提供方',
     excludeInvalid: '需以小写字母开头，之后可用小写字母、数字和短横线。',
@@ -206,6 +231,13 @@ export const en: Record<CardKey, string> = {
     rowRememberEfforts: 'Remember reasoning efforts',
     rowDefaultHigh: 'Default to high',
     rowForgetRemoved: 'Forget removed models',
+    tipReasoning: 'The reasoning levels this model offers (e.g. high, medium, low); writing them is what lets the model page offer a reasoning-level choice.',
+    tipContext: 'The model context window (contextWindow) and the per-response output cap (maxTokens) decide how much history fits and how long one answer can be.',
+    tipImage: 'Input modalities of the model. When the catalog marks image support, ["text","image"] is written and the model page can offer the image modality.',
+    tipDisableDeveloper: 'Disables the developer role; system prompts fall back to the older compatible system role.',
+    tipRememberEfforts: 'Remembers the reasoning level you pick per model and restores it when you switch models.',
+    tipDefaultHigh: 'When switching to a model that has no reasoning level set, no memory of it, and support for high, its level is set to high.',
+    tipForgetRemoved: 'Deleting a model or a provider also clears its remembered reasoning levels.',
     excludePlaceholder: 'acme-gateway',
     excludeAdd: 'Add an excluded provider',
     excludeInvalid: 'Start with a lowercase letter; then lowercase letters, digits, and dashes.',
