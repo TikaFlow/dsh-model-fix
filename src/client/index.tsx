@@ -82,8 +82,6 @@ function boot(
         // 记忆写入失败不影响会话本身（级别已在当前会话生效），故只吞掉 rejection
         void scope.mutate([{ op: 'set', path: [VERSION_KEY, 'efforts'], value: next }]).catch(() => {})
     }
-    // 四个席位一律注册：`ctx.slots.inject` 先有声明方才占格，无声明者只挂 pending wait、
-    // 静默不发生 ⇒ 卡片/配置段不出现。
     // 单元格标识按 kind：list 席位用 id、keyed 席位用 key（footer 是配置 NS，bundle 是 npm 包名，
     // row 是「包名#patch 条目 id」；不同 slot 即不同账本，无需后缀区分）；footer 以 order 排最前
     // （list 渲染器按 order 单键重排）

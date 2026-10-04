@@ -26,10 +26,11 @@ function stem(id: string): { base: string; digits: string } {
 function matchId(localId: string, ids: readonly string[]): string | undefined {
     const normalized = normalizeId(localId)
     if (ids.includes(normalized)) return normalized
+    // 裸名不参与词干/前缀匹配：无分隔符时词干会把 'foo' 与 'foo2' 视作同一 base
     if (!normalized.includes('-') && !normalized.includes('.')) return
     const localStem = stem(normalized)
-    // base 相同即候选；仅当两边都有 digits 时才比对 digits，相同才算命中。
-    // 这样同一 base 的多个日期变体可凭 digits 精确区分，避免多命中歧义而 undefined。
+    // base 相同即候选；仅当两边都有 digits 时才比对 digits，相同才算命中——
+    // 同一 base 的多个日期变体因此被区分开，只剩唯一候选；多命中仍按单命中门槛判无命中。
     const stemHits = ids.filter((id) => {
         const s = stem(id)
         if (s.base !== localStem.base) return false

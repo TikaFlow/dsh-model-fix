@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 export const MIN_SUPPORTED_VERSION = 3
 /**
  * 低于当前版本的旧快照保留上限，超出在启动时从最低版本清理（等于或高于当前版本的快照始终保留，供无损回退）。
- * 取 1 ⇒ 段内 <=当前版本 的快照合计最多 2 个（当前 + 1 个低版本）；当前版本 5 时段内 olds = {1,2,3,4} 超限，仅保留 v4。
+ * 取 1 ⇒ 段内低于当前版本的快照合计最多留 1 个，其余从最低版本起淘汰。
  */
 export const MAX_OLD_SNAPSHOTS = 1
 

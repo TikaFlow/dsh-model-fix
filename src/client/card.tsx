@@ -13,7 +13,7 @@
  * 结果反馈一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）。
  */
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 // primitives 由宿主模块表注入
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 // scope 类型来自本项目的 ConfigForm decode 包装层
@@ -40,9 +40,8 @@ import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS } from '@/client/locales'
 import { PLUGIN_NAME } from '@/shared/constants'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 
-/** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标。 */
-type ChevronIcon = (props: { size?: number; className?: string }) => ReactElement
-const CHEVRON_DOWN: ChevronIcon = primitives.IconChevronDownOutlineRegular
+/** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
+const CHEVRON_DOWN = primitives.IconChevronDownOutlineRegular
 const { Button, Modal, Switch, Tag, StateDot, IconTrashOutlineRegular } = primitives
 
 /** 项目仓库与反馈入口：README「安装 / 问题反馈」同源，改地址只改这两行 */
@@ -55,8 +54,7 @@ const REPO_LABEL = REPO_URL.replace(/^https?:\/\//, '')
 declare const __PLUGIN_VERSION__: string
 const PLUGIN_VERSION = __PLUGIN_VERSION__
 
-/** 行内项目链接行的图标：Octicons（GitHub 官方图标集，MIT、可商用、纯 path 单色），
- * 统一 16×16 / viewBox 0 0 16 16 / `fill="currentColor"`（随 .dsh-mf-linkIcon 取宿主令牌色）。 */
+// ---------- 行内项目链接行的图标：Octicons（GitHub 官方图标集，MIT、可商用、纯 path 单色），统一 16×16 / viewBox 0 0 16 16 / `fill="currentColor"`（随 .dsh-mf-linkIcon 取宿主令牌色） ----------
 
 /** 仓库图标：Octicons mark-github-16（https://primer.style/octicons/mark-github-16/） */
 function IconGitHub() {
@@ -95,7 +93,7 @@ function IconIssue() {
     )
 }
 
-/** 瓦片渲染顺序：自动填充 / 允许更新 / 兼容性 / 排除提供方 / 用户体验（排除提供方之后紧接用户体验） */
+/** 瓦片渲染顺序：自动填充 / 允许更新 / 兼容性 / 排除提供方 / 用户体验 */
 const TILE_ORDER: readonly (Group | 'excludes')[] = ['autoFill', 'allowUpdate', 'compat', 'excludes', 'userExperience']
 
 /** 卡片组件 props（t 由 slots.register 的 locale 席位合成注入；scope/forceUpdate 由入口闭包传入） */
@@ -125,8 +123,7 @@ const STYLE_ID = 'dsh-model-fix-card-css'
 /**
  * 内嵌样式表（类名 dsh-mf- 前缀防撞）。取值逐条照官方同类组件：外层卡＝旧版宿主
  * 「设置 → 插件 → 内置插件」的插件卡；内层瓦片＝旧版宿主「设置 → 插件 → 插件列表」的
- * 插件行卡——两处基准均取旧版观感（用户裁定），未跟随 0.1.7-rc.2 现行插件清单卡的
- * settings-card 令牌族改版；仅两处例外采纳现行值（用户裁定）：瓦片底色
+ * 插件行卡——两处基准均取旧版观感（用户裁定），仅两处例外采纳现行值：瓦片底色
  * `--dsw-alias-settings-card-fill`、瓦片行折叠钮焦点环（照现行 .cardContent）。
  * 颜色一律只用 --dsw-alias-* 令牌，
  * 字面量仅作令牌缺失时的浅色守卫（取宿主主题 design-platform.css 真值）；官方源码引用但主题
@@ -442,7 +439,7 @@ export function Card(props: CardProps) {
     const [submitting, setSubmitting] = useState(false)
     // 折叠态为卡片本地状态（读姿而非配置）：初始值取 defaultOpen（缺省收起、与官方插件卡一致）；草稿跨折叠存活
     const [open, setOpen] = useState(props.defaultOpen ?? false)
-    // 保存后自动收起只对默认收起的席位有意义：默认展开的两席（插件详情页 / 内置插件选项卡）
+    // 保存后自动收起只对默认收起的席位有意义：默认展开的三席（插件详情页 / 组件实例详情页 / 内置插件选项卡）
     // 保存后保持展开，否则用户刚配完就被收起、还得再点一次才看得见结果
     const autoCollapse = props.defaultOpen !== true
     // 瓦片折叠态：官方手风琴语义（同时只开一个、默认全收起；各瓦片展开高度不同，同开两列底部参差）
@@ -650,11 +647,12 @@ export function Card(props: CardProps) {
     }
 
     // 结果提示挂在条件体之外：折叠不会吞掉在途/已到的结果
+    const isError = notice?.tone === 'error'
     const notices = notice !== null ? (
         <p
-            className={notice.tone === 'error' ? 'dsh-mf-notice dsh-mf-noticeError' : 'dsh-mf-notice dsh-mf-noticeSuccess'}
-            role={notice.tone === 'error' ? 'alert' : 'status'}
-            aria-live={notice.tone === 'error' ? undefined : 'polite'}
+            className={isError ? 'dsh-mf-notice dsh-mf-noticeError' : 'dsh-mf-notice dsh-mf-noticeSuccess'}
+            role={isError ? 'alert' : 'status'}
+            aria-live={isError ? undefined : 'polite'}
         >
             {notice.text}
         </p>

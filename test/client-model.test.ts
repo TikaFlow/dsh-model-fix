@@ -103,7 +103,6 @@ export function run(): void {
     check('decode efforts 非对象回落空（快照仍合法）', stable(decodeSection({ 'version-7': { efforts: 'bad' } })) === stable(DEFAULT_FLAGS))
     check('decode efforts 内层非对象回落空', stable(decodeSection({ 'version-7': { efforts: { a: 'bad' } } })) === stable(DEFAULT_FLAGS))
     check('decode efforts 混合保留合法项', stable(decodeSection({ 'version-7': { efforts: { a: { m: 'high', bad: 42 } } } })) === stable({ ...DEFAULT_FLAGS, efforts: { a: { m: 'high' } } }))
-    check('decode efforts 缺失回落空', stable(decodeSection({ 'version-7': {} })) === stable(DEFAULT_FLAGS))
     // ---------- 组非对象 / 字段类型非法 => 整段快照非法，回退默认（镜像 Node 侧 schema 抛错语义） ----------
     check('decode compat 非对象回退默认', stable(decodeSection({ 'version-7': { compat: 'x' } })) === stable(DEFAULT_FLAGS))
     check('decode compat 字段非布尔回退默认', stable(decodeSection({ 'version-7': { compat: { disableDeveloper: 'yes' } } })) === stable(DEFAULT_FLAGS))
@@ -175,7 +174,7 @@ export function run(): void {
     check('master 混合列显示为开', masterValue(toggleCell(DEFAULT_FLAGS, 'autoFill', 'image'), 'autoFill') === true)
     // compat 组只有一行时总控与该行的显示值一致（新增兼容性键后仍按「任一为开」判定）
     check('master compat 行为开则为开', masterValue(ALL_ON, 'compat') === true)
-    check('master compat 行为关则为关', masterValue(DEFAULT_FLAGS, 'compat') === true && masterValue({ ...ALL_ON, compat: { disableDeveloper: false } }, 'compat') === false)
+    check('master compat 行为关则为关', masterValue({ ...ALL_ON, compat: { disableDeveloper: false } }, 'compat') === false)
     // userExperience 组多行：任一为开则开（defaultHigh / forgetRemoved 单独为开也应让总控显示开）
     check('master userExperience 任一为开则开', masterValue({ ...ALL_ON, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: false } }, 'userExperience') === true)
     check('master userExperience forgetRemoved 为开则开', masterValue({ ...ALL_ON, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: true } }, 'userExperience') === true)

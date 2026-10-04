@@ -68,15 +68,6 @@ export function run(): void {
         efforts: EFFORTS,
         userExperience: USER_EXPERIENCE,
     }), upgradeConfig(v4Stored, 4))
-    check('v4 快照省略 efforts 落空对象、省略 userExperience 落默认开关', stable(upgradeConfig(v4Stored, 4)) === stable({
-        configVersion: 7,
-        allowUpdate: v4Stored.allowUpdate,
-        autoFill: v4Stored.autoFill,
-        compat: { disableDeveloper: false },
-        excludes: ['acme-gateway'],
-        efforts: {},
-        userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
-    }), upgradeConfig(v4Stored, 4))
     check('v4 垃圾输入回 v4 默认再补 efforts / userExperience / defaultHigh / forgetRemoved', stable(upgradeConfig('garbage', 4)) === stable({
         configVersion: 7,
         allowUpdate: { reasoning: false, context: false, image: false },

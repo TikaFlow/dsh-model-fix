@@ -3,7 +3,7 @@
  *
  * 浏览器半 `decodeSection` 与 Node 半 `resolveConfig`/`migrateConfig` 共用此处的解析函数（单一来源）；
  * `toStored` 为反方向的物化（配置 -> 规范存储快照），Node 半迁移落盘与浏览器半卡片「保存」共用。
- * 语义由 `test/config.test.ts` 与 `test/client-model.test.ts` 共同守护。
+ * 语义由 `test/config.test.ts`、`test/client-model.test.ts` 与 `test/migrate.test.ts` 共同守护。
  *
  * 解析约定：
  * - 整项缺失 → 落该项默认；存在但非对象、或字段存在但非布尔 → 返回 undefined（整段快照非法）
@@ -15,7 +15,7 @@ import { CONFIG_VERSION, VERSION_PREFIX } from '@/shared/constants'
 import type { CompatRules, EffortMemory, FieldRules, PluginConfig, PluginConfigSnapshot, UserExperienceRules } from '@/shared/types'
 import { isPlainObject } from '@/shared/types'
 
-/** 默认配置：填充缺失开启，覆盖更新关闭，兼容性规则默认按旧版 API（不使用 developer 角色）处理，排除列表为空，每模型推理级别记忆为空，记住推理级别开启，默认使用 high 开启，忘记已删除模型开启 */
+/** 默认配置：全新用户的配置基线（存储形态经 `toStored` 物化，取值改动须同步 `migrate.ts` 的台阶默认值） */
 export const DEFAULT_CONFIG: PluginConfig = {
     allowUpdate: { reasoning: false, context: false, image: false },
     autoFill: { reasoning: true, context: true, image: true },
@@ -25,10 +25,10 @@ export const DEFAULT_CONFIG: PluginConfig = {
     userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
 }
 
-/** 兼容性规则的省略字段默认（默认按旧版 API 处理：不使用 developer 角色） */
+/** compat 组逐字段的省略默认值 */
 const COMPAT_DEFAULTS: CompatRules = { disableDeveloper: true }
 
-/** 用户体验组的省略字段默认（默认记住推理级别、默认使用 high、默认忘记已删除模型） */
+/** userExperience 组逐字段的省略默认值 */
 const USER_EXPERIENCE_DEFAULTS: UserExperienceRules = { rememberEfforts: true, defaultHigh: true, forgetRemoved: true }
 
 /** 模型参数行对应的字段键（自动填充 / 允许更新两组的行，渲染顺序与总控共用） */
@@ -46,7 +46,7 @@ export function parseVersion(key: string): number | undefined {
     return match ? Number(match[1]) : undefined
 }
 
-/** 版本快照键 */
+/** 由版本号拼出 `version-N` 快照键 */
 export function versionKey(version: number): string {
     return `${VERSION_PREFIX}${version}`
 }
@@ -148,7 +148,6 @@ export function parseSnapshot(value: unknown): PluginConfig | undefined {
     if (!excludes) return
     const userExperience = parseUserExperience(value.userExperience)
     if (!userExperience) return
-    // efforts 宽松解析（结构不符回落 {}，不让记忆坏值判整段快照非法）
     const efforts = parseEfforts(value.efforts)
     return { allowUpdate, autoFill, compat, excludes, efforts, userExperience }
 }

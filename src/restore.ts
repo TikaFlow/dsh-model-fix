@@ -69,7 +69,7 @@ export function planRestore(
             const hit = backupById.get(String(m.id))
             return hit !== undefined ? structuredClone(hit) : m
         })
-        // 逐个比较（宿主同款 deepEqualJson，见 AGENTS：变更检测的唯一判据）：
+        // 逐个比较（判据取 @deepseek-ai/dsh-util-values 的 deepEqualJson）：
         // 仅当有交集 model 的值被改写才产出 op，changed 计被恢复（值不同于当前）的模型数
         let touched = 0
         for (let i = 0; i < currentModels.length; i++) {

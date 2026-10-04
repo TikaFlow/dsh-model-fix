@@ -34,12 +34,10 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown（rolldown）双配置构建到
 - `Config` 导出 = `z.any().volatile()`：**不能用 dict**（宿主对 `type === 'object'` 的 schema 逐字段投影会把整段抹成 `{}`）；根 volatile 使宿主把整段作为实时引用注入 `apply` 第二参，`.get()` 必须留在工厂内。
 - 浏览器半：`configForms.get(ns)` 只收 entryId、不转发 decode spec，解码责任全在 `makeScope`，且 decode **永不返回 undefined**。`get` 查无 NS ⇒ 卡片显「配置不可用」（NS 不匹配的判定特征）；decode 失败则永停「加载中」，两者可区分。`ctx.inject(['configForms'])` 只是标记服务（**不进父级 `inject`**），共享编排体一律走父 ctx（`ctx.<name>` 属性读要求本 fiber 声明过 inject）。
 - 宿主类型面一律 type-only 导入 devDep 的 `/client`、`/types` 与 `node:http`，构建期擦除、不落运行期依赖；升宿主时 typecheck 即暴露不兼容。
-- **对外纪律**：前端可用面以 npm 发布版为准，宿主源码仓 HEAD 只作参照，其工作树路径不得写进本项目文档。宿主依赖跟随宿主 latest 的那个版本号（当前 `0.1.7-rc.2`），`peerDependencies` 同版作下限；`@deepseek-ai/cordis`/`schemastery` 取宿主本体自己声明的线。**官方包一律 optional peer + devDep 同版兜底，`dependencies` 恒为空**。顶层 `engines.dsh` 与 `dsh.engines.dsh` 两处同值、range 一律 `>=` 不用 caret（市场不软化 caret 的隐式上界）；**不写 `@deepseek-ai/dsh` peer**（本仓 `autoInstallPeers: true`，缺失 peer 会被真装进来并拖入整棵 CLI 树；兼容性谓词改由 `dsh-*` 子包 peer 承担，宿主与市场的匹配式同形）。包根图标只走 `package.json` 顶层 `icon` 字段（官方插件包的做法，`files` 单列 `icon.svg`、`exports` 不声明 `./icon`）。
+- **对外纪律**：`@deepseek-ai/cordis`/`schemastery` 取宿主本体自己声明的线，`peerDependencies` 同版作下限。**官方包一律 optional peer + devDep 同版兜底，`dependencies` 目前为空**。顶层 `engines.dsh` 与 `dsh.engines.dsh` 两处同值、range 一律 `>=` 不用 caret（市场不软化 caret 的隐式上界）；**不写 `@deepseek-ai/dsh` peer**（pnpm 默认 `autoInstallPeers: true`，缺失 peer 会被真装进来并拖入整棵 CLI 树；兼容性谓词改由 `dsh-*` 子包 peer 承担，宿主与市场的匹配式同形）。包根图标只走 `package.json` 顶层 `icon` 字段（官方插件包的做法，`files` 单列 `icon.svg`、`exports` 不声明 `./icon`）。
 - 词典 `ctx.locale.register` 重复注册会抛错，须经 `ctx.effect` 挂 disposer 保 HMR；卡片样式经模块级幂等 `<style>` 注入并带 `data-plugin` 标记供宿主 HMR 认领。
 
 ### 宿主 settings 的脾气
-
-细节以宿主源码为准，不确定时现场验证再落地。
 
 - 根写入要求纯对象 ⇒ 自有配置用 `version-N -> 快照` 的**映射**而非列表；段 schema 必须宽松（`z.any()`），严格校验只针对当前版本快照值。
 - 路径 op 不支持数组下标中间段 ⇒ 改数组元素只能整段 `set` 覆盖（`fix` 按 provider 整段写回 `models`，未变更元素原样保留）。
@@ -99,8 +97,8 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown（rolldown）双配置构建到
 
 ## 命令
 
-`pnpm build` / `typecheck` / `test` / `pack:release`（定义见 `package.json` scripts）；build 产物进 `lib/`，提交前必跑。
+`pnpm build` / `typecheck` / `test` / `pack:release`；build 产物进 `lib/`，提交前必跑。
 
 ## 测试规范
 
-`test/` 只收不依赖 DSH 运行时的纯函数与零 ctx 编排（配置解析与迁移、compat 计划、`planResetModels`/`planRestore`、守卫、`rpc-route` 的纯信封逻辑 + node:http 桩、`fix` 编排 + `test/ctx.ts` 的常驻内存 settings 桩、浏览器半纯映射层）；浏览器半组件与真实 fs / 网络不进 `test/`。`indexedCache` 与 `configSource` 是模块级单例，每个用例前调 `resetModules()`。
+`test/` 只收不依赖 DSH 运行时的纯函数与零 ctx 编排（配置解析与迁移、目录拍平与缓存条目校验、id 匹配与档位转换、compat 计划、`planResetModels`/`planRestore`、守卫、`rpc-route` 的纯信封逻辑 + node:http 桩、`fix` 编排 + `test/ctx.ts` 的常驻内存 settings 桩、浏览器半纯映射层）；浏览器半组件与真实 fs / 网络不进 `test/`。`indexedCache` 与 `configSource` 是模块级单例，每个用例前调 `resetModules()`。

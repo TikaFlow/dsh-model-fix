@@ -2,12 +2,10 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'tsdown'
 
 /**
- * 测试构建专用配置（非数组，单对象）。
+ * 测试构建专用配置（非数组，单对象，独立文件避免从主配置数组导入）。
  *
- * 必须独立于 tsdown.config.ts（数组）：数组配置会把 CLI 参数合并进每一项，
- * 浏览器半的工厂 banner 会污染测试产物——历史上 pnpm test 因此必须带 --no-config；
- * --no-config 下 tsdown 不读任何配置（其本身也不解析 tsconfig paths），
- * 引入 `@/` 别名后测试构建须有 alias 可用，故改为指向本文件（单对象无合并污染问题）。
+ * 必须独立于数组主配置：数组会把 CLI 参数合并进每一项，浏览器半的工厂 banner 会污染测试产物；
+ * 而 `--no-config` 下 tsdown 不读任何配置、也不解析 tsconfig paths，测试图需要 `@/` 与 `@test/` alias。
  */
 export default defineConfig({
     name: 'test',
@@ -18,7 +16,7 @@ export default defineConfig({
     target: 'es2024',
     fixedExtension: false,
     dts: false,
-    // `@` → src、`@test` → test，与 tsdown.config.ts 的 SRC_ALIAS 同源（独立文件，避免从主配置数组导入）
+    // `@` → src、`@test` → test，与 tsdown.config.ts 的 SRC_ALIAS 同源
     alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
         '@test': fileURLToPath(new URL('./test', import.meta.url)),

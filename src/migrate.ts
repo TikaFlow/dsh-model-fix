@@ -20,7 +20,7 @@ const v3FieldRules = (dflt: boolean): z<V3FieldRules> => z.object({
     image: z.boolean().default(dflt),
 })
 
-/** 历史版本(v3)：兼容性规则 schema（该形态只有一个键，取值写字面量以免随当前版本演进） */
+/** 历史版本(v3)：兼容性规则 schema（与当前 CompatRules 同形，独立声明以冻结形态） */
 const v3CompatRules: z<V3CompatRules> = z.object({
     disableDeveloper: z.boolean().default(true),
 })
@@ -49,7 +49,7 @@ const V4_EXCLUDES_DEFAULT: readonly string[] = []
 
 /** 升到 v4（最低一级）：输入按 v3 冻结 schema 解析（非法整体回退 v3 默认），新增 excludes 数组并落默认 */
 function upgradeTo4(config: unknown, fromVersion: number): V4PluginConfigSnapshot {
-    // 全链唯一的最低版本守卫：本函数是最低一级，其输入版本下限恰为 MIN_SUPPORTED_VERSION（自维护常量），
+    // 全链唯一的最低版本守卫：本函数是最低一级，其输入版本下限恰为 MIN_SUPPORTED_VERSION，
     // 调用方已按该下限筛过迁移源，故此判断实际不会触发，只用于挡住误用。
     if (fromVersion < MIN_SUPPORTED_VERSION) {
         throw new Error(`无法从 v${fromVersion} 升级：低于最低支持版本 v${MIN_SUPPORTED_VERSION}`)
@@ -118,7 +118,6 @@ export function upgradeTo5(config: unknown, fromVersion: number): V5PluginConfig
     } catch {
         parsed = V4_BASE
     }
-    // 产物版本固定为 5（本函数形态恒定），故不引用 CONFIG_VERSION
     return {
         configVersion: 5,
         allowUpdate: parsed.allowUpdate,
@@ -188,8 +187,7 @@ export function upgradeTo6(config: unknown, fromVersion: number): V6PluginConfig
         parsed = V5_BASE
     }
     // efforts 宽松保留（结构不符回落 {}）：记忆坏值不判整段快照非法，避免连累配置自愈重写丢配置
-    const efforts = parseEfforts(isPlainObject(v5) ? (v5 as { efforts?: unknown }).efforts : undefined)
-    // 产物版本固定为 6（本函数形态恒定），故不引用 CONFIG_VERSION
+    const efforts = parseEfforts(isPlainObject(v5) ? v5.efforts : undefined)
     return {
         configVersion: 6,
         allowUpdate: parsed.allowUpdate,
@@ -215,7 +213,7 @@ const v6CompatRules: z<V6CompatRules> = z.object({
     disableDeveloper: z.boolean().default(true),
 })
 
-/** 历史版本(v6)：用户体验规则 schema（冻结形态：含 rememberEfforts 与 defaultHigh，无 v7 起的 forgetRemoved）；defaultHigh 省略时落当前默认值 true */
+/** 历史版本(v6)：用户体验规则 schema（冻结形态：含 rememberEfforts 与 defaultHigh，无 v7 起的 forgetRemoved）；defaultHigh 省略时落 v6 默认值 true */
 const v6UserExperienceRules: z<V6UserExperienceRules> = z.object({
     rememberEfforts: z.boolean().default(true),
     defaultHigh: z.boolean().default(true),
@@ -259,8 +257,7 @@ function upgradeTo7(config: unknown, fromVersion: number): PluginConfigSnapshot 
         parsed = V6_BASE
     }
     // efforts 宽松保留（结构不符回落 {}）：记忆坏值不判整段快照非法，避免连累配置自愈重写丢配置
-    const efforts = parseEfforts(isPlainObject(v6) ? (v6 as { efforts?: unknown }).efforts : undefined)
-    // 产物版本固定为 7（本函数形态恒定），故不引用 CONFIG_VERSION
+    const efforts = parseEfforts(isPlainObject(v6) ? v6.efforts : undefined)
     return {
         configVersion: 7,
         allowUpdate: parsed.allowUpdate,
@@ -274,8 +271,7 @@ function upgradeTo7(config: unknown, fromVersion: number): PluginConfigSnapshot 
 
 /**
  * 配置版本迁移入口：只调用最新一级台阶，产物即当前 CONFIG_VERSION 的快照形态。
- * 新版本发布时：新增 `upgradeToN`（它内部按 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力），
- * 把本函数改指它，链上既有函数的逻辑一律不改，并把上一级台阶的返回类型改指新冻结的 `V(N-1)PluginConfigSnapshot`。
+ * 新版本发布时只追加 `upgradeToN` 并把本函数改指它，既有台阶的逻辑一律不改（约定见 AGENTS.md）。
  */
 export function upgradeConfig(config: unknown, fromVersion: number): PluginConfigSnapshot {
     return upgradeTo7(config, fromVersion)
@@ -283,6 +279,9 @@ export function upgradeConfig(config: unknown, fromVersion: number): PluginConfi
 
 /** 全新用户的规范默认快照（与升级链对空输入的结果一致，由 test 守护）；物化函数单一来源在 src/shared/parse.ts 的 `toStored` */
 export const DEFAULT_STORED: PluginConfigSnapshot = toStored(DEFAULT_CONFIG)
+
+/** 当前版本的快照键（`version-7`，N 取 `CONFIG_VERSION`），全文件的规范化/迁移/自愈写回共用 */
+const CURRENT_KEY = versionKey(CONFIG_VERSION)
 
 /** 收集段内合法版本号（升序）；不按最低支持过滤，低于最低支持的版本交由 pruneOps Phase A 清理 */
 function collectVersions(section: VersionedSection | undefined): number[] {
@@ -336,11 +335,10 @@ export function pruneOps(
  */
 export function canonicalizeCurrentOp(section: VersionedSection | undefined): SettingsPathOp[] {
     if (!section) return []
-    const key = versionKey(CONFIG_VERSION)
-    if (!(key in section)) return [] // v7 不存在 → 交给迁移分支，不在此产出
-    const onDisk = section[key]
+    if (!(CURRENT_KEY in section)) return [] // v7 不存在 → 交给迁移分支，不在此产出
+    const onDisk = section[CURRENT_KEY]
     const canonical = toStored(resolveConfig(section))
-    return deepEqualJson(onDisk, canonical) ? [] : [{ op: 'set', path: [key], value: canonical }]
+    return deepEqualJson(onDisk, canonical) ? [] : [{ op: 'set', path: [CURRENT_KEY], value: canonical }]
 }
 
 /**
@@ -359,7 +357,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  *   低版本走升级链；均不可解析或段内无版本则视为全新用户，直接写入规范默认快照，确保后续读取必有当前版本
  */
 export async function migrateConfig(ctx: Context, disposed: () => boolean = () => false): Promise<void> {
-    // 轮询等待 describe() 含本 NS（0.1.7 晚注册，见上）；超时/卸载即放弃，按当前生效配置继续
+    // 轮询等待 describe() 含本 NS；超时/卸载即放弃，按当前生效配置继续
     let descriptor = ctx.settings.describe().find((d) => d.ns === PLUGIN_NS)
     let waited = 0
     while (!descriptor) {
@@ -378,10 +376,10 @@ export async function migrateConfig(ctx: Context, disposed: () => boolean = () =
         const ops: SettingsPathOp[] = [...canonicalizeCurrentOp(section)]
         if (ops.length > 0) {
             // 区分两类重写动因，便于排查：非法（parseSnapshot 判 undefined，如用户手改坏）vs 非规范（合法但字段残缺或含多余键）
-            const onDisk = section?.[versionKey(CONFIG_VERSION)]
+            const onDisk = section?.[CURRENT_KEY]
             ctx.logger.warn(!parseSnapshot(onDisk)
-                ? `${PLUGIN_NAME}: ${versionKey(CONFIG_VERSION)} 快照非法，已按当前生效配置重写`
-                : `${PLUGIN_NAME}: ${versionKey(CONFIG_VERSION)} 快照非规范（字段残缺或含多余键），已规范化重写`)
+                ? `${PLUGIN_NAME}: ${CURRENT_KEY} 快照非法，已按当前生效配置重写`
+                : `${PLUGIN_NAME}: ${CURRENT_KEY} 快照非规范（字段残缺或含多余键），已规范化重写`)
         }
         ops.push(...pruneOps(versions))
         if (ops.length > 0) await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
@@ -392,11 +390,11 @@ export async function migrateConfig(ctx: Context, disposed: () => boolean = () =
     let stored: PluginConfigSnapshot = DEFAULT_STORED
     let action = '写入默认配置'
     let resolved = false
-    for (let i = candidates.length - 1; i >= 0; i--) {
-        const v = candidates[i]
-        const parsed = parseSnapshot(section?.[versionKey(v)])
+    for (const v of candidates.toReversed()) {
+        const entry = section?.[versionKey(v)]
+        const parsed = parseSnapshot(entry)
         if (!parsed) continue
-        stored = v > CONFIG_VERSION ? toStored(parsed) : upgradeConfig(section?.[versionKey(v)], v)
+        stored = v > CONFIG_VERSION ? toStored(parsed) : upgradeConfig(entry, v)
         action = v > CONFIG_VERSION ? `从段内 ${versionKey(v)} 快照降级解析` : `从段内 ${versionKey(v)} 快照升级`
         resolved = true
         break
@@ -405,11 +403,11 @@ export async function migrateConfig(ctx: Context, disposed: () => boolean = () =
         ctx.logger.warn(`${PLUGIN_NAME}: 检测到更高版本的配置快照但解析失败，已写入默认配置`)
     }
     const ops: SettingsPathOp[] = [
-        { op: 'set', path: [versionKey(CONFIG_VERSION)], value: stored },
+        { op: 'set', path: [CURRENT_KEY], value: stored },
         ...pruneOps(versions),
     ]
     await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
-    ctx.logger.info(`${PLUGIN_NAME}: ${action}，已写入 ${versionKey(CONFIG_VERSION)} 快照`)
+    ctx.logger.info(`${PLUGIN_NAME}: ${action}，已写入 ${CURRENT_KEY} 快照`)
 }
 
 /**
@@ -423,7 +421,7 @@ export function dedupeExcludesOp(snapshot: unknown): SettingsPathOp[] {
     if (!Array.isArray(excludes)) return []
     const seen = new Set(excludes)
     if (seen.size === excludes.length) return []
-    return [{ op: 'set', path: [versionKey(CONFIG_VERSION), 'excludes'], value: [...seen] }]
+    return [{ op: 'set', path: [CURRENT_KEY, 'excludes'], value: [...seen] }]
 }
 
 /**

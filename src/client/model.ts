@@ -33,11 +33,11 @@ export type RowKey =
     | (typeof COMPAT_KEYS)[number]
     | (typeof USER_EXPERIENCE_KEYS)[number]
 
-/** 全部配置布尔（与 PluginConfig 同形） */
+/** 卡片侧消费的完整当前配置（与 PluginConfig 同形：四组布尔 + excludes + efforts） */
 export type Flags = PluginConfig
 
 /**
- * 解码命名空间整段：只读当前版本快照 version-7（Node 半迁移保证启动后段内必有，见 migrateConfig）；
+ * 解码命名空间整段：只读当前版本快照（键见上方 `VERSION_KEY`；Node 半迁移保证启动后段内必有，见 migrateConfig）；
  * 段非法、快照缺失或非法均回退默认。永不返回 undefined（返回 undefined 会让宿主 scope 永挂 loading）。
  */
 export function decodeSection(section: unknown): Flags {
@@ -82,7 +82,8 @@ function sameIdList(a: readonly string[], b: readonly string[]): boolean {
     return a.every((id, index) => id === b[index])
 }
 
-/** 布尔组 + 排除列表逐项比较，判断草稿相对已存配置是否有改动（userExperience 属布尔组，随 GROUPS 遍历覆盖） */
+/** 布尔组 + 排除列表逐项比较，判断草稿相对已存配置是否有改动（userExperience 属布尔组，随 GROUPS 遍历覆盖；
+ * `efforts` 是运行时记忆而非用户配置，不参与比较，故改记忆不标脏） */
 export function isDirty(draft: Flags, saved: Flags): boolean {
     for (const group of GROUPS) {
         for (const key of GROUP_KEYS[group]) {

@@ -2,7 +2,7 @@
  * 跨半共享的类型声明与纯类型守卫（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）。
  * 两半均**直连**本层（统一经 `@/shared/types` 别名导入），不经任何 facade 中转；
  * Node 专属类型（`ModelEntry` / `CacheRecord` / 冻结历史 v3–v6 / `isCapacity` 等）留在 `src/types.ts`。
- * Connection RPC 契约等宿主类型不再在本仓声明：一律 type-only 导入 devDep 的宿主类型面（构建期擦除）。
+ * 宿主类型面（Connection RPC 契约等）一律 type-only 导入 devDep 的宿主包（构建期擦除），不在本仓另行声明。
  */
 
 /** 判断是否为普通数据对象（非数组、非 null、非类实例） */

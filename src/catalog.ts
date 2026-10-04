@@ -103,7 +103,6 @@ function indexFromCatalog(catalog: Catalog): IndexedCatalog {
     const groups = new Map<string, ProviderGroup>()
     for (const [provider, models] of Object.entries(catalog)) {
         const entries: IndexEntry[] = []
-        const ids: string[] = []
         for (const [id, record] of Object.entries(models)) {
             if (!isCacheRecord(record)) continue
             const entry: IndexEntry = { id, efforts: record.efforts.slice() }
@@ -111,10 +110,9 @@ function indexFromCatalog(catalog: Catalog): IndexedCatalog {
             if (record.maxTokens !== undefined) entry.maxTokens = record.maxTokens
             if (record.image) entry.image = true
             entries.push(entry)
-            ids.push(id)
         }
-        if (ids.length === 0) continue
-        groups.set(provider, { ids, entries })
+        if (entries.length === 0) continue
+        groups.set(provider, { ids: entries.map((entry) => entry.id), entries })
     }
     return { catalog, groups }
 }
@@ -171,7 +169,7 @@ export async function readCache(): Promise<IndexedCatalog | undefined> {
     }
 }
 
-/** 拉取 models.dev 最新数据：数据非空才构建索引并覆盖缓存；内容无变化跳过写入。失败抛出由调用方记录日志 */
+/** 拉取 models.dev 最新数据：数据非空才构建索引；缓存内容有变化才写入，失败按 MAX_ATTEMPTS 重试并逐次告警，耗尽则放弃（不抛，本次运行仍用新目录）。拉取失败或数据为空时抛出，由调用方记录日志 */
 export async function fetchLatest(ctx: Context): Promise<IndexedCatalog> {
     const res = await fetch(API_URL, {
         signal: AbortSignal.timeout(FETCH_MS),

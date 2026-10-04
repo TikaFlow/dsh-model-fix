@@ -57,7 +57,7 @@ export function run(): void {
             { id: 'm2', name: 'm2', reasoning: { efforts: [{ id: 'low', name: 'low' }] } },
         ] },
     ]
-    // 既有用例的 defaultHigh 一律传 false（关掉新开关，行为与未引入该开关时一致）
+    // defaultHigh 关闭的用例段（defaultHigh 专段另用 DH_ON）
     const DH_OFF = false
 
     // 模型变化：有记忆且受支持且与当前不同 → 改写
@@ -179,12 +179,12 @@ export function run(): void {
         DH_ON,
     )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm2' } }))
 
-    // 模型无 reasoning（groupsWithM1 的 provider b 的 m2 无 reasoning）→ 不改写
+    // 模型无 reasoning（groups 的 provider b 的 m2 无 reasoning）→ 不改写
     check('defaultHigh 模型无推理级别不改写', stable(classifyTransition(
         { provider: 'a', model: 'm1' },
         { provider: 'b', model: 'm2' },
         {},
-        groupsWithM1,
+        groups,
         DH_ON,
     )) === stable({ kind: 'model-change', resolved: { provider: 'b', model: 'm2' } }))
 

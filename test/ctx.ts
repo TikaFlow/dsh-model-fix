@@ -8,10 +8,7 @@
   *   - logger.{info,warn,error} → 空实现
   *
   * 不实现事件发射（settings/document-updated）：fix 本身不订阅事件，
-  * 事件链守卫由 src/guard.ts 与 test/guard.test.ts 单独覆盖；本桩里也没有事件链可短路。
-  *
-  * 测试纪律：indexedCache 与 configSource 是模块级单例，每个用例前调 resetModules() 重置，
-  * 避免用例间目录/配置串扰。
+  * 事件链守卫由 src/guard.ts 与 test/guard.test.ts 单独覆盖。
   */
 
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
@@ -22,7 +19,7 @@ import { DEFAULT_CONFIG } from '@/shared/parse'
 import { isPlainObject } from '@/shared/types'
 
 /** 单个 settings 段的内存表示 */
-export interface StubSection {
+interface StubSection {
     user: Record<string, unknown>
     revision: number
 }

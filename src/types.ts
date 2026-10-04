@@ -65,16 +65,12 @@ export function isCapacity(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0 && value !== CAPACITY_UNLIMITED
 }
 
-// ---------- 历史版本（v3）：版本快照体系内 v3 快照的冻结形态（引入 excludes 前的配置）。 ----------
-// ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 3 时本段与 upgradeTo4 的 v3 接力一并移除 ----------
+// ---------- 历史版本（v3）：版本快照体系内 v3 快照的冻结形态（引入 excludes 前的配置），定义不随代码演进 ----------
 
 /** 历史版本(v3)：按字段分别控制的规则开关（与当前 FieldRules 同形，独立声明以冻结形态） */
 export interface V3FieldRules {
-    /** 推理级别字段 */
     reasoning: boolean
-    /** 上下文窗口与输出上限，二者一体受此开关控制 */
     context: boolean
-    /** 图片/多模态（input 模态声明） */
     image: boolean
 }
 
@@ -84,7 +80,7 @@ export interface V3CompatRules {
     disableDeveloper: boolean
 }
 
-/** 历史版本(v3)：version-3 快照的完整形态（无 excludes 数组） */
+/** 历史版本(v3)：version-3 快照的完整形态 */
 export interface V3PluginConfigSnapshot {
     configVersion: number
     allowUpdate: V3FieldRules
@@ -94,19 +90,19 @@ export interface V3PluginConfigSnapshot {
 
 // ---------- 历史版本（v4）冻结形态：引入 efforts 之前的快照（三组布尔 + compat + excludes）；与当前 FieldRules / CompatRules 同形，独立声明以冻结形态，不引用当前版本的可演进定义。 ----------
 
-/** 历史版本(v4)：字段规则 schema（与当前 FieldRules 同形，独立声明以冻结形态） */
+/** 历史版本(v4)：字段规则（与当前 FieldRules 同形，独立声明以冻结形态） */
 export interface V4FieldRules {
     reasoning: boolean
     context: boolean
     image: boolean
 }
 
-/** 历史版本(v4)：兼容性规则 schema（与当前 CompatRules 同形，独立声明以冻结形态） */
+/** 历史版本(v4)：兼容性规则（与当前 CompatRules 同形，独立声明以冻结形态） */
 export interface V4CompatRules {
     disableDeveloper: boolean
 }
 
-/** 历史版本(v4)：配置快照（freeze；不引用当前版本的可演进定义） */
+/** 历史版本(v4)：配置快照 */
 export interface V4PluginConfigSnapshot {
     configVersion: number
     allowUpdate: V4FieldRules
@@ -115,27 +111,26 @@ export interface V4PluginConfigSnapshot {
     excludes: string[]
 }
 
-// ---------- 历史版本（v5）冻结形态：引入 defaultHigh 之前的快照（三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts}）。 ----------
-// ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 5 时本段与 upgradeTo6 的 v5 解析一并移除 ----------
+// ---------- 历史版本（v5）冻结形态：引入 defaultHigh 之前的快照（三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts}），定义不随代码演进 ----------
 
-/** 历史版本(v5)：字段规则 schema（与当前 FieldRules 同形，独立声明以冻结形态） */
+/** 历史版本(v5)：字段规则（与当前 FieldRules 同形，独立声明以冻结形态） */
 export interface V5FieldRules {
     reasoning: boolean
     context: boolean
     image: boolean
 }
 
-/** 历史版本(v5)：兼容性规则 schema（与当前 CompatRules 同形，独立声明以冻结形态） */
+/** 历史版本(v5)：兼容性规则（与当前 CompatRules 同形，独立声明以冻结形态） */
 export interface V5CompatRules {
     disableDeveloper: boolean
 }
 
-/** 历史版本(v5)：用户体验规则（冻结形态：只含 rememberEfforts，不含 v6 起的 defaultHigh） */
+/** 历史版本(v5)：用户体验规则（冻结形态：不含 v6 起的 defaultHigh） */
 export interface V5UserExperienceRules {
     rememberEfforts: boolean
 }
 
-/** 历史版本(v5)配置快照（freeze；不引用当前版本的可演进定义；efforts 是宽松记忆字段，v5 已存在故在此冻结） */
+/** 历史版本(v5)配置快照（efforts 是宽松记忆字段，v5 已存在故在此冻结） */
 export interface V5PluginConfigSnapshot {
     configVersion: number
     allowUpdate: V5FieldRules
@@ -146,17 +141,16 @@ export interface V5PluginConfigSnapshot {
     userExperience: V5UserExperienceRules
 }
 
-// ---------- 历史版本（v6）冻结形态：引入 forgetRemoved 之前的快照（三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts, defaultHigh}）。 ----------
-// ---------- 定义不随代码演进，MIN_SUPPORTED_VERSION 超过 6 时本段与 upgradeTo7 的 v6 解析一并移除 ----------
+// ---------- 历史版本（v6）冻结形态：引入 forgetRemoved 之前的快照（三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts, defaultHigh}），定义不随代码演进 ----------
 
-/** 历史版本(v6)：字段规则 schema（与当前 FieldRules 同形，独立声明以冻结形态） */
+/** 历史版本(v6)：字段规则（与当前 FieldRules 同形，独立声明以冻结形态） */
 export interface V6FieldRules {
     reasoning: boolean
     context: boolean
     image: boolean
 }
 
-/** 历史版本(v6)：兼容性规则 schema（与当前 CompatRules 同形，独立声明以冻结形态） */
+/** 历史版本(v6)：兼容性规则（与当前 CompatRules 同形，独立声明以冻结形态） */
 export interface V6CompatRules {
     disableDeveloper: boolean
 }
@@ -167,7 +161,7 @@ export interface V6UserExperienceRules {
     defaultHigh: boolean
 }
 
-/** 历史版本(v6)配置快照（freeze；不引用当前版本的可演进定义） */
+/** 历史版本(v6)配置快照 */
 export interface V6PluginConfigSnapshot {
     configVersion: number
     allowUpdate: V6FieldRules

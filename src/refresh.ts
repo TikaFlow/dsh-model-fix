@@ -17,6 +17,9 @@ export function refreshIfStale(ctx: Context, isDisposed: () => boolean): void {
 }
 
 function refresh(ctx: Context, isDisposed: () => boolean, retryCount = MAX_ATTEMPTS): void {
+    // 单飞不变量在此兜底：任何调用点进入时若已有拉取在途就直接返回，
+    // 保证同一时刻只有一个 refresh 流程——否则并发在途的响应可能后发先至、把较旧的目录覆盖回去。
+    // 依赖调用方先判 refreshing 是不够的（新增调用点极易漏判），此行不可删。
     if (refreshing) return
     refreshing = true
     fetchLatest(ctx)
@@ -25,7 +28,7 @@ function refresh(ctx: Context, isDisposed: () => boolean, retryCount = MAX_ATTEM
                 refreshing = false
                 return
             }
-            // 时间戳仅在成功时落定：失败不封 6h，网络恢复后的下一次事件即可自愈
+            // 时间戳仅在成功时落定：失败不封保鲜窗口（REFRESH_INTERVAL_MS），网络恢复后的下一次事件即可自愈
             lastRefreshAt = Date.now()
             setCatalog(indexed)
             fix(ctx).catch((error) => {

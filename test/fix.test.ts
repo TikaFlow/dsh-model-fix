@@ -101,7 +101,7 @@ export async function run(): Promise<void> {
         setCatalog(CAT)
         const changes = await fix(ctx as unknown as Context)
         const model = modelsOf(ctx, 'testprovider')[0]
-        check('autoFill.reasoning 关：推理级别不填', model?.reasoningEfforts === undefined)
+        check('autoFill.reasoning 关：推理级别不填', model !== undefined && model.reasoningEfforts === undefined)
         check('autoFill.reasoning 关：容量与图片仍填',
             model?.contextWindow === 128000 && Array.isArray(model?.input) && model.input.includes('image'))
         check('autoFill.reasoning 关：变更计数为 1', changes === 1)
@@ -244,7 +244,7 @@ export async function run(): Promise<void> {
         const changes = await fix(ctx as unknown as Context)
         const model = modelsOf(ctx, 'testprovider')[0]
         check('空字段剔除：变更计数为 1', changes === 1)
-        check('空字段剔除：input 与 compat 均移除', model?.input === undefined && model?.compat === undefined)
+        check('空字段剔除：input 与 compat 均移除', model !== undefined && model.input === undefined && model.compat === undefined)
         check('空字段剔除：id 保留', model?.id === 'model-unknown')
     }
 

@@ -20,14 +20,14 @@ interface CompatRule {
 
 /**
  * 规则表：新增兼容性配置在此追加一条（键名与 CONFIG_VERSION 无关，形态向后兼容）。
- * 只写路由级、不写模型级；字段由宿主按协议 gate 消费（见 DEVELOPER_COMPAT_APIS 的适用范围）。
+ * 只写路由级、不写模型级；协议 gate（DEVELOPER_COMPAT_APIS）由 fix.ts 判，本纯函数只决定写什么。
  */
 const RULES: readonly CompatRule[] = [
     { key: 'disableDeveloper', field: DEVELOPER_COMPAT_FIELD, value: false },
 ]
 
 /** 路由 compat 的目标形态：set 覆盖整段（保留用户其余字段）/ unset 删除整段（已无字段） */
-export type CompatPlan = { op: 'set'; value: Record<string, unknown> } | { op: 'unset' }
+type CompatPlan = { op: 'set'; value: Record<string, unknown> } | { op: 'unset' }
 
 /**
  * 依据当前兼容性规则计算某路由 compat 应写入的形态；与现值一致（或本就无需创建、也无可清理）时返回 undefined。

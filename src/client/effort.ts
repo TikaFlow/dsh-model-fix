@@ -8,8 +8,6 @@
 import type { ModelProviderGroup, ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { EffortMemory } from '@/shared/types'
 
-// ---------- 纯逻辑 ----------
-
 /** 嵌套查记忆：provider → model → 级别；无记录返回 undefined */
 export function lookupEffort(memory: EffortMemory, provider: string, model: string): string | undefined {
     return memory[provider]?.[model]
@@ -48,7 +46,7 @@ export function advertisesEffort(groups: readonly ModelProviderGroup[], provider
  *
  * `defaultHigh` 为 true 且满足以下全部条件时，把推理级别改写为 `high`：
  * 未设置推理级别（`next.reasoningEffort === undefined`）、未记住该模型级别（`remembered === undefined`）、
- * 目标模型公告 `high` 档位（`advertisesEffort(groups, next.provider, next.model, 'high')`）。
+ * 目标模型公告 `high` 档位。
  * 仅在「model-change」分支生效——同模型改级别（含手动选「default」）是 effort-change，不受影响。
  *
  * 返回：
@@ -82,7 +80,7 @@ export function classifyTransition(
     return { kind: 'none' }
 }
 
-/** 两个选择是否完全相同（provider、model、reasoningEffort 逐字段比较） */
+/** 两个选择是否完全相同 */
 export function sameSelection(a: ModelSelection, b: ModelSelection): boolean {
     return a.provider === b.provider && a.model === b.model && a.reasoningEffort === b.reasoningEffort
 }
