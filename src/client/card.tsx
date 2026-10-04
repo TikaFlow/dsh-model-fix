@@ -755,7 +755,7 @@ export function Card(props: CardProps) {
             </div>
         </>
     )
-    // 二次确认弹层：宿主 Modal + Button 原语（官方同页删除 provider 同款）；取消键 autoFocus——焦点落在可安全退出的一侧
+    // 二次确认弹层：宿主 Modal + Button 原语（官方同页删除 provider 同款）；取消键标 data-modal-autofocus——焦点落在可安全退出的一侧（React autoFocus 抢在宿主模态层存触发控件之前，会毁掉关闭后的回焦）
     const confirms = (
         <>
             <Modal
@@ -765,7 +765,7 @@ export function Card(props: CardProps) {
                 closeLabel={t('close')}
                 description={t('forceConfirm')}
                 footer={<>
-                    <Button variant="outline" autoFocus onClick={() => { setConfirmOpen(false) }}>{t('forceCancel')}</Button>
+                    <Button variant="outline" data-modal-autofocus onClick={() => { setConfirmOpen(false) }}>{t('forceCancel')}</Button>
                     <Button variant="outline" className="dsh-mf-confirmDanger" onClick={runForce}>{t('forceGo')}</Button>
                 </>}
             />
@@ -776,7 +776,7 @@ export function Card(props: CardProps) {
                 closeLabel={t('close')}
                 description={t('resetConfirm')}
                 footer={<>
-                    <Button variant="outline" autoFocus onClick={() => { setResetConfirmOpen(false) }}>{t('forceCancel')}</Button>
+                    <Button variant="outline" data-modal-autofocus onClick={() => { setResetConfirmOpen(false) }}>{t('forceCancel')}</Button>
                     <Button variant="outline" className="dsh-mf-confirmDanger" onClick={runReset}>{t('resetGo')}</Button>
                 </>}
             />
@@ -788,7 +788,7 @@ export function Card(props: CardProps) {
                 closeLabel={t('close')}
                 description={t('restoreConfirm')}
                 footer={<>
-                    <Button variant="outline" autoFocus onClick={() => { setRestoreConfirmOpen(false) }}>{t('forceCancel')}</Button>
+                    <Button variant="outline" data-modal-autofocus onClick={() => { setRestoreConfirmOpen(false) }}>{t('forceCancel')}</Button>
                     <Button variant="outline" onClick={runRestore}>{t('restoreGo')}</Button>
                 </>}
             />
@@ -800,7 +800,7 @@ export function Card(props: CardProps) {
                 closeLabel={t('close')}
                 description={t('clearEffortsConfirm')}
                 footer={<>
-                    <Button variant="outline" autoFocus onClick={() => { setClearConfirmOpen(false) }}>{t('clearEffortsKeep')}</Button>
+                    <Button variant="outline" data-modal-autofocus onClick={() => { setClearConfirmOpen(false) }}>{t('clearEffortsKeep')}</Button>
                     <Button variant="outline" className="dsh-mf-confirmDanger" onClick={clearEfforts}>{t('clearEffortsGo')}</Button>
                 </>}
             />
