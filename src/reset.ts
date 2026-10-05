@@ -1,7 +1,6 @@
 import { MAX_ATTEMPTS } from '@/constants'
 import { API_NS, PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
 import { resolveConfig } from '@/config'
-import { DEFAULT_CONFIG } from '@/shared/parse'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import type { PluginConfig } from '@/shared/types'
@@ -70,7 +69,10 @@ export async function resetModels(ctx: Context): Promise<number> {
             if (!isPlainObject(providers)) return 0
             // 当前生效配置（损坏快照回退最高可解析版本/默认，excludes 一并生效）
             const configDescriptor = descriptors.find((d) => d.ns === PLUGIN_NS)
-            const config = configDescriptor ? resolveConfig(configDescriptor.user) : DEFAULT_CONFIG
+            // 自有段不可读时显式失败：回退 DEFAULT_CONFIG 会使 excludes 变空，
+            // 重置会作用到用户实际已排除的提供方
+            if (!configDescriptor) throw new Error(`${PLUGIN_NAME}: 自有配置段 ${PLUGIN_NS} 不可读，无法重置`)
+            const config = resolveConfig(configDescriptor.user)
             const { modelOps, changed } = planResetModels(config, providers)
             if (modelOps.length === 0) {
                 ctx.logger.info(`${PLUGIN_NAME}: 重置：无可剔除推理级别的模型`)
