@@ -934,7 +934,7 @@ export function Card(props: CardProps) {
             />
             {/* 「验证模型」弹层：结构逐条照官方 models 页「获取可用模型」的候选框（title / desc / 候选列表 / 底部取消 + 采用），
                 按需求去掉其「搜索 — 全选」工具条一行；改为列表下方一条 warn 额度提示，底部左侧加「验证所有推理级别」开关。
-                在途期间忽略关闭：请求已发给宿主，提前关窗只会留下无人收割的一批探测 */}
+                在途期间忽略关闭：探测已发给宿主，提前关窗会留下无人收割的一批请求；结果到手才自动关窗 */}
             <Modal
                 open={verifyOpen}
                 onClose={() => { if (busy !== 'verify') closeVerify() }}
