@@ -209,8 +209,12 @@ const STYLE_TEXT = [
     '.dsh-mf-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
     '@media (max-width:680px){.dsh-mf-items{grid-template-columns:minmax(0,1fr)}}',
     '@media (prefers-reduced-motion:reduce){.dsh-mf-itemChevron{transition:none}}',
-    '.dsh-mf-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 0 0;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1))}',
-    '.dsh-mf-actions{display:flex;align-items:center;gap:8px}',
+    // 动作键行（强制更新 / 重置推理级别 / 恢复备份 / 验证模型）：独占一行、靠左起排，不设分割线——它承接上方瓦片，
+    // 分隔线留给其下的取消/保存行；键渐多后在本行内换行落位，不相互挤压
+    '.dsh-mf-bar{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:12px 0 0}',
+    // 取消/保存行：分隔线之下靠右收尾
+    '.dsh-mf-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 0 0;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1))}',
+    '.dsh-mf-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
     // footer 键度量照官方 SettingsForm .save（圆角 radius-md + focus 环同源）；force 红字透明底照
     // models 页 .dangerButton 语义；discard 官方无同款（SettingsForm 不设 discard 键），度量与 save 成对
     '.dsh-mf-discard,.dsh-mf-save,.dsh-mf-force{appearance:none;border:1px solid transparent;border-radius:var(--dsw-radius-md,12px);padding:5px 14px;font:inherit;font-size:13px;line-height:1.5;cursor:pointer}',
@@ -815,7 +819,8 @@ export function Card(props: CardProps) {
                     />
                 ))}
             </div>
-            <div className="dsh-mf-footer">
+            {/* 动作键独占一行、置于分隔线之上：键数增长后不再与取消/保存挤在同一行 */}
+            <div className="dsh-mf-bar">
                 <span className="dsh-mf-actions">
                     <button
                         type="button"
@@ -852,6 +857,8 @@ export function Card(props: CardProps) {
                         {t('verify')}
                     </button>
                 </span>
+            </div>
+            <div className="dsh-mf-footer">
                 <span className="dsh-mf-actions">
                     {/* 取消键只在有未保存编辑时出现（保存后自动隐去）；保存中保持可见但禁用 */}
                     {dirty ? (
