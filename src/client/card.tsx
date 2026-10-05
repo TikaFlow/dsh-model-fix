@@ -230,20 +230,17 @@ const STYLE_TEXT = [
     '.dsh-mf-confirmDanger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger,rgba(236,19,19,.05))}',
 ].join('\n')
 
-/** 幂等注入样式（模块级守护，重复挂载不重复插入） */
-let stylesInjected = false
+/** 幂等注入样式：每次渲染校验 DOM 实况——宿主 HMR 会按 data-plugin 摘走旧节点，节点在则同步内容 */
 function ensureStyles(): void {
-    if (stylesInjected || typeof document === 'undefined') return
-    if (document.getElementById(STYLE_ID) !== null) {
-        stylesInjected = true
-        return
+    if (typeof document === 'undefined') return
+    let tag = document.getElementById(STYLE_ID)
+    if (tag === null) {
+        tag = document.createElement('style')
+        tag.id = STYLE_ID
+        tag.dataset.plugin = PLUGIN_NAME
+        document.head.appendChild(tag)
     }
-    const tag = document.createElement('style')
-    tag.id = STYLE_ID
-    tag.dataset.plugin = PLUGIN_NAME
-    tag.textContent = STYLE_TEXT
-    document.head.appendChild(tag)
-    stylesInjected = true
+    if (tag.textContent !== STYLE_TEXT) tag.textContent = STYLE_TEXT
 }
 
 /** 截断失败信息：RPC 与异常消息可能极长（含 URL、响应片段），截断以保持状态行可读 */
