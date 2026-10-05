@@ -80,6 +80,12 @@ const QUOTA_CODES: ReadonlySet<string> = new Set(['QUOTA', 'ACCOUNT_QUOTA_EXCEED
 const CREDENTIAL_CODES: ReadonlySet<string> = new Set(['INVALID_CREDENTIAL', 'MISSING_CREDENTIAL'])
 /** 宿主规范码：模型未声明请求的这一推理级别 */
 const UNSUPPORTED_EFFORT_CODE = 'UNSUPPORTED_REASONING_EFFORT'
+/**
+ * 宿主规范码：请求正常完成但一个内容块都没有（部分方言偶发的退化完成）。
+ * 它**没有 HTTP status**——请求是成功抵达的。若漏判就会掉进下面的「status 缺失即不可达」，
+ * 把一次成功响应误报成断线并错误短路整组，故必须显式排除。
+ */
+const EMPTY_RESPONSE_CODE = 'EMPTY_RESPONSE'
 
 /**
  * 由终止块的失败事实判定探测结果。
@@ -91,6 +97,7 @@ export function classifyFailure(failure: LlmFailure): Exclude<ProbeOutcome, 'usa
     if (failure.code === UNSUPPORTED_EFFORT_CODE) return 'unsupported-effort'
     if (QUOTA_CODES.has(failure.code)) return 'quota'
     if (CREDENTIAL_CODES.has(failure.code)) return 'credential'
+    if (failure.code === EMPTY_RESPONSE_CODE) return 'other'
     if (failure.status === undefined) return 'unreachable'
     return 'other'
 }

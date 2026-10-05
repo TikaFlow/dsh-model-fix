@@ -83,6 +83,8 @@ export async function run(): Promise<void> {
     check('classifyFailure 有 status 归其它', classifyFailure(failure('MODEL_NOT_FOUND', 404)) === 'other')
     // 档位码优先：它由宿主在派发前本地抛出，本就没有 HTTP 响应
     check('classifyFailure 档位码不被 status 盖过', classifyFailure(failure('UNSUPPORTED_REASONING_EFFORT', 400)) === 'unsupported-effort')
+    // 零内容完成：请求成功抵达却无内容块，同样没有 status——必须显式排除，否则会被当成断线而误短路整组
+    check('classifyFailure 零内容完成归其它而非不可达', classifyFailure(failure('EMPTY_RESPONSE')) === 'other')
 
     // ---------- isProviderBlocking：只有三类 provider 级失败才短路 ----------
     check('isProviderBlocking 端点不可达', isProviderBlocking('unreachable') === true)
@@ -250,6 +252,18 @@ export async function run(): Promise<void> {
             'verifyModels 其它厂商拒绝不短路',
             calls.length === 2 && summary.probed === 2 && summary.efforts === 1
             && summary.providers[0].reachable && summary.providers[0].keyValid && !summary.providers[0].skipped,
+            { calls, summary },
+        )
+    }
+    {
+        // 零内容完成是「请求成功抵达、但一个内容块都没有」，既非 provider 级失败也不该短路：
+        // 若漏判就会把一次成功响应误报成端点断线，后面的模型全部不再验证
+        const { llm, calls } = stub({ 'm1': [finishError('EMPTY_RESPONSE')] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', []), entry('a', 'm2', [])] })
+        check(
+            'verifyModels 零内容完成不短路',
+            calls.length === 2 && summary.probed === 2 && summary.efforts === 1
+            && summary.providers[0].reachable && !summary.providers[0].skipped,
             { calls, summary },
         )
     }
