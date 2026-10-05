@@ -58,7 +58,12 @@ function upgradeTo4(config: unknown, fromVersion: number): V4PluginConfigSnapsho
     try {
         parsed = V3ConfigSchema((isPlainObject(config) ? config : {}) as unknown as Omit<V3PluginConfigSnapshot, 'configVersion'>)
     } catch {
-        parsed = V3_BASE
+        // 防御性加固：展开拷贝各嵌套组，产物不与模块级常量共享嵌套引用（常态下由下一级 schema 逐字段投影保证）
+        parsed = {
+            allowUpdate: { ...V3_BASE.allowUpdate },
+            autoFill: { ...V3_BASE.autoFill },
+            compat: { ...V3_BASE.compat },
+        }
     }
     // 产物版本固定为 4（本函数形态恒定），更高版本由后续台阶接力，故不引用 CONFIG_VERSION
     return {
@@ -116,7 +121,13 @@ export function upgradeTo5(config: unknown, fromVersion: number): V5PluginConfig
     try {
         parsed = V4ConfigSchema((isPlainObject(v4) ? v4 : {}) as unknown as Omit<V4PluginConfigSnapshot, 'configVersion'>)
     } catch {
-        parsed = V4_BASE
+        // 同 upgradeTo4：展开拷贝防与 V4_BASE 共享嵌套引用
+        parsed = {
+            allowUpdate: { ...V4_BASE.allowUpdate },
+            autoFill: { ...V4_BASE.autoFill },
+            compat: { ...V4_BASE.compat },
+            excludes: [...V4_BASE.excludes],
+        }
     }
     return {
         configVersion: 5,
@@ -184,7 +195,14 @@ export function upgradeTo6(config: unknown, fromVersion: number): V6PluginConfig
     try {
         parsed = V5ConfigSchema((isPlainObject(v5) ? v5 : {}) as unknown as Omit<V5PluginConfigSnapshot, 'configVersion' | 'efforts'>)
     } catch {
-        parsed = V5_BASE
+        // 同 upgradeTo4：展开拷贝防与 V5_BASE 共享嵌套引用（efforts 不进 schema，不在 parsed 内）
+        parsed = {
+            allowUpdate: { ...V5_BASE.allowUpdate },
+            autoFill: { ...V5_BASE.autoFill },
+            compat: { ...V5_BASE.compat },
+            excludes: [...V5_BASE.excludes],
+            userExperience: { ...V5_BASE.userExperience },
+        }
     }
     // efforts 宽松保留（结构不符回落 {}）：记忆坏值不判整段快照非法，避免连累配置自愈重写丢配置
     const efforts = parseEfforts(isPlainObject(v5) ? v5.efforts : undefined)
@@ -254,7 +272,14 @@ function upgradeTo7(config: unknown, fromVersion: number): PluginConfigSnapshot 
     try {
         parsed = V6ConfigSchema((isPlainObject(v6) ? v6 : {}) as unknown as Omit<V6PluginConfigSnapshot, 'configVersion' | 'efforts'>)
     } catch {
-        parsed = V6_BASE
+        // 同 upgradeTo4：展开拷贝防与 V6_BASE 共享嵌套引用（efforts 不进 schema，不在 parsed 内）
+        parsed = {
+            allowUpdate: { ...V6_BASE.allowUpdate },
+            autoFill: { ...V6_BASE.autoFill },
+            compat: { ...V6_BASE.compat },
+            excludes: [...V6_BASE.excludes],
+            userExperience: { ...V6_BASE.userExperience },
+        }
     }
     // efforts 宽松保留（结构不符回落 {}）：记忆坏值不判整段快照非法，避免连累配置自愈重写丢配置
     const efforts = parseEfforts(isPlainObject(v6) ? v6.efforts : undefined)
