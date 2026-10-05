@@ -120,13 +120,16 @@ function indexFromCatalog(catalog: Catalog): IndexedCatalog {
 /**
  * 缓存条目结构校验（单条，嵌套于 provider→model 两层键之下）：条目来自磁盘 JSON（用户可编辑、写入可能被截断），
  * 而填充流程直接迭代 `entry.efforts`——一条坏条目会让整批填充抛错，故在入库前逐条判定。
+ * 档位取值与 buildCatalog 写入口径严格一致（none ∪ LEVELS 去除 'off'——'off' 写入时已归一为 'none'，
+ * 盘上出现即非法，放行会经 toReasoningEfforts 产出 value 为 'off' 的非法档位写回用户配置）；
+ * 任一条非法即整份文件作废走网络重拉（坏盘自愈优先级高于坏条丢弃）。
  * 未知多余键忽略（向前兼容：比当前代码更新的缓存不应整盘作废）；
  * provider/id 键属分组与嵌套键已承担的定位信息，出现在记录本体即判非法。
  */
 export function isCacheRecord(value: unknown): value is CacheRecord {
     if (!isPlainObject(value)) return false
     const { efforts, contextWindow, maxTokens, image } = value as Partial<CacheRecord> & Record<string, unknown>
-    if (!Array.isArray(efforts) || !efforts.every((effort) => typeof effort === 'string')) return false
+    if (!Array.isArray(efforts) || !efforts.every((effort) => typeof effort === 'string' && (effort === 'none' || (LEVELS.has(effort) && effort !== 'off')))) return false
     if (contextWindow !== undefined && !isCapacity(contextWindow)) return false
     if (maxTokens !== undefined && !isCapacity(maxTokens)) return false
     if (image !== undefined && image !== true) return false

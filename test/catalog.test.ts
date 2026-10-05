@@ -47,6 +47,11 @@ export function run(): void {
     check('efforts 缺失、非数组、含非字符串一律拒绝', !isCacheRecord({})
         && !isCacheRecord({ efforts: 'high' })
         && !isCacheRecord({ efforts: ['high', 1] }))
+    check('未知档位与 off 一律拒绝（写入口径已归一，none ∪ LEVELS 去 off 之外的取值非法）', !isCacheRecord({ efforts: ['extreme'] })
+        && !isCacheRecord({ efforts: ['high', 'bogus'] })
+        && !isCacheRecord({ efforts: ['off'] })
+        && !isCacheRecord({ efforts: ['HIGH'] }))
+    check('none 与全部合法档位通过', isCacheRecord({ efforts: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] }))
     check('容量非法（0/小数/字符串/哨兵）拒绝整条', !isCacheRecord({ efforts: [], contextWindow: 0 })
         && !isCacheRecord({ efforts: [], contextWindow: 1.5 })
         && !isCacheRecord({ efforts: [], maxTokens: '200' })
@@ -56,6 +61,7 @@ export function run(): void {
     check('非对象条目拒绝', !isCacheRecord(null) && !isCacheRecord('x') && !isCacheRecord([{ efforts: [] }]))
     check('分组校验：全合法通过、任一坏条拒绝整组', parseCacheGroup({ a: { efforts: [] }, b: { efforts: [], contextWindow: 10 } }) !== undefined
         && parseCacheGroup({ a: { efforts: [] }, b: { efforts: 1 } }) === undefined
+        && parseCacheGroup({ a: { efforts: [] }, b: { efforts: ['bogus'] } }) === undefined
         && parseCacheGroup('x') === undefined
         && parseCacheGroup([]) === undefined)
 }
