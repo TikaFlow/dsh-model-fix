@@ -55,9 +55,11 @@ export function groupValue(flags: Flags, group: Group, key: RowKey): boolean {
     return rowsOf(flags, group)[key] === true
 }
 
-/** 组总控的当前显示值：组内任一为开即为开（点击时取反并整组同置；总开关本身无对应存储） */
+/** 组总控的当前显示值：组内全为开才显示开。判据取 every 而非 any——部分选中显示关，点击即整组补全为开；
+ *  若取 any，部分选中会显示成开、点击反而把用户已勾的那几行抹掉。口径与验证弹层分组「全选」一致。
+ *  （总开关本身无对应存储，只是个批量操作） */
 export function masterValue(flags: Flags, group: Group): boolean {
-    return GROUP_KEYS[group].some((key) => groupValue(flags, group, key))
+    return GROUP_KEYS[group].every((key) => groupValue(flags, group, key))
 }
 
 /** 整组同置：把 group 的全部行设为 value，返回新对象（不改入参） */

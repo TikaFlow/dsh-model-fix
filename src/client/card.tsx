@@ -585,7 +585,8 @@ export function Card(props: CardProps) {
         setNotice(null)
         commitDraft(toggleCell(shown, group, key))
     }
-    // 整组总控：组内任一为开则显示开；点击取反并把该组全部行设为同一值（总开关无对应存储，只是批量操作）
+    // 整组总控：显示值取 masterValue（全开才显示开，部分选中显示关，点击即补全为开）；点击取反并把该组全部行设为同一值
+    // （总开关无对应存储，只是批量操作）
     const onMaster = (group: Group) => {
         setNotice(null)
         commitDraft(applyGroup(shown, group, !masterValue(shown, group)))

@@ -171,17 +171,25 @@ export function run(): void {
     // 带 forgetRemoved false 的往返一致（关掉「忘记已删除模型」的存取回路）
     const WITHOUT_FORGET: Flags = { ...ALL_ON, userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: false } }
     check('snapshot -> decode 往返含 forgetRemoved false', stable(decodeSection({ [VERSION_KEY]: toStored(WITHOUT_FORGET) })) === stable(WITHOUT_FORGET))
-    // ---------- 组总控显示：任一为开则开，全关才关 ----------
+    // ---------- 组总控显示：全开才开，部分选中显示关（判据 every，与验证弹层分组「全选」同口径） ----------
     check('master 全开为开', masterValue(ALL_ON, 'autoFill') === true)
     check('master 全关为关', masterValue(DEFAULT_FLAGS, 'allowUpdate') === false)
-    check('master 混合列显示为开', masterValue(toggleCell(DEFAULT_FLAGS, 'autoFill', 'image'), 'autoFill') === true)
-    // compat 组只有一行时总控与该行的显示值一致（新增兼容性键后仍按「任一为开」判定）
+    check('master 部分选中显示为关', masterValue(toggleCell(DEFAULT_FLAGS, 'autoFill', 'image'), 'autoFill') === false)
+    // 部分选中点总控应「补全为开」而非抹掉已勾的行：点击值取 masterValue 的取反
+    const mixedAutoFill = toggleCell(DEFAULT_FLAGS, 'autoFill', 'image')
+    check(
+        'master 部分选中点击后整组补全为开',
+        stable(applyGroup(mixedAutoFill, 'autoFill', !masterValue(mixedAutoFill, 'autoFill')).autoFill)
+            === stable({ reasoning: true, context: true, image: true }),
+    )
+    // compat 组只有一行时总控与该行的显示值一致（新增兼容性键后仍按「全开」判定）
     check('master compat 行为开则为开', masterValue(ALL_ON, 'compat') === true)
     check('master compat 行为关则为关', masterValue({ ...ALL_ON, compat: { disableDeveloper: false } }, 'compat') === false)
-    // userExperience 组多行：任一为开则开（defaultHigh / forgetRemoved 单独为开也应让总控显示开）
-    check('master userExperience 任一为开则开', masterValue({ ...ALL_ON, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: false } }, 'userExperience') === true)
-    check('master userExperience forgetRemoved 为开则开', masterValue({ ...ALL_ON, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: true } }, 'userExperience') === true)
+    // userExperience 组多行：部分选中显示关，三项全开才显示开
+    check('master userExperience 部分选中显示为关', masterValue({ ...ALL_ON, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: false } }, 'userExperience') === false)
+    check('master userExperience 仅两项为开仍为关', masterValue({ ...ALL_ON, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: true } }, 'userExperience') === false)
     check('master userExperience 全关则关', masterValue({ ...ALL_ON, userExperience: { rememberEfforts: false, defaultHigh: false, forgetRemoved: false } }, 'userExperience') === false)
+    check('master userExperience 全开则开', masterValue(ALL_ON, 'userExperience') === true)
     // ---------- 总控点击：整组同置取反值（只作用于布尔组，排除列表不得被牵连） ----------
     check(
         'applyGroup 整列置反（开->全关）',
