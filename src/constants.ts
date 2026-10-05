@@ -1,5 +1,6 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { EFFORT_LEVELS } from '@/shared/constants'
 
 /** 最低支持（可升级读取）的版本；低于此值的版本快照视为已失效（运行时不读取、迁移时清理） */
 export const MIN_SUPPORTED_VERSION = 3
@@ -25,8 +26,8 @@ export const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000
 /** 缓存文件路径（基于模块路径定位，public/ 经构建平铺复制到 lib/ 根；网络拉取成功后覆盖） */
 export const CACHE_FILE = join(dirname(fileURLToPath(import.meta.url)), 'models-cache.json')
 
-/** 推理级别取值，与 harness 的 ModelThinkingLevel 一致 */
-export const LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+/** 推理级别取值集合，与 harness 的 ModelThinkingLevel 一致（有序表在跨半共享层，两半同源） */
+export const LEVELS: ReadonlySet<string> = new Set(EFFORT_LEVELS)
 
 /**
  * compat.disableDeveloper 管辖的协议：只作用于 OpenAI Chat Completions 风格的路由（自定义端点的主流形态）。

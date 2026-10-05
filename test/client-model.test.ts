@@ -1,4 +1,4 @@
-/** src/client/model.ts 纯映射层用例：解码（只读 version-7，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化 */
+/** src/client/model.ts 纯映射层用例：解码（只读 version-7，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化、验证候选拍取与目标收敛 */
 
 import { check, stable } from '@test/helper'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
@@ -15,6 +15,9 @@ import {
     removeExclude,
     resolveHits,
     toggleCell,
+    verifyCandidatesOf,
+    verifyKey,
+    verifyTargets,
 } from '@/client/model'
 import type { Flags } from '@/client/model'
 
@@ -264,4 +267,56 @@ export function run(): void {
     check('isDirty userExperience 等值不为脏', isDirty({ ...DEFAULT_FLAGS, userExperience: { ...DEFAULT_FLAGS.userExperience } }, DEFAULT_FLAGS) === false)
     // efforts 的变化不标脏（运行时记忆，非用户配置，不应触发"未保存更改"）
     check('isDirty efforts 变化不标脏', isDirty({ ...DEFAULT_FLAGS, efforts: { a: { m: 'high' } } }, DEFAULT_FLAGS) === false)
+    // ---------- 验证候选：与 providerIdsOf 同源，档位取 reasoningEfforts 的键并按 EFFORT_LEVELS 归一 ----------
+    const verifyUser = {
+        providers: {
+            'acme-gateway': { models: [
+                // 配置里的键序是 high → off → low，归一后应按规范次序 off → low → high
+                { id: 'z-ai/glm-5', reasoningEfforts: { high: 'high', off: null, low: 'low' }, contextWindow: 200_000 },
+                { id: 'no-efforts' },
+                // 无 id 的行跳过
+                { reasoningEfforts: { low: 'low' } },
+            ] },
+            'lab-7': { models: [{ id: 'only-one', reasoningEfforts: { medium: 'medium' } }] },
+            // 无 models 数组的提供方不产出候选
+            'empty-provider': { api: 'openai-completions' },
+        },
+    }
+    check(
+        'verifyCandidatesOf 逐提供方逐模型拍出候选并归一档位序',
+        stable(verifyCandidatesOf(verifyUser)) === stable([
+            { provider: 'acme-gateway', model: 'z-ai/glm-5', efforts: ['off', 'low', 'high'] },
+            { provider: 'acme-gateway', model: 'no-efforts', efforts: [] },
+            { provider: 'lab-7', model: 'only-one', efforts: ['medium'] },
+        ]),
+        verifyCandidatesOf(verifyUser),
+    )
+    check('verifyCandidatesOf 丢弃未知档位键', stable(verifyCandidatesOf({ providers: { p: { models: [{ id: 'm', reasoningEfforts: { low: 'low', turbo: 'turbo' } }] } } })) === stable([{ provider: 'p', model: 'm', efforts: ['low'] }]))
+    check('verifyCandidatesOf reasoningEfforts 非对象视作无档位', stable(verifyCandidatesOf({ providers: { p: { models: [{ id: 'm', reasoningEfforts: ['low'] }] } } })) === stable([{ provider: 'p', model: 'm', efforts: [] }]))
+    for (const junk of [undefined, null, 42, 'x', [], {}, { providers: 'x' }, { providers: [] }, { providers: { p: 'x' } }, { providers: { p: { models: {} } } }]) {
+        check(`verifyCandidatesOf 垃圾输入返回空 ${stable(junk)}`, verifyCandidatesOf(junk).length === 0, junk)
+    }
+    // ---------- 选择键：模型 id 含 '/' 也不能与拼接方案撞车 ----------
+    check('verifyKey 二元组序列化', verifyKey('a', 'x/y') === '["a","x/y"]')
+    check('verifyKey 不同提供方的同名模型互不相同', verifyKey('a', 'm') !== verifyKey('b', 'm'))
+    // ---------- 校验目标：只取勾选项；全档位或最低档位 ----------
+    const candidates = verifyCandidatesOf(verifyUser)
+    const keys = new Set([verifyKey('acme-gateway', 'z-ai/glm-5'), verifyKey('acme-gateway', 'no-efforts')])
+    check(
+        'verifyTargets 默认只取最低档位',
+        stable(verifyTargets(candidates, keys, false)) === stable([
+            { provider: 'acme-gateway', model: 'z-ai/glm-5', efforts: ['off'] },
+            { provider: 'acme-gateway', model: 'no-efforts', efforts: [] },
+        ]),
+        verifyTargets(candidates, keys, false),
+    )
+    check(
+        'verifyTargets 全档位模式取全部档位',
+        stable(verifyTargets(candidates, keys, true)) === stable([
+            { provider: 'acme-gateway', model: 'z-ai/glm-5', efforts: ['off', 'low', 'high'] },
+            { provider: 'acme-gateway', model: 'no-efforts', efforts: [] },
+        ]),
+    )
+    check('verifyTargets 未勾选得空', verifyTargets(candidates, new Set(), true).length === 0)
+    check('verifyTargets 不改入参候选', stable(candidates[0].efforts) === stable(['off', 'low', 'high']))
 }

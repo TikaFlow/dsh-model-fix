@@ -11,6 +11,7 @@ import { run as runMigrate } from '@test/migrate.test'
 import { run as runReset } from '@test/reset.test'
 import { run as runRestore } from '@test/restore.test'
 import { run as runRpcRoute } from '@test/rpc-route.test'
+import { run as runVerify } from '@test/verify.test'
 import { summary } from '@test/helper'
 
 runCatalog()
@@ -23,6 +24,7 @@ runLookup()
 runMigrate()
 runReset()
 runRestore()
+runVerify()
 await runRpcRoute()
 await runFix()
 summary()

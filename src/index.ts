@@ -11,7 +11,7 @@ import { isIgnoreAll } from '@/guard'
 import { captureBackup } from '@/restore'
 
 export const name = PLUGIN_NAME
-export const inject = ['settings', 'connection']
+export const inject = ['settings', 'connection', 'llm']
 
 /**
  * 宿主 Config schema 面：宽松任意值（「比当前代码更新的版本快照」也能通过注册校验）+

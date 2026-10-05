@@ -15,6 +15,9 @@ export const PLUGIN_NS = 'tikaflow-model-fix'
 /** 插件名（= npm 包名）：Node 半日志前缀与 User-Agent、浏览器半 `export const name` 与样式标签 HMR 标记共用 */
 export const PLUGIN_NAME = 'dsh-model-fix'
 
+/** 推理级别取值，与 harness 的 ModelThinkingLevel 一致（由低到高：浏览器半取「最低档位」即取首个命中项） */
+export const EFFORT_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+
 /** 当前代码支持的配置版本（新 NS 内的快照版本）；配置 schema 变化时递增，并在 migrate.ts 中追加升级步骤 */
 export const CONFIG_VERSION = 7
 

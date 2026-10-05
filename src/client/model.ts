@@ -2,12 +2,13 @@
  * 浏览器半纯映射层：`tikaflow-model-fix` 版本快照段 <-> 卡片配置（autoFill / allowUpdate / compat / userExperience 四组布尔 + excludes 列表）。
  * 跨半共享的常量、类型、解析函数单一来源在 `src/shared/`：浏览器半值导入 `@/shared/*`（经 client 纯度门禁放行，
  * 不引 `src/constants` / `src/types` / `src/config` 的值，避免 `node:path` / schemastery 被打进浏览器包）。
- * 本文件只保留 UI 层：组的行键表与渲染顺序、快照↔配置的 UI 派生（总控 / 单格 / 脏检测 / 排除项增删 / 命中判定）。
+ * 本文件只保留 UI 层：组的行键表与渲染顺序、快照↔配置的 UI 派生（总控 / 单格 / 脏检测 / 排除项增删 / 命中判定）、
+ * 以及验证候选的拍取与目标收敛（卡片「验证模型」弹层消费）。
  */
 
 import type { PluginConfig } from '@/shared/types'
 import { isPlainObject, providersOf } from '@/shared/types'
-import { CONFIG_VERSION } from '@/shared/constants'
+import { CONFIG_VERSION, EFFORT_LEVELS } from '@/shared/constants'
 import { DEFAULT_CONFIG, FIELD_KEYS, COMPAT_KEYS, USER_EXPERIENCE_KEYS, parseSnapshot, versionKey } from '@/shared/parse'
 
 /** 版本快照键 */
@@ -124,3 +125,56 @@ export function removeExclude(flags: Flags, id: string): Flags {
 
 /** 排除项 id 的合法性规则：逐字复制宿主 models 页新增提供方时的 route id 校验（同一权威规则，两侧不得自行放宽） */
 export const EXCLUDE_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
+
+/**
+ * 一个待验证的「提供方 / 模型」：附带该模型在配置里声明的推理级别（`reasoningEfforts` 的键，
+ * 按 `EFFORT_LEVELS` 由低到高排序去重；无该字段即 `[]`，表示不带档位探测）。
+ * 列表项与 RPC 载荷同形，故两者共用这一个类型。
+ */
+export interface VerifyCandidate {
+    provider: string
+    model: string
+    efforts: string[]
+}
+
+/** 选择键：模型 id 可含 '/'，故取二元组序列化而非字符串拼接（同一口径与 Node 半 summarizeProbes 的去重键一致） */
+export function verifyKey(provider: string, model: string): string {
+    return JSON.stringify([provider, model])
+}
+
+/**
+ * 从 `llm-pi-ai` 的 user 层拍出验证候选（与 Node 半 fix 遍历同一事实源，故列表与实际会填充的模型零漂移）。
+ * 保持录入顺序；提供方非对象、无 models 数组、模型无 id 的行一律跳过。
+ * 不套用 `excludes`：验证是只读诊断，排除语义只约束插件对配置的写入。
+ */
+export function verifyCandidatesOf(user: unknown): VerifyCandidate[] {
+    const candidates: VerifyCandidate[] = []
+    for (const [provider, entry] of Object.entries(providersOf(user) ?? {})) {
+        if (!isPlainObject(entry) || !Array.isArray(entry.models)) continue
+        for (const model of entry.models) {
+            if (!isPlainObject(model) || typeof model.id !== 'string' || model.id === '') continue
+            const declared = isPlainObject(model.reasoningEfforts) ? model.reasoningEfforts : undefined
+            // 档位取配置里的**键**（即模型页送出、宿主校验的那个 id），并按规范次序归一
+            const efforts = declared === undefined ? [] : EFFORT_LEVELS.filter((level) => Object.hasOwn(declared, level))
+            candidates.push({ provider, model: model.id, efforts: [...efforts] })
+        }
+    }
+    return candidates
+}
+
+/**
+ * 从勾选的候选算出校验目标：`allEfforts` 为真时逐个档位探测，否则只取最低的一个
+ * （`EFFORT_LEVELS` 首位即最低；无档位模型两种模式都产出空数组，即不带档位探测）。
+ */
+export function verifyTargets(
+    candidates: readonly VerifyCandidate[],
+    keys: ReadonlySet<string>,
+    allEfforts: boolean,
+): VerifyCandidate[] {
+    return candidates
+        .filter((candidate) => keys.has(verifyKey(candidate.provider, candidate.model)))
+        .map((candidate) => ({
+            ...candidate,
+            efforts: allEfforts || candidate.efforts.length === 0 ? candidate.efforts : candidate.efforts.slice(0, 1),
+        }))
+}

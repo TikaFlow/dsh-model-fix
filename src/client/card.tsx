@@ -7,8 +7,11 @@
  * 用户体验）+ 一张动态集合瓦片（排除提供方，summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）。
  * 瓦片手风琴：默认收起、同时只开一个。
  * 布尔瓦片的每一行标题带一个说明键：悬停或键盘聚焦时经宿主 Tooltip 气泡给出该设置项释义（组释义在首行、项释义在气泡）。
- * footer 左侧为强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键），右侧为取消（仅未保存时渲染）/ 保存；
+ * footer 左侧为强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）/ 验证模型（次级键），右侧为取消（仅未保存时渲染）/ 保存；
  * 三把写回键与「清空记忆」均先弹宿主 Modal 二次确认，再经 Connection RPC 或 settings scope 请求 Node 半。
+ * 「验证模型」则弹一个自带确认的候选框（逐条照官方 models 页「获取可用模型」的候选框，减去其搜索/全选工具条）：
+ * 按提供方分组多选模型，配「验证所有推理级别」开关，对「模型 × 推理级别」笛卡尔积发起真实探测，
+ * 结果同走卡片内联状态行——验证即用即弃，不留任何配置痕迹。
  * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
  * 结果反馈一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）。
@@ -34,8 +37,11 @@ import {
     removeExclude,
     resolveHits,
     toggleCell,
+    verifyCandidatesOf,
+    verifyKey,
+    verifyTargets,
 } from '@/client/model'
-import type { Flags, Group, RowKey } from '@/client/model'
+import type { Flags, Group, RowKey, VerifyCandidate } from '@/client/model'
 import type { CardKey } from '@/client/locales'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locales'
 import { PLUGIN_NAME } from '@/shared/constants'
@@ -112,6 +118,8 @@ export interface CardProps {
     resetModels: () => Promise<ConnectionRpcResult<unknown>>
     /** 恢复备份 RPC：回退启动时备份（交集 provider+model）到当前配置；返回被恢复的模型数 */
     restoreModels: () => Promise<ConnectionRpcResult<unknown>>
+    /** 验证模型 RPC：对「模型 × 推理级别」各发一次最小请求，仅以提供方是否受理判定可用；返回可用模型数 / 可用档位数 / 探测总数 */
+    verifyModels: (models: readonly VerifyCandidate[]) => Promise<ConnectionRpcResult<unknown>>
     /** 初始折叠态：插件详情页（plugins.bundle.config）、组件实例详情页（plugins.row.config）与「内置插件」选项卡（settings.plugins.tab）默认展开；模型页 footer 席不传即默认收起（与官方插件卡一致）。同时决定保存成功后是否自动收起——只在默认收起的席位上生效 */
     defaultOpen?: boolean
 }
@@ -228,6 +236,25 @@ const STYLE_TEXT = [
     // 危险确认键：官方 .deleteConfirm 写法（outline 按钮 + 红描边红字 + danger hover）
     '.dsh-mf-confirmDanger:not(:disabled){border-color:var(--dsw-alias-state-error-primary,#ec1313);color:var(--dsw-alias-state-error-primary,#ec1313)}',
     '.dsh-mf-confirmDanger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger,rgba(236,19,19,.05))}',
+    // 「验证模型」弹层：逐条照官方 models 页「获取可用模型」候选框（ModelsSection 的 fetchDialog / candidate* 类）。
+    // 宿主滚动条变量无浅色真值可引，按官方原样透传、不自造字面量兜底
+    '.dsh-mf-verifyDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}',
+    '.dsh-mf-verifyList{display:flex;flex-direction:column;gap:2px;max-height:320px;margin:0;padding:0;list-style:none;overflow-y:auto}',
+    // 提供方分组头：官方候选框本无分组，此处一行静态标题标明下一批条目归属（零自造色，仅用宿主 label 令牌）
+    '.dsh-mf-verifyGroup{padding:8px 8px 4px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#81858c)}',
+    '.dsh-mf-verifyRow{border-radius:var(--dsw-radius-md,12px)}',
+    '.dsh-mf-verifyLabel{display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer}',
+    '.dsh-mf-verifyId{flex:auto;min-width:0;overflow:hidden;font-family:var(--ds-font-family-code);font-size:13px;text-overflow:ellipsis;white-space:nowrap}',
+    '.dsh-mf-verifyEmpty{margin:24px 0;color:var(--dsw-alias-label-secondary,#61666b);text-align:center;font-size:13px;line-height:20px}',
+    // 额度提示：沿用官方插件卡的 .notice（warn 语义、12px/18px），置于候选列表之下
+    '.dsh-mf-verifyQuota{margin:8px 0 0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label,#dd8629)}',
+    // 底部整行自绘：宿主 Modal 的 footer 是 flex-end 的单行，故整行交给本容器——同排时开关靠左、窄屏自动折行
+    '.dsh-mf-verifyFooter{display:flex;align-items:center;flex-wrap:wrap;gap:8px;width:100%}',
+    '.dsh-mf-verifyOption{display:inline-flex;align-items:center;gap:6px;margin-right:auto;min-width:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-secondary,#61666b)}',
+    // 注意语义确认键：与危险键同构，仅把描边/字色换成 warn 令牌；hover 用其 10% 稀释（宿主无 warn 悬停底令牌，
+    // 与 .dsh-mf-chipVersion 同一 color-mix 手法，不自造色值）
+    '.dsh-mf-confirmWarn:not(:disabled){border-color:var(--dsw-alias-state-warn-label,#dd8629);color:var(--dsw-alias-state-warn-label,#dd8629)}',
+    '.dsh-mf-confirmWarn:hover:not(:disabled){background:color-mix(in srgb, var(--dsw-alias-state-warn-label,#dd8629) 10%, transparent)}',
 ].join('\n')
 
 /** 幂等注入样式：每次渲染校验 DOM 实况——宿主 HMR 会按 data-plugin 摘走旧节点，节点在则同步内容 */
@@ -457,11 +484,26 @@ export function Card(props: CardProps) {
         () => providerIdsOf(providersSnap.status === 'ready' ? providersSnap.user : undefined),
         [providersSnap],
     )
+    // 验证候选与提供方 id 同源（同一份 llm-pi-ai user 层），故列表里出现的正是 fix 会遍历的那些模型
+    const verifyCandidates = useMemo(
+        () => verifyCandidatesOf(providersSnap.status === 'ready' ? providersSnap.user : undefined),
+        [providersSnap],
+    )
+    // 按提供方归组渲染：候选本就是「提供方内聚」的录入顺序，取相邻同提供方成组即可，无需再分桶
+    const verifyGroups = useMemo(() => {
+        const groups: { provider: string; models: VerifyCandidate[] }[] = []
+        for (const candidate of verifyCandidates) {
+            const last = groups[groups.length - 1]
+            if (last !== undefined && last.provider === candidate.provider) last.models.push(candidate)
+            else groups.push({ provider: candidate.provider, models: [candidate] })
+        }
+        return groups
+    }, [verifyCandidates])
     // draft === null 表示未编辑、跟随已存值；首次点击即冻结当前显示值为草稿
     const [draft, setDraft] = useState<Flags | null>(null)
-    // 全部写操作（保存 / 强制更新 / 重置 / 恢复 / 清空记忆）共用单一互斥标志：
+    // 全部写操作（保存 / 强制更新 / 重置 / 恢复 / 清空记忆 / 验证）共用单一互斥标志：
     // 一者 in-flight 时其余入口与按钮全禁；后续新增动作只加成员，不必改既有互斥
-    const [busy, setBusy] = useState<'save' | 'force' | 'reset' | 'restore' | 'clear' | null>(null)
+    const [busy, setBusy] = useState<'save' | 'force' | 'reset' | 'restore' | 'clear' | 'verify' | null>(null)
     // 折叠态为卡片本地状态（读姿而非配置）：初始值取 defaultOpen（缺省收起、与官方插件卡一致）；草稿跨折叠存活
     const [open, setOpen] = useState(props.defaultOpen ?? false)
     // 保存后自动收起只对默认收起的席位有意义：默认展开的三席（插件详情页 / 组件实例详情页 / 内置插件选项卡）
@@ -477,6 +519,10 @@ export function Card(props: CardProps) {
     const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
     // 「记住推理级别」关掉时的确认：是否清空已有记忆（前端直写，不走 RPC）
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
+    // 「验证模型」弹层：勾选集（键见 verifyKey）、是否逐个档位验证；默认不预选——每次验证都花真实额度
+    const [verifyOpen, setVerifyOpen] = useState(false)
+    const [verifyPicked, setVerifyPicked] = useState<ReadonlySet<string>>(() => new Set())
+    const [verifyAllEfforts, setVerifyAllEfforts] = useState(false)
     const saveStarted = useRef(false)
 
     const saved = snap.value
@@ -660,6 +706,52 @@ export function Card(props: CardProps) {
                 setBusy(null)
             })
     }
+    // 验证模型：弹层自身已含 warn 提示与 warn 语义的确认键，构成自确认，故不再叠加二次确认弹层。
+    // 结果与「强制更新」同走卡片内联状态行（该行挂在条件展开体之外，折叠不丢在途/已到的结果）
+    const onVerify = () => {
+        if (!ready || busy) return
+        setNotice(null)
+        setVerifyOpen(true)
+    }
+    const runVerify = () => {
+        if (busy) return
+        setBusy('verify')
+        props.verifyModels(verifyTargets(verifyCandidates, verifyPicked, verifyAllEfforts))
+            .then((result) => {
+                if (result.ok) {
+                    const value = result.value as { models?: number; efforts?: number; total?: number } | undefined
+                    setNotice({
+                        text: t('verifyDone', { models: value?.models ?? 0, efforts: value?.efforts ?? 0, total: value?.total ?? 0 }),
+                        tone: 'success',
+                    })
+                } else {
+                    setNotice({ text: t('verifyFailed', { message: truncateMessage(result.error.message) }), tone: 'error' })
+                }
+            })
+            .catch((error: unknown) => {
+                setNotice({
+                    text: t('verifyFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) }),
+                    tone: 'error',
+                })
+            })
+            .finally(() => {
+                // 结果到手才关窗：探测可能持续数分钟，期间弹层原地转圈（见下），提前关窗会让用户失去进度感知
+                closeVerify()
+                setBusy(null)
+            })
+    }
+    // 关闭即丢弃本次勾选（下次打开回到未预选态）；档位开关是模式偏好，保留上次选择
+    const closeVerify = () => {
+        setVerifyOpen(false)
+        setVerifyPicked(new Set())
+    }
+    const toggleVerifyPick = (key: string) => {
+        setVerifyPicked((current) => {
+            const next = new Set(current)
+            if (!next.delete(key)) next.add(key)
+            return next
+        })
+    }
     // 清空记忆：前端经自有 NS 的 settings scope 直写（与「保存」同一条写通道，立即生效、草稿不动）；
     // 失败要显式提示——否则开关已关而记忆未清，无从察觉。与保存共用 busy 互斥：
     // 保存整段写含 efforts 实时值，两者并发时后落者会把先落者覆盖掉
@@ -744,6 +836,15 @@ export function Card(props: CardProps) {
                         onClick={onRestore}
                     >
                         {busy === 'restore' ? t('restoreBusy') : t('restore')}
+                    </button>
+                    {/* 验证模型：弹层自带额度提示与 warn 语义确认键，已构成自确认，故此键只取次级描边、不再叠二次确认弹层 */}
+                    <button
+                        type="button"
+                        className="dsh-mf-discard"
+                        disabled={!ready || busy !== null}
+                        onClick={onVerify}
+                    >
+                        {t('verify')}
                     </button>
                 </span>
                 <span className="dsh-mf-actions">
@@ -831,6 +932,73 @@ export function Card(props: CardProps) {
                     <Button variant="outline" className="dsh-mf-confirmDanger" disabled={busy !== null} onClick={clearEfforts}>{t('clearEffortsGo')}</Button>
                 </>}
             />
+            {/* 「验证模型」弹层：结构逐条照官方 models 页「获取可用模型」的候选框（title / desc / 候选列表 / 底部取消 + 采用），
+                按需求去掉其「搜索 — 全选」工具条一行；改为列表下方一条 warn 额度提示，底部左侧加「验证所有推理级别」开关。
+                在途期间忽略关闭：请求已发给宿主，提前关窗只会留下无人收割的一批探测 */}
+            <Modal
+                open={verifyOpen}
+                onClose={() => { if (busy !== 'verify') closeVerify() }}
+                title={t('verifyTitle')}
+                closeLabel={t('close')}
+                description={t('verifyDesc')}
+                className="dsh-mf-verifyDialog"
+                footer={<div className="dsh-mf-verifyFooter">
+                    <span className="dsh-mf-verifyOption">
+                        <Switch
+                            checked={verifyAllEfforts}
+                            disabled={busy === 'verify'}
+                            label={t('verifyAllEfforts')}
+                            onChange={setVerifyAllEfforts}
+                        />
+                        <span>{t('verifyAllEfforts')}</span>
+                        {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
+                        <Tooltip label={t('verifyAllEffortsTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                            <button type="button" className="dsh-mf-help" aria-label={t('verifyAllEffortsTip')}>
+                                <IconInfoOutlineRegular size={12} />
+                            </button>
+                        </Tooltip>
+                    </span>
+                    <Button variant="outline" data-modal-autofocus disabled={busy === 'verify'} onClick={closeVerify}>{t('cancel')}</Button>
+                    {/* 在途指示：宿主 StateDot 的 ongoing 态即侧边栏会话列表每项左侧那个转圈（同一原语、同一动效） */}
+                    {busy === 'verify' ? <StateDot state="ongoing" /> : null}
+                    <Button
+                        variant="outline"
+                        className="dsh-mf-confirmWarn"
+                        disabled={busy !== null || verifyPicked.size === 0}
+                        onClick={runVerify}
+                    >
+                        {busy === 'verify' ? t('verifying') : t('verifyGo')}
+                    </Button>
+                </div>}
+            >
+                {verifyGroups.length === 0 ? (
+                    <p className="dsh-mf-verifyEmpty" role="status">{t('verifyEmpty')}</p>
+                ) : (
+                    <ul className="dsh-mf-verifyList">
+                        {verifyGroups.map((group) => [
+                            <li key={`g-${group.provider}`} className="dsh-mf-verifyGroup">{group.provider}</li>,
+                            ...group.models.map((candidate) => {
+                                const key = verifyKey(candidate.provider, candidate.model)
+                                return (
+                                    <li key={key} className="dsh-mf-verifyRow">
+                                        {/* 官方候选行同构：label 内 checkbox + 等宽模型 id，点整行即切换 */}
+                                        <label className="dsh-mf-verifyLabel">
+                                            <input
+                                                type="checkbox"
+                                                checked={verifyPicked.has(key)}
+                                                disabled={busy === 'verify'}
+                                                onChange={() => { toggleVerifyPick(key) }}
+                                            />
+                                            <span className="dsh-mf-verifyId" title={candidate.model}>{candidate.model}</span>
+                                        </label>
+                                    </li>
+                                )
+                            }),
+                        ])}
+                    </ul>
+                )}
+                <p className="dsh-mf-verifyQuota">{t('verifyQuota')}</p>
+            </Modal>
         </>
     )
 

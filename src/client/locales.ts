@@ -74,6 +74,17 @@ export type CardKey =
     | 'restoreGo'
     | 'restoreDone'
     | 'restoreFailed'
+    | 'verify'
+    | 'verifyTitle'
+    | 'verifyDesc'
+    | 'verifyQuota'
+    | 'verifyAllEfforts'
+    | 'verifyAllEffortsTip'
+    | 'verifyGo'
+    | 'verifying'
+    | 'verifyDone'
+    | 'verifyFailed'
+    | 'verifyEmpty'
     | 'clearEffortsTitle'
     | 'clearEffortsConfirm'
     | 'clearEffortsKeep'
@@ -195,6 +206,17 @@ export const zh: Record<CardKey, string> = {
     restoreGo: '确认恢复',
     restoreDone: '已恢复 {count} 个模型。',
     restoreFailed: '恢复失败：{message}',
+    verify: '验证模型',
+    verifyTitle: '选择要验证的模型',
+    verifyDesc: '勾选后将逐个发起请求，确认提供方是否真的受理；验证所耗时间随模型数量增加。',
+    verifyQuota: '验证会发起真实请求，可能消耗少量额度。',
+    verifyAllEfforts: '验证所有推理级别',
+    verifyAllEffortsTip: '开启后会验证该模型声明的全部推理级别，请求数成倍增加；关闭时每个模型仅验证一个推理级别。',
+    verifyGo: '验证',
+    verifying: '验证中…',
+    verifyDone: '验证完成：{models} 个模型的 {efforts} 个推理级别可用（共 {total} 项）。',
+    verifyFailed: '验证失败：{message}',
+    verifyEmpty: '暂无模型，请先在「模型」设置中添加模型。',
     clearEffortsTitle: '清空推理级别记忆',
     clearEffortsConfirm: '关闭后不再记住新的推理级别，已记住的仍会自动恢复。是否现在清空这些已记住的级别？',
     clearEffortsKeep: '保留',
@@ -273,6 +295,17 @@ export const en: Record<CardKey, string> = {
     restoreGo: 'Restore',
     restoreDone: 'Restored {count} model(s).',
     restoreFailed: 'Restore failed: {message}',
+    verify: 'Verify models',
+    verifyTitle: 'Choose models to verify',
+    verifyDesc: 'Each chosen model gets a request to confirm the provider really accepts it; verification takes longer with more models.',
+    verifyQuota: 'Verification sends real requests and may use a small amount of your quota.',
+    verifyAllEfforts: 'Verify every reasoning effort',
+    verifyAllEffortsTip: 'Verifies every reasoning effort the model declares, multiplying the request count; when off, only one reasoning effort per model is verified.',
+    verifyGo: 'Verify',
+    verifying: 'Verifying…',
+    verifyDone: 'Verified: {efforts} reasoning effort(s) across {models} model(s) are usable ({total} request(s) sent).',
+    verifyFailed: 'Verification failed: {message}',
+    verifyEmpty: 'No models yet. Add models on the Models settings page first.',
     clearEffortsTitle: 'Clear remembered efforts',
     clearEffortsConfirm: 'While turned off, new levels are no longer remembered, but the ones already remembered keep auto-restoring. Clear the remembered levels now?',
     clearEffortsKeep: 'Keep',
