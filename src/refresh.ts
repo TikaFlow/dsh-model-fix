@@ -3,6 +3,7 @@ import { fetchLatest, setCatalog } from '@/catalog'
 import { MAX_ATTEMPTS, REFRESH_INTERVAL_MS, RETRY_DELAY_MS } from '@/constants'
 import { PLUGIN_NAME } from '@/shared/constants'
 import { fix } from '@/fix'
+import { isIgnoreAll } from '@/guard'
 
 // 拉取生命周期状态：时间戳只在成功时更新（失败路径不封保鲜窗口，下一次用户事件即可重试自愈）；
 // 在途守卫防止连续事件叠加拉取——在途期间事件只填充，结算（成功/重试耗尽/卸载）后自然放行
@@ -21,6 +22,9 @@ function refresh(ctx: Context, isDisposed: () => boolean, retryCount = MAX_ATTEM
     // 保证同一时刻只有一个 refresh 流程——否则并发在途的响应可能后发先至、把较旧的目录覆盖回去。
     // 依赖调用方先判 refreshing 是不够的（新增调用点极易漏判），此行不可删。
     if (refreshing) return
+    // 事件流守卫开启（重置/恢复写回期间）不启动拉取：本判定同时覆盖重试定时器触发路径，
+    // 守卫解除后的下一次段变更事件会重新走到这里
+    if (isIgnoreAll()) return
     refreshing = true
     fetchLatest(ctx)
         .then((indexed) => {
@@ -31,6 +35,13 @@ function refresh(ctx: Context, isDisposed: () => boolean, retryCount = MAX_ATTEM
             // 时间戳仅在成功时落定：失败不封保鲜窗口（REFRESH_INTERVAL_MS），网络恢复后的下一次事件即可自愈
             lastRefreshAt = Date.now()
             setCatalog(indexed)
+            // 结算是不经过 index.ts 事件入口的异步续体，须在此自查守卫：重置/恢复写回（守卫开启）期间
+            // 结算的拉取若照常填充，会把刚删除的字段重新填回。目录与保鲜窗口照常更新，仅跳过填充——
+            // 守卫解除后的下一次段变更事件会以新目录正常填充
+            if (isIgnoreAll()) {
+                refreshing = false
+                return
+            }
             fix(ctx).catch((error) => {
                 if (isDisposed()) return
                 ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${error instanceof Error ? error.message : String(error)}`)
