@@ -166,6 +166,39 @@ export function run(): void {
     // v6 台阶冻结形态：upgradeTo6 产物只含 rememberEfforts 与 defaultHigh（无 forgetRemoved），确认历史台阶不被当前演进污染
     check('v6 台阶产物 userExperience 不含 forgetRemoved', stable(upgradeTo6('garbage', 6).userExperience) === stable({ rememberEfforts: true, defaultHigh: true }), upgradeTo6('garbage', 6).userExperience)
 
+    // ---------- 台阶接力的参数化守护：fromVersion 全档 × 合法/非法 efforts，守护台阶冻结形态与 efforts 宽松保留语义 ----------
+    const V5_INPUT = {
+        configVersion: 5,
+        allowUpdate: { reasoning: false, context: false, image: false },
+        autoFill: { reasoning: true, context: true, image: true },
+        compat: { disableDeveloper: true },
+        excludes: [] as string[],
+        userExperience: { rememberEfforts: true },
+    }
+    const GOOD_EFFORTS = { 'z-ai': { 'glm-5.2': 'high' } }
+    // upgradeTo5 产物形态恒定：efforts 恒落台阶默认 {}（v5 台阶语义即「新增 efforts 并落默认」，输入记忆不进台阶产物；
+    // 真实链路中记忆保留由 upgradeTo6 的 parseEfforts 直接对输入做，不经过本台阶产物），与 fromVersion 和输入均无关
+    for (const from of [3, 4, 5]) {
+        for (const [label, efforts] of [['合法', GOOD_EFFORTS], ['非法', 'bad']] as const) {
+            check(
+                `upgradeTo5 台阶产物 efforts 恒落默认（from=${from}，${label} efforts 输入）`,
+                stable(upgradeTo5({ ...V5_INPUT, efforts }, from).efforts) === stable({}),
+            )
+        }
+    }
+    // upgradeTo6：from ∈ {3,4} 经 upgradeTo5 接力，输入 efforts 不跨台阶（恒落 {}）；
+    // from ∈ {5,6} 直接解析输入，parseEfforts 宽松保留（合法保留原值 / 非法回落空，不拖垮整段）
+    for (const from of [3, 4, 5, 6]) {
+        const relayed = from < 5
+        for (const [label, efforts] of [['合法', GOOD_EFFORTS], ['非法', 'bad']] as const) {
+            const expected = relayed ? {} : label === '合法' ? GOOD_EFFORTS : {}
+            check(
+                `upgradeTo6 的 efforts ${relayed ? '经接力不保留' : '宽松保留'}（from=${from}，${label} efforts 输入）`,
+                stable(upgradeTo6({ ...V5_INPUT, efforts }, from).efforts) === stable(expected),
+            )
+        }
+    }
+
     // ---------- 守卫：低于最低支持版本（MIN_SUPPORTED_VERSION = 3）的输入由链上台阶拒绝 ----------
     let guarded = ''
     try {
