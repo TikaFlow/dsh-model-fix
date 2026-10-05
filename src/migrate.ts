@@ -438,12 +438,14 @@ export async function migrateConfig(ctx: Context, disposed: () => boolean = () =
 /**
  * 从当前版本快照算出去重写回 op：仅当 `excludes` 经 Set 收窄后**变短**（即存在重复项）才产出，
  * 保留首次出现；无重复返回 []（一个字节都不写，这是 onChange 自愈的终止条件，防反馈循环）。
+ * 元素含非字符串即整段非法，同样返回 []——parseSnapshot 口径为整段回退默认，不去洗半合法段。
  * 存储侧不做静默去重是 UI 录入端已拦截重复的前提下的兜底——重复只可能来自手改配置文件。
  */
 export function dedupeExcludesOp(snapshot: unknown): SettingsPathOp[] {
     if (!isPlainObject(snapshot)) return []
     const excludes = snapshot.excludes
-    if (!Array.isArray(excludes)) return []
+    // parseSnapshot 口径：元素含非字符串即整段非法，不产出 op——处置权在 canonicalizeCurrentOp 的规范化重写与读取回退
+    if (!Array.isArray(excludes) || excludes.some((e) => typeof e !== 'string')) return []
     const seen = new Set(excludes)
     if (seen.size === excludes.length) return []
     return [{ op: 'set', path: [CURRENT_KEY, 'excludes'], value: [...seen] }]

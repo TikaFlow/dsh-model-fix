@@ -295,5 +295,6 @@ export function run(): void {
     check('dedupe 空列表返回空', dedupeExcludesOp({ excludes: [] }).length === 0)
     check('dedupe 缺 excludes 返回空', dedupeExcludesOp({ autoFill: {} }).length === 0)
     check('dedupe 非数组返回空', dedupeExcludesOp({ excludes: 'a' }).length === 0)
+    check('dedupe 含非字符串元素整段非法返回空（parseSnapshot 整段回退口径，不洗半合法段）', dedupeExcludesOp({ excludes: ['a', 1, 'a'] }).length === 0 && dedupeExcludesOp({ excludes: [null] }).length === 0)
     check('dedupe 非纯对象返回空', dedupeExcludesOp('garbage').length === 0 && dedupeExcludesOp(undefined).length === 0)
 }
