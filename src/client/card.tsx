@@ -462,7 +462,9 @@ export function Card(props: CardProps) {
     )
     // draft === null 表示未编辑、跟随已存值；首次点击即冻结当前显示值为草稿
     const [draft, setDraft] = useState<Flags | null>(null)
-    const [submitting, setSubmitting] = useState(false)
+    // 全部写操作（保存 / 强制更新 / 重置 / 恢复 / 清空记忆）共用单一互斥标志：
+    // 一者 in-flight 时其余入口与按钮全禁；后续新增动作只加成员，不必改既有互斥
+    const [busy, setBusy] = useState<'save' | 'force' | 'reset' | 'restore' | 'clear' | null>(null)
     // 折叠态为卡片本地状态（读姿而非配置）：初始值取 defaultOpen（缺省收起、与官方插件卡一致）；草稿跨折叠存活
     const [open, setOpen] = useState(props.defaultOpen ?? false)
     // 保存后自动收起只对默认收起的席位有意义：默认展开的三席（插件详情页 / 组件实例详情页 / 内置插件选项卡）
@@ -472,12 +474,9 @@ export function Card(props: CardProps) {
     const [tileOpen, setTileOpen] = useState<string | null>(null)
     // 内联结果提示：常驻至下一次操作（官方 .savedNotice 无定时器，故不设自动淡出）
     const [notice, setNotice] = useState<Notice | null>(null)
-    // 三个后端写回操作的执行态；confirm 三态各控一个宿主 Modal 二次确认
-    const [forceBusy, setForceBusy] = useState(false)
+    // 三个后端写回操作各控一个宿主 Modal 二次确认（执行态统一在 busy）
     const [confirmOpen, setConfirmOpen] = useState(false)
-    const [resetBusy, setResetBusy] = useState(false)
     const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
-    const [restoreBusy, setRestoreBusy] = useState(false)
     const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
     // 「记住推理级别」关掉时的确认：是否清空已有记忆（前端直写，不走 RPC）
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
@@ -491,17 +490,18 @@ export function Card(props: CardProps) {
     // 命中集合按草稿算（编辑中即所见即所得），未命中项同样生效，只是当前无同名提供方
     const hits = useMemo(() => resolveHits(shown.excludes, providerIds), [shown.excludes, providerIds])
 
-    // 保存成功（submitting 结束且 dirty 归 false）后自动收起，仅限默认收起的席位；
-    // 写失败保留草稿与展开态可重试
+    // 保存成功（保存结束且 dirty 归 false）后自动收起，仅限默认收起的席位；
+    // 写失败保留草稿与展开态可重试。其余动作的 busy 起止不触碰 saveStarted，不会误收起
     useEffect(() => {
-        if (submitting) {
+        if (busy === 'save') {
             saveStarted.current = true
             return
         }
+        if (busy !== null) return
         if (!saveStarted.current) return
         saveStarted.current = false
         if (!dirty && autoCollapse) setOpen(false)
-    }, [submitting, dirty, autoCollapse])
+    }, [busy, dirty, autoCollapse])
 
     // 配置服务不可用：保留静态外壳（无展开语义）便于发现与排查
     if (snap.status === 'unavailable') {
@@ -551,9 +551,9 @@ export function Card(props: CardProps) {
         setDraft(removeExclude(shown, id))
     }
     const onSave = () => {
-        if (!canWrite || !dirty || submitting) return
+        if (!canWrite || !dirty || busy) return
         setNotice(null)
-        setSubmitting(true)
+        setBusy('save')
         // 写入成功由宿主回推新 value（dirty 自动归 false，触发自动收起）；失败由 scope 重读恢复，保持 dirty 可重试。
         // efforts 取写入当刻的实时值：卡片不拥有该字段，用草稿副本会把「开卡后切过模型」的记忆覆盖回去
         const liveEfforts = scope.getSnapshot().value?.efforts
@@ -569,24 +569,24 @@ export function Card(props: CardProps) {
                 /* 恢复读由 scope 负责，失败保持 dirty 态可重试 */
             })
             .finally(() => {
-                setSubmitting(false)
+                setBusy(null)
             })
     }
     // 取消：草稿归 null 即回到「跟随已存值」形态，dirty 随之消失（不发任何写）
     const onDiscard = () => {
-        if (submitting) return
+        if (busy === 'save') return
         setNotice(null)
         setDraft(null)
     }
     // 危险操作先弹 Modal 二次确认；不依赖 canWrite/dirty（不改配置，只按目录覆盖写回模型字段）
     const onForce = () => {
-        if (!ready || forceBusy || resetBusy || restoreBusy || submitting) return
+        if (!ready || busy) return
         setNotice(null)
         setConfirmOpen(true)
     }
     const runForce = () => {
         setConfirmOpen(false)
-        setForceBusy(true)
+        setBusy('force')
         props.forceUpdate()
             .then((result) => {
                 if (result.ok) {
@@ -604,18 +604,18 @@ export function Card(props: CardProps) {
                 })
             })
             .finally(() => {
-                setForceBusy(false)
+                setBusy(null)
             })
     }
     // 重置推理级别：与强制更新同形（危险键 + 二次确认）；配置段零写入（开关不变），竞态防护由 Node 半事件流守卫负责
     const onReset = () => {
-        if (!ready || resetBusy || restoreBusy || submitting) return
+        if (!ready || busy) return
         setNotice(null)
         setResetConfirmOpen(true)
     }
     const runReset = () => {
         setResetConfirmOpen(false)
-        setResetBusy(true)
+        setBusy('reset')
         props.resetModels()
             .then((result) => {
                 if (result.ok) {
@@ -632,18 +632,18 @@ export function Card(props: CardProps) {
                 })
             })
             .finally(() => {
-                setResetBusy(false)
+                setBusy(null)
             })
     }
     // 恢复备份：与重置同形（次级样式 + 二次确认），仅回退「备份与当前都存在」的 provider+model
     const onRestore = () => {
-        if (!ready || restoreBusy || resetBusy || submitting) return
+        if (!ready || busy) return
         setNotice(null)
         setRestoreConfirmOpen(true)
     }
     const runRestore = () => {
         setRestoreConfirmOpen(false)
-        setRestoreBusy(true)
+        setBusy('restore')
         props.restoreModels()
             .then((result) => {
                 if (result.ok) {
@@ -660,16 +660,20 @@ export function Card(props: CardProps) {
                 })
             })
             .finally(() => {
-                setRestoreBusy(false)
+                setBusy(null)
             })
     }
     // 清空记忆：前端经自有 NS 的 settings scope 直写（与「保存」同一条写通道，立即生效、草稿不动）；
-    // 失败要显式提示——否则开关已关而记忆未清，无从察觉
+    // 失败要显式提示——否则开关已关而记忆未清，无从察觉。与保存共用 busy 互斥：
+    // 保存整段写含 efforts 实时值，两者并发时后落者会把先落者覆盖掉
     const clearEfforts = () => {
+        if (busy) return
         setClearConfirmOpen(false)
+        setBusy('clear')
         void scope.mutate([{ op: 'set', path: [VERSION_KEY, 'efforts'], value: {} }])
             .then(() => { setNotice({ text: t('clearEffortsDone'), tone: 'success' }) })
             .catch(() => { setNotice({ text: t('clearEffortsFailed'), tone: 'error' }) })
+            .finally(() => { setBusy(null) })
     }
 
     // 结果提示挂在条件体之外：折叠不会吞掉在途/已到的结果
@@ -723,26 +727,26 @@ export function Card(props: CardProps) {
                     <button
                         type="button"
                         className="dsh-mf-force"
-                        disabled={!ready || forceBusy || resetBusy || restoreBusy || submitting}
+                        disabled={!ready || busy !== null}
                         onClick={onForce}
                     >
-                        {forceBusy ? t('forceBusy') : t('force')}
+                        {busy === 'force' ? t('forceBusy') : t('force')}
                     </button>
                     <button
                         type="button"
                         className="dsh-mf-force"
-                        disabled={!ready || forceBusy || resetBusy || restoreBusy || submitting}
+                        disabled={!ready || busy !== null}
                         onClick={onReset}
                     >
-                        {resetBusy ? t('resetBusy') : t('reset')}
+                        {busy === 'reset' ? t('resetBusy') : t('reset')}
                     </button>
                     <button
                         type="button"
                         className="dsh-mf-discard"
-                        disabled={!ready || forceBusy || resetBusy || restoreBusy || submitting}
+                        disabled={!ready || busy !== null}
                         onClick={onRestore}
                     >
-                        {restoreBusy ? t('restoreBusy') : t('restore')}
+                        {busy === 'restore' ? t('restoreBusy') : t('restore')}
                     </button>
                 </span>
                 <span className="dsh-mf-actions">
@@ -751,7 +755,7 @@ export function Card(props: CardProps) {
                         <button
                             type="button"
                             className="dsh-mf-discard"
-                            disabled={submitting}
+                            disabled={busy === 'save'}
                             onClick={onDiscard}
                         >
                             {t('cancel')}
@@ -760,10 +764,10 @@ export function Card(props: CardProps) {
                     <button
                         type="button"
                         className="dsh-mf-save"
-                        disabled={!canWrite || !dirty || submitting || forceBusy || resetBusy || restoreBusy}
+                        disabled={!canWrite || !dirty || busy !== null}
                         onClick={onSave}
                     >
-                        {submitting ? t('saving') : t('save')}
+                        {busy === 'save' ? t('saving') : t('save')}
                     </button>
                 </span>
             </div>
@@ -827,7 +831,7 @@ export function Card(props: CardProps) {
                 description={t('clearEffortsConfirm')}
                 footer={<>
                     <Button variant="outline" data-modal-autofocus onClick={() => { setClearConfirmOpen(false) }}>{t('clearEffortsKeep')}</Button>
-                    <Button variant="outline" className="dsh-mf-confirmDanger" onClick={clearEfforts}>{t('clearEffortsGo')}</Button>
+                    <Button variant="outline" className="dsh-mf-confirmDanger" disabled={busy !== null} onClick={clearEfforts}>{t('clearEffortsGo')}</Button>
                 </>}
             />
         </>
