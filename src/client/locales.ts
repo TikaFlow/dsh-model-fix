@@ -217,7 +217,7 @@ export const zh: Record<CardKey, string> = {
     // 分组全选文案照官方「获取可用模型」的 fetchSelectAll / fetchDeselectAll
     verifySelectAll: '全选',
     verifyDeselectAll: '取消全选',
-    verifyDone: '验证完成：{models} 个模型的 {efforts} 个推理级别可用（共 {total} 项）。',
+    verifyDone: '验证完成：{models} 个模型的 {efforts} 个推理级别可用（探测 {probed}/{planned} 项，{unsupported} 项档位不支持，{blocked} 个提供方未验证）。',
     verifyFailed: '验证失败：{message}',
     verifyEmpty: '暂无模型，请先在「模型」设置中添加模型。',
     clearEffortsTitle: '清空推理级别记忆',
@@ -307,7 +307,7 @@ export const en: Record<CardKey, string> = {
     verifyGo: 'Verify',
     verifySelectAll: 'Select all',
     verifyDeselectAll: 'Deselect all',
-    verifyDone: 'Verified: {efforts} reasoning effort(s) across {models} model(s) are usable ({total} request(s) sent).',
+    verifyDone: 'Verified: {efforts} reasoning effort(s) across {models} model(s) are usable ({probed}/{planned} probe(s) sent, {unsupported} unsupported effort(s), {blocked} provider(s) not verified).',
     verifyFailed: 'Verification failed: {message}',
     verifyEmpty: 'No models yet. Add models on the Models settings page first.',
     clearEffortsTitle: 'Clear remembered efforts',

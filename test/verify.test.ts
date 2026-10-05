@@ -1,13 +1,26 @@
-// src/verify.ts 纯函数测试：探测清单展开（笛卡尔积 / 无档位 / 入参校验）、按提供方分组（组内原序 + 下标）、结果汇总
-import { groupProbesByProvider, planProbes, summarizeProbes } from '@/verify'
-import type { VerifyProbe } from '@/verify'
+// src/verify.ts 用例：探测清单展开（笛卡尔积 / 无档位 / 入参校验）、按提供方分组、失败分类、逐组汇报、
+// 汇总求和，以及带桩跑通的整条执行链（分组串行 + provider 级失败短路）
+import { classifyFailure, groupProbesByProvider, isProviderBlocking, planProbes, reportProvider, summarizeProviders, verifyModels } from '@/verify'
+import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
+import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm/types'
+import type { ProbeOutcome, ProviderProbeGroup, VerifyProbe, VerifyProviderReport } from '@/verify'
 import { check, stable } from '@test/helper'
 
 /** 一个模型的载荷；参数收 unknown 以便构造非法入参用例（RPC 入参按不可信输入校验） */
 const entry = (provider: unknown, model: unknown, efforts: unknown): Record<string, unknown> => ({ provider, model, efforts })
 
+/** 失败事实桩：message 各厂商不同，分类不得依赖它 */
+const failure = (code: string, status?: number): LlmFailure =>
+    ({ code, message: '文案随便写，各厂商都不一样', ...(status === undefined ? {} : { status }) }) as LlmFailure
+
+/** 分片桩：成功流先吐 block-start，终止流只吐 finish */
+const BLOCK_START = { type: 'block-start', index: 0, blockType: 'text' }
+const FINISH_STOP = { type: 'finish', reason: { kind: 'stop' } }
+const finishError = (code: string, status?: number): StreamChunk =>
+    ({ type: 'finish', reason: { kind: 'error', failure: failure(code, status) } }) as unknown as StreamChunk
+
 /** 执行本文件的全部用例 */
-export function run(): void {
+export async function run(): Promise<void> {
     // ---------- planProbes：笛卡尔积（模型序 × 档位序） ----------
     check(
         'planProbes 展开笛卡尔积',
@@ -59,19 +72,188 @@ export function run(): void {
     )
     check('groupProbesByProvider 空输入得空组', groupProbesByProvider([]).length === 0)
 
-    // ---------- summarizeProbes：模型去重 / 档位计数 / 总数 ----------
-    const probes: VerifyProbe[] = [
-        { provider: 'a', model: 'm1', effort: 'off' },
-        { provider: 'a', model: 'm1', effort: 'high' },
-        { provider: 'b', model: 'n1', effort: 'low' },
-    ]
-    check('summarizeProbes 全成功', stable(summarizeProbes(probes, [true, true, true])) === stable({ models: 2, efforts: 3, total: 3 }))
-    check('summarizeProbes 部分失败', stable(summarizeProbes(probes, [true, false, true])) === stable({ models: 2, efforts: 2, total: 3 }))
-    check('summarizeProbes 全失败', stable(summarizeProbes(probes, [false, false, false])) === stable({ models: 0, efforts: 0, total: 3 }))
-    // 同一模型的多个档位只计一个可用模型；同名模型在不同提供方下是两个模型
-    const sameName: VerifyProbe[] = [
-        { provider: 'a', model: 'shared', effort: 'off' },
-        { provider: 'b', model: 'shared', effort: 'off' },
-    ]
-    check('summarizeProbes 同名跨提供方分别计数', stable(summarizeProbes(sameName, [true, true])) === stable({ models: 2, efforts: 2, total: 2 }))
+    // ---------- classifyFailure：只认 code 与 status，绝不比对文案 ----------
+    check('classifyFailure 档位不被支持', classifyFailure(failure('UNSUPPORTED_REASONING_EFFORT')) === 'unsupported-effort')
+    check('classifyFailure 额度耗尽', classifyFailure(failure('QUOTA', 429)) === 'quota')
+    check('classifyFailure 余额耗尽', classifyFailure(failure('ACCOUNT_QUOTA_EXCEEDED', 402)) === 'quota')
+    check('classifyFailure 凭据无效', classifyFailure(failure('INVALID_CREDENTIAL', 401)) === 'credential')
+    check('classifyFailure 凭据缺失', classifyFailure(failure('MISSING_CREDENTIAL', 401)) === 'credential')
+    // 传输层失败没有 HTTP status（宿主 normalizeLlmFailure 的兜底对象只给 message + code）
+    check('classifyFailure 无 status 判端点不可达', classifyFailure(failure('ECONNREFUSED')) === 'unreachable')
+    check('classifyFailure 有 status 归其它', classifyFailure(failure('MODEL_NOT_FOUND', 404)) === 'other')
+    // 档位码优先：它由宿主在派发前本地抛出，本就没有 HTTP 响应
+    check('classifyFailure 档位码不被 status 盖过', classifyFailure(failure('UNSUPPORTED_REASONING_EFFORT', 400)) === 'unsupported-effort')
+
+    // ---------- isProviderBlocking：只有三类 provider 级失败才短路 ----------
+    check('isProviderBlocking 端点不可达', isProviderBlocking('unreachable') === true)
+    check('isProviderBlocking 额度耗尽', isProviderBlocking('quota') === true)
+    check('isProviderBlocking 凭据无效', isProviderBlocking('credential') === true)
+    check('isProviderBlocking 档位不支持不短路', isProviderBlocking('unsupported-effort') === false)
+    check('isProviderBlocking 其它失败不短路', isProviderBlocking('other') === false)
+    check('isProviderBlocking 可用不短路', isProviderBlocking('usable') === false)
+
+    // ---------- reportProvider：可用模型去重、档位不支持单列、可达与凭据取自全程 ----------
+    const group: ProviderProbeGroup = {
+        provider: 'a',
+        indexes: [0, 1, 2],
+        probes: [
+            { provider: 'a', model: 'm1', effort: 'off' },
+            { provider: 'a', model: 'm1', effort: 'high' },
+            { provider: 'a', model: 'm2', effort: 'low' },
+        ],
+    }
+    const report = (outcomes: ProbeOutcome[], blockedBy?: 'unreachable' | 'quota' | 'credential') =>
+        reportProvider(group, { provider: 'a', outcomes, blockedBy, planned: 3 })
+    check(
+        'reportProvider 全可用：同模型多档只计一个可用模型',
+        stable(report(['usable', 'usable', 'usable'])) === stable({
+            provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
+            models: 2, efforts: 3, unsupported: 0, planned: 3, probed: 3,
+        }),
+        report(['usable', 'usable', 'usable']),
+    )
+    check(
+        'reportProvider 档位不支持单列，不混入其它失败',
+        stable(report(['usable', 'unsupported-effort', 'usable'])) === stable({
+            provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
+            models: 2, efforts: 2, unsupported: 1, planned: 3, probed: 3,
+        }),
+        report(['usable', 'unsupported-effort', 'usable']),
+    )
+    check(
+        'reportProvider 端点不可达：短路且不臆断凭据有效',
+        stable(report(['unreachable'], 'unreachable')) === stable({
+            provider: 'a', reachable: false, keyValid: false, skipped: true, blockedBy: 'unreachable',
+            models: 0, efforts: 0, unsupported: 0, planned: 3, probed: 1,
+        }),
+        report(['unreachable'], 'unreachable'),
+    )
+    // 可达但额度耗尽：端点通、key 无效——这正是「凭据有效且有额度」要拆成两态的原因
+    check(
+        'reportProvider 额度耗尽：可达但凭据无效',
+        stable(report(['usable', 'quota'], 'quota')) === stable({
+            provider: 'a', reachable: true, keyValid: false, skipped: true, blockedBy: 'quota',
+            models: 1, efforts: 1, unsupported: 0, planned: 3, probed: 2,
+        }),
+        report(['usable', 'quota'], 'quota'),
+    )
+
+    // ---------- summarizeProviders：逐字段求和 ----------
+    const ok: VerifyProviderReport = {
+        provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
+        models: 2, efforts: 3, unsupported: 1, planned: 3, probed: 3,
+    }
+    const blocked: VerifyProviderReport = {
+        provider: 'b', reachable: false, keyValid: false, skipped: true, blockedBy: 'unreachable',
+        models: 0, efforts: 0, unsupported: 0, planned: 5, probed: 1,
+    }
+    check(
+        'summarizeProviders 求和（短路组的计划数计入、实测数只计已发出的）',
+        stable(summarizeProviders([ok, blocked])) === stable({
+            providers: [ok, blocked], models: 2, efforts: 3, unsupported: 1, planned: 8, probed: 4,
+        }),
+        summarizeProviders([ok, blocked]),
+    )
+    check(
+        'summarizeProviders 空输入',
+        stable(summarizeProviders([])) === stable({ providers: [], models: 0, efforts: 0, unsupported: 0, planned: 0, probed: 0 }),
+    )
+
+    // ---------- verifyModels：带桩跑通整条链，逐组串行且短路 ----------
+    /** 桩：按「模型@档位 -> 分片序列」应答，未登记的组合默认成功；记录调用顺序与提示词 */
+    const stub = (script: Record<string, readonly StreamChunk[]>) => {
+        const calls: string[] = []
+        const prompts: string[] = []
+        const stream = (options: {
+            provider: string
+            model: string
+            reasoningEffort?: string
+            messages: readonly { role: string; content: readonly { type: 'text'; text: string }[] }[]
+        }): AsyncIterable<StreamChunk> => {
+            const tag = `${options.model}${options.reasoningEffort === undefined ? '' : `@${options.reasoningEffort}`}`
+            calls.push(`${options.provider}/${tag}`)
+            prompts.push(options.messages[0].content[0].text)
+            const chunks = script[tag] ?? [BLOCK_START as unknown as StreamChunk, FINISH_STOP as unknown as StreamChunk]
+            return (async function* () { for (const chunk of chunks) yield chunk })()
+        }
+        return { llm: { stream } as unknown as Pick<LlmRuntime, 'stream'>, calls, prompts }
+    }
+
+    {
+        const { llm, prompts } = stub({})
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] })
+        check(
+            'verifyModels 全可用：逐档位各发一次并逐组汇报',
+            summary.models === 2 && summary.efforts === 3 && summary.probed === 3 && summary.planned === 3
+            && summary.providers.length === 1 && summary.providers[0].reachable && summary.providers[0].keyValid,
+            summary,
+        )
+        // 提示词固定为一句 Just say OK——它是省额度的前提，不该被顺手改成更啰嗦的说法
+        check('verifyModels 每次探测的提示词都是 Just say OK', prompts.length === 3 && prompts.every((text) => text === 'Just say OK'), prompts)
+    }
+    {
+        // 额度耗尽：首个探测即命中，第二、三个档位不该再发（同一 url 同一 key，过不了就是过不了）
+        const { llm, calls } = stub({ 'm1@off': [finishError('QUOTA', 429)] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
+        check(
+            'verifyModels 额度耗尽短路整组',
+            calls.length === 1 && summary.probed === 1 && summary.planned === 2
+            && summary.providers[0].skipped && summary.providers[0].blockedBy === 'quota'
+            && summary.providers[0].reachable && !summary.providers[0].keyValid,
+            { calls, summary },
+        )
+    }
+    {
+        // 端点不可达：可达与凭据都判否
+        const { llm, calls } = stub({ 'm1': [finishError('ECONNREFUSED')] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', []), entry('a', 'm2', [])] })
+        check(
+            'verifyModels 端点不可达短路并记为不可达',
+            calls.length === 1 && summary.providers[0].blockedBy === 'unreachable'
+            && !summary.providers[0].reachable && !summary.providers[0].keyValid,
+            { calls, summary },
+        )
+    }
+    {
+        // 档位不被支持是逐模型逐档位的个体结论：只跳过这一条，不短路
+        const { llm, calls } = stub({ 'm1@high': [finishError('UNSUPPORTED_REASONING_EFFORT', 400)] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
+        check(
+            'verifyModels 档位不支持不短路、计入 unsupported',
+            calls.length === 2 && summary.probed === 2 && summary.unsupported === 1
+            && summary.efforts === 1 && !summary.providers[0].skipped,
+            { calls, summary },
+        )
+    }
+    {
+        // 厂商侧拒绝（如该模型不存在）多与具体模型有关，同样不短路
+        const { llm, calls } = stub({ 'm1': [finishError('MODEL_NOT_FOUND', 404)] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', []), entry('a', 'm2', [])] })
+        check(
+            'verifyModels 其它厂商拒绝不短路',
+            calls.length === 2 && summary.probed === 2 && summary.efforts === 1
+            && summary.providers[0].reachable && summary.providers[0].keyValid && !summary.providers[0].skipped,
+            { calls, summary },
+        )
+    }
+    {
+        // 两个提供方互不牵连：一个不可达，另一个照常验证
+        const { llm, calls } = stub({ 'm1': [finishError('ECONNREFUSED')] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', []), entry('b', 'n1', [])] })
+        check(
+            'verifyModels 短路只影响本组',
+            summary.providers.length === 2 && summary.providers[0].skipped === true
+            && summary.providers[1].skipped === false && summary.providers[1].efforts === 1,
+            { calls, summary },
+        )
+    }
+    {
+        let threw = false
+        try {
+            await verifyModels(stub({}).llm, { models: [entry('a', 'm', ['turbo'])] })
+        } catch {
+            threw = true
+        }
+        check('verifyModels 入参非法抛错（由 RPC 层转失败结果）', threw)
+    }
 }

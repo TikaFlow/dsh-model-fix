@@ -731,9 +731,24 @@ export function Card(props: CardProps) {
         props.verifyModels(verifyTargets(verifyCandidates, verifyPicked, verifyAllEfforts))
             .then((result) => {
                 if (result.ok) {
-                    const value = result.value as { models?: number; efforts?: number; total?: number } | undefined
+                    // 结构化汇报逐字段取用（RPC 信封的 value 是 unknown）；不引 Node 半的 VerifySummary 类型，避免跨半耦合
+                    const value = result.value as {
+                        models?: number
+                        efforts?: number
+                        unsupported?: number
+                        planned?: number
+                        probed?: number
+                        providers?: readonly { skipped?: boolean }[]
+                    } | undefined
                     setNotice({
-                        text: t('verifyDone', { models: value?.models ?? 0, efforts: value?.efforts ?? 0, total: value?.total ?? 0 }),
+                        text: t('verifyDone', {
+                            models: value?.models ?? 0,
+                            efforts: value?.efforts ?? 0,
+                            unsupported: value?.unsupported ?? 0,
+                            probed: value?.probed ?? 0,
+                            planned: value?.planned ?? 0,
+                            blocked: (value?.providers ?? []).filter((provider) => provider.skipped === true).length,
+                        }),
                         tone: 'success',
                     })
                 } else {

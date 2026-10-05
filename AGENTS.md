@@ -15,7 +15,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/config.ts` `src/migrate.ts` `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 配置解析与配置源 / 升级链 `upgradeTo4..7` 与 `migrateConfig` / 缓存读写与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
 | `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 同批提交；`excludes` 命中者在 provider 循环入口整条跳过；同一两层循环顺带重建 `efforts` 记忆 |
 | `src/reset.ts` `src/restore.ts` `src/guard.ts` `src/host.ts` | 重置推理级别（仅剔除 `reasoningEfforts`，配置段零写入）/ 启动备份捕获与交集恢复 / 事件流守卫（写回期间短路整条事件链）/ 全部 settings 写回必经的 `queueTask` |
-| `src/verify.ts` | 「验证模型」：校验并展开「模型 × 推理级别」笛卡尔积、按 provider 归组（组内串行即每 provider 单并发）、经宿主 `ctx.llm` 各发一次最小请求；纯计划与汇总零 ctx 可单测 |
+| `src/verify.ts` | 「验证模型」：校验并展开「模型 × 推理级别」笛卡尔积、按 provider 归组（组内串行即每 provider 单并发）、经宿主 `ctx.llm` 各发一次最小请求；失败按 `LlmFailure` 的 `code`/`status` 分类，端点不可达 / 额度耗尽 / 凭据无效即短路整组；执行器只依赖注入的 `llm.stream`，带桩即可全链路单测 |
 | `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个 RPC 端点（前三个以守卫互斥、验证只读不参与）/ 自注册 channel 路由 / 保鲜刷新 |
 | `src/client/index.tsx` | 浏览器半入口：四个卡片刻位注册、词典、RPC 载体、记忆监听子 fiber |
 | `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片、footer 与末尾联系行；**全部样式数值在 `STYLE_TEXT`** |
@@ -82,7 +82,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 - **参数来源**：图片模态只缓存正向信息；`99999999` / 0 视为无该字段；id 匹配宁可漏不错配；档位序取 `EFFORT_LEVELS`。
 - **推理级别记忆**：`efforts` 是运行时记忆而非用户配置；Node 半只持久化不自动设级别；`rememberEfforts` 关闭只停「保存新的」；`defaultHigh` 三条护栏；两个开关都不读 `excludes`。
 - **写回端点**：重置只剔 `reasoningEfforts`、不写配置段；恢复备份只回退交集、绝不延迟补捕；写回端点以守卫互斥。
-- **验证**：只读诊断、只由用户主动发起、即用即弃；**只认 `block-start`、不看内容**（`usage` 不算受理）；每 provider 单并发、跨 provider ≤4 路、无退避；列表默认不预选；弹层自确认、在途转圈不关窗。
+- **验证**：只读诊断、只由用户主动发起、即用即弃；**只认 `block-start`、不看内容**（`usage` 不算受理）；失败只按 `LlmFailure` 的 `code`/`status` 分类（**禁止比对文案**），端点不可达 / 额度耗尽 / 凭据无效即短路整组，我方超时不算不可达、档位不支持只记录不短路；每 provider 单并发、跨 provider ≤5 路、无退避；列表默认不预选；弹层自确认、在途转圈不关窗。
 - **宿主与卡片**：RPC channel 自注册；按钮取「保存」不取「应用」；卡片末尾固定联系行；不引入 `failed` 态、不做「恢复默认」。
 
 ## 数据流骨架
@@ -95,4 +95,4 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 
 ## 测试规范
 
-`test/` 只收不依赖 DSH 运行时的纯函数与零 ctx 编排（配置解析与迁移、目录拍平与缓存条目校验、id 匹配与档位转换、compat 计划、`planResetModels`/`planRestore`、`planProbes`/`groupProbesByProvider`/`summarizeProbes`、守卫、`rpc-route` 的纯信封逻辑 + node:http 桩、`fix` 编排 + `test/ctx.ts` 的常驻内存 settings 桩、浏览器半纯映射层）；浏览器组件与真实 fs / 网络不进 `test/`（`src/verify.ts` 的脏执行须经宿主 `ctx.llm`，只测纯计划与汇总）。`indexedCache` 与 `configSource` 是模块级单例，每个用例前调 `resetModules()`。
+`test/` 只收不依赖 DSH 运行时的纯函数与零 ctx 编排（配置解析与迁移、目录拍平与缓存条目校验、id 匹配与档位转换、compat 计划、`planResetModels`/`planRestore`、`planProbes`/`groupProbesByProvider`/`classifyFailure`/`reportProvider`/`summarizeProviders`、`verifyModels` 带桩跑通短路全链路、守卫、`rpc-route` 的纯信封逻辑 + node:http 桩、`fix` 编排 + `test/ctx.ts` 的常驻内存 settings 桩、浏览器半纯映射层）；浏览器组件与真实 fs / 网络不进 `test/`（`verifyModels` 只依赖注入的 `llm.stream`，故带桩即可，不触网）。`indexedCache` 与 `configSource` 是模块级单例，每个用例前调 `resetModules()`。
