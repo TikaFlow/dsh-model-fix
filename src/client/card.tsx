@@ -671,7 +671,7 @@ export function Card(props: CardProps) {
         setClearConfirmOpen(false)
         setBusy('clear')
         void scope.mutate([{ op: 'set', path: [VERSION_KEY, 'efforts'], value: {} }])
-            .then(() => { setNotice({ text: t('clearEffortsDone'), tone: 'success' }) })
+            .then((accepted) => { setNotice({ text: t(accepted ? 'clearEffortsDone' : 'clearEffortsFailed'), tone: accepted ? 'success' : 'error' }) })
             .catch(() => { setNotice({ text: t('clearEffortsFailed'), tone: 'error' }) })
             .finally(() => { setBusy(null) })
     }
