@@ -248,9 +248,12 @@ const STYLE_TEXT = [
     '.dsh-mf-verifyEmpty{margin:24px 0;color:var(--dsw-alias-label-secondary,#61666b);text-align:center;font-size:13px;line-height:20px}',
     // 额度提示：沿用官方插件卡的 .notice（warn 语义、12px/18px），置于候选列表之下
     '.dsh-mf-verifyQuota{margin:8px 0 0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label,#dd8629)}',
-    // 底部整行自绘：宿主 Modal 的 footer 是 flex-end 的单行，故整行交给本容器——同排时开关靠左、窄屏自动折行
-    '.dsh-mf-verifyFooter{display:flex;align-items:center;flex-wrap:wrap;gap:8px;width:100%}',
-    '.dsh-mf-verifyOption{display:inline-flex;align-items:center;gap:6px;margin-right:auto;min-width:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-secondary,#61666b)}',
+    // 底部整行自绘：宿主 Modal 的 footer 是 flex-end 的单行，故整行交给本容器。
+    // 档位开关独占一行、确认键组另起一行右对齐——开关的长文案 + 提示图标与两个键挤在一行放不下（实测 520px 亦然），
+    // 分行后也不再随弹层宽度变化而抖动
+    '.dsh-mf-verifyFooter{display:flex;flex-direction:column;align-items:stretch;gap:10px;width:100%}',
+    '.dsh-mf-verifyOption{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;min-width:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-secondary,#61666b)}',
+    '.dsh-mf-verifyActions{display:flex;justify-content:flex-end;gap:8px}',
     // 注意语义确认键：与危险键同构，仅把描边/字色换成 warn 令牌；hover 用其 10% 稀释（宿主无 warn 悬停底令牌，
     // 与 .dsh-mf-chipVersion 同一 color-mix 手法，不自造色值）
     '.dsh-mf-confirmWarn:not(:disabled){border-color:var(--dsw-alias-state-warn-label,#dd8629);color:var(--dsw-alias-state-warn-label,#dd8629)}',
@@ -958,18 +961,20 @@ export function Card(props: CardProps) {
                             </button>
                         </Tooltip>
                     </span>
-                    <Button variant="outline" data-modal-autofocus disabled={busy === 'verify'} onClick={closeVerify}>{t('cancel')}</Button>
-                    <Button
-                        variant="outline"
-                        className="dsh-mf-confirmWarn"
-                        disabled={busy !== null || verifyPicked.size === 0}
-                        onClick={runVerify}
-                    >
-                        {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点；
-                            StateDot 的 ongoing 态就是侧边栏会话列表项左侧那个转圈（同原语、同动效） */}
-                        {busy === 'verify' ? <StateDot state="ongoing" /> : null}
-                        {t('verifyGo')}
-                    </Button>
+                    <div className="dsh-mf-verifyActions">
+                        <Button variant="outline" data-modal-autofocus disabled={busy === 'verify'} onClick={closeVerify}>{t('cancel')}</Button>
+                        <Button
+                            variant="outline"
+                            className="dsh-mf-confirmWarn"
+                            disabled={busy !== null || verifyPicked.size === 0}
+                            onClick={runVerify}
+                        >
+                            {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点；
+                                StateDot 的 ongoing 态就是侧边栏会话列表项左侧那个转圈（同原语、同动效） */}
+                            {busy === 'verify' ? <StateDot state="ongoing" /> : null}
+                            {t('verifyGo')}
+                        </Button>
+                    </div>
                 </div>}
             >
                 {verifyGroups.length === 0 ? (
