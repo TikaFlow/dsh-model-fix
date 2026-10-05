@@ -50,8 +50,8 @@ export function run(): void {
         '关闭且无该键 -> 不写',
         planProviderCompat(OFF, { supportsStore: true }) === undefined && planProviderCompat(OFF, undefined) === undefined,
     )
-    // 用户手写的空 compat 段不属本组管辖，保持原样（宿主等同未声明）
-    check('关闭且 compat 为空对象 -> 不写', planProviderCompat(OFF, {}) === undefined)
+    // 残留的空壳 compat 段随「不留空壳」口径整段清理（宿主等同未声明）
+    check('关闭且 compat 为空对象 -> unset 整段', stable(planProviderCompat(OFF, {})) === stable({ op: 'unset' }), planProviderCompat(OFF, {}))
     // ---------- 脏值：开启时替换为合法段；关闭时不清理非本组管辖的脏值 ----------
     for (const junk of [undefined, null, 'x', 42, []]) {
         check(
