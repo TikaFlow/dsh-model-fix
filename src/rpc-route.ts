@@ -132,7 +132,7 @@ export function createChannelRoute(
     }
 }
 
-/** 读完请求体；超上限即拒绝 */
+/** 读完请求体；超上限即暂停请求流并拒绝（连接由响应结束路径断开） */
 function readBody(req: IncomingMessage): Promise<string> {
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = []
@@ -140,6 +140,9 @@ function readBody(req: IncomingMessage): Promise<string> {
         req.on('data', (chunk: Buffer) => {
             size += chunk.length
             if (size > MAX_BODY_BYTES) {
+                // 停止读入剩余数据，连接由响应结束路径收尾（Node 对未完整请求在响应 finish 时断开）。
+                // 不用 req.destroy()——会截断尚未写出的 413 响应，客户端只能看到连接重置
+                req.pause()
                 reject(new Error('request body too large'))
                 return
             }

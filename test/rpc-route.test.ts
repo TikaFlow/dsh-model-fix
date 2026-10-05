@@ -6,16 +6,20 @@ import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 
 const CHANNEL = '/tikaflow-model-fix'
 
-/** 最小 node:http 请求桩：构造后由微任务派发 data/end（或 error） */
-function fakeRequest(init: { method?: string; url?: string; contentType?: string | string[]; body?: string; failBody?: boolean }): IncomingMessage {
+/** 最小 node:http 请求桩：构造后由微任务派发 data/end（或 error）；pause 记录到 paused 供超限用例断言 */
+function fakeRequest(init: { method?: string; url?: string; contentType?: string | string[]; body?: string; failBody?: boolean }): IncomingMessage & { paused: boolean } {
     const listeners: Record<string, ((arg: never) => void)[]> = {}
     const req = {
+        paused: false,
         method: init.method ?? 'POST',
         url: init.url ?? `${CHANNEL}/forceUpdate`,
         headers: { 'content-type': init.contentType ?? 'application/json' },
         on(event: string, listener: (arg: never) => void) {
             ;(listeners[event] ??= []).push(listener)
             return req
+        },
+        pause() {
+            req.paused = true
         },
     }
     queueMicrotask(() => {
@@ -26,7 +30,7 @@ function fakeRequest(init: { method?: string; url?: string; contentType?: string
         if (init.body !== undefined) for (const listener of listeners.data ?? []) listener(Buffer.from(init.body) as never)
         for (const listener of listeners.end ?? []) listener(undefined as never)
     })
-    return req as unknown as IncomingMessage
+    return req as unknown as IncomingMessage & { paused: boolean }
 }
 
 /** 最小 node:http 响应桩：记录状态码与响应体 */
@@ -95,6 +99,11 @@ export async function run(): Promise<void> {
     check('content-type 数组取首项', (await runRoute(undefined, { contentType: ['application/json'], body: envelope('r1', 'forceUpdate') })).status === 200)
     check('请求体非 JSON 回 400', (await runRoute(undefined, { body: 'not json' })).status === 400)
     check('读体失败回 413', (await runRoute(undefined, { failBody: true })).status === 413)
+    // 超限（对齐 rpc-route 的 64KB 上限）：回 413 且请求流被暂停停读
+    const oversizeReq = fakeRequest({ body: 'x'.repeat(64 * 1024 + 1) })
+    const oversizeRes = fakeResponse()
+    await routeWith(undefined)(oversizeReq, oversizeRes)
+    check('读体超限回 413 且暂停请求流', oversizeRes.status === 413 && oversizeReq.paused)
     check('路径越界回 404', (await runRoute(undefined, { url: '/other/x', body: envelope('r1', 'x') })).status === 404)
 
     // 信封不合法：回 200 + gateway/bad-request，并尽量回显 rpcId
