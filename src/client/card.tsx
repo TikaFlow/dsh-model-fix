@@ -254,10 +254,11 @@ const STYLE_TEXT = [
     '.dsh-mf-verifyFooter{display:flex;flex-direction:column;align-items:stretch;gap:10px;width:100%}',
     '.dsh-mf-verifyOption{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;min-width:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-secondary,#61666b)}',
     '.dsh-mf-verifyActions{display:flex;justify-content:flex-end;gap:8px}',
-    // 注意语义确认键：与危险键同构，仅把描边/字色换成 warn 令牌；hover 用其 10% 稀释（宿主无 warn 悬停底令牌，
-    // 与 .dsh-mf-chipVersion 同一 color-mix 手法，不自造色值）
-    '.dsh-mf-confirmWarn:not(:disabled){border-color:var(--dsw-alias-state-warn-label,#dd8629);color:var(--dsw-alias-state-warn-label,#dd8629)}',
-    '.dsh-mf-confirmWarn:hover:not(:disabled){background:color-mix(in srgb, var(--dsw-alias-state-warn-label,#dd8629) 10%, transparent)}',
+    // 注意语义键：卡片 footer 的「验证模型」触发键与弹层内的验证确认键共用，仅把描边/字色换成 warn 令牌；
+    // hover 用其 10% 稀释（宿主无 warn 悬停底令牌，与 .dsh-mf-chipVersion 同一 color-mix 手法，不自造色值）。
+    // 叠加在 .dsh-mf-discard 之上时靠 :not(:disabled) 的高特异性压过其默认描边/字色
+    '.dsh-mf-warn:not(:disabled){border-color:var(--dsw-alias-state-warn-label,#dd8629);color:var(--dsw-alias-state-warn-label,#dd8629)}',
+    '.dsh-mf-warn:hover:not(:disabled){background:color-mix(in srgb, var(--dsw-alias-state-warn-label,#dd8629) 10%, transparent)}',
 ].join('\n')
 
 /** 幂等注入样式：每次渲染校验 DOM 实况——宿主 HMR 会按 data-plugin 摘走旧节点，节点在则同步内容 */
@@ -840,10 +841,11 @@ export function Card(props: CardProps) {
                     >
                         {busy === 'restore' ? t('restoreBusy') : t('restore')}
                     </button>
-                    {/* 验证模型：弹层自带额度提示与 warn 语义确认键，已构成自确认，故此键只取次级描边、不再叠二次确认弹层 */}
+                    {/* 验证模型：弹层自带额度提示与 warn 语义确认键，已构成自确认，故不再叠二次确认弹层；
+                       触发键本身也取 warn 语义——点开即进入会花额度的流程，警示前移到入口 */}
                     <button
                         type="button"
-                        className="dsh-mf-discard"
+                        className="dsh-mf-discard dsh-mf-warn"
                         disabled={!ready || busy !== null}
                         onClick={onVerify}
                     >
@@ -965,7 +967,7 @@ export function Card(props: CardProps) {
                         <Button variant="outline" data-modal-autofocus disabled={busy === 'verify'} onClick={closeVerify}>{t('cancel')}</Button>
                         <Button
                             variant="outline"
-                            className="dsh-mf-confirmWarn"
+                            className="dsh-mf-warn"
                             disabled={busy !== null || verifyPicked.size === 0}
                             onClick={runVerify}
                         >
