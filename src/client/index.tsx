@@ -185,7 +185,14 @@ function boot(
                 }
                 const retainInfo = sessions.retainInfo(id)
                 const syncRetain = (): void => {
-                    if (retainInfo.getSnapshot().referenceCount <= 0 || entry.projectionUnsub) return
+                    if (retainInfo.getSnapshot().referenceCount <= 0) {
+                        // retain 归零即解除投影订阅：未保留会话不应触发 handleProjection；
+                        // lastNext / pendingAutoSet 保留，重保留时首帧据此正确消化自动设置回声
+                        entry.projectionUnsub?.()
+                        entry.projectionUnsub = null
+                        return
+                    }
+                    if (entry.projectionUnsub) return
                     const binding = sessions.binding(id)
                     if (!binding) return
                     const projection = binding.session.projections.faceOf('modelSelection')
