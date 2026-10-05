@@ -169,7 +169,9 @@ function boot(
                 if (transition.kind === 'model-change') {
                     if (transition.resolved.reasoningEffort !== next.reasoningEffort) {
                         entry.pendingAutoSet = transition.resolved
-                        void dir.select(transition.resolved)
+                        // select 拒绝时清掉守卫：残留会让后续恰好同值的投影变化被误吞（跳过记忆保存）；
+                        // 与投影守卫竞态两序皆安全（幂等清空），untracked 的 entry 上清空亦无害
+                        void dir.select(transition.resolved).catch(() => { entry.pendingAutoSet = null })
                     }
                 } else if (transition.kind === 'effort-change' && rememberEfforts) {
                     void rememberEffort(next.provider, next.model, next.reasoningEffort ?? null)
