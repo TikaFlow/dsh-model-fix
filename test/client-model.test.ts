@@ -1,4 +1,4 @@
-/** src/client/model.ts 纯映射层用例：解码（只读 version-7，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化、验证候选拍取与目标收敛 */
+/** src/client/model.ts 纯映射层用例：解码（只读 version-7，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化、验证候选拍取、目标收敛与分组全选 */
 
 import { check, stable } from '@test/helper'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
@@ -8,6 +8,7 @@ import {
     addExclude,
     applyGroup,
     decodeSection,
+    groupAllPicked,
     groupValue,
     isDirty,
     masterValue,
@@ -15,6 +16,7 @@ import {
     removeExclude,
     resolveHits,
     toggleCell,
+    toggleGroupPicks,
     verifyCandidatesOf,
     verifyKey,
     verifyTargets,
@@ -327,4 +329,29 @@ export function run(): void {
     )
     check('verifyTargets 未勾选得空', verifyTargets(candidates, new Set(), true).length === 0)
     check('verifyTargets 不改入参候选', stable(candidates[0].efforts) === stable(['off', 'low', 'high']))
+    // ---------- 分组全选：文案判据与点击方向同走 groupAllPicked（every 而非 any） ----------
+    const acmeGroup = candidates.slice(0, 2)
+    const acmeKeyA = verifyKey('acme-gateway', 'z-ai/glm-5')
+    const acmeKeyB = verifyKey('acme-gateway', 'no-efforts')
+    const labKey = verifyKey('lab-7', 'only-one')
+    check('groupAllPicked 全不选为否', groupAllPicked(new Set<string>(), acmeGroup) === false)
+    check('groupAllPicked 全选为真', groupAllPicked(new Set([acmeKeyA, acmeKeyB]), acmeGroup) === true)
+    // 部分选中仍为否：若取 any 这里会误判为真，点击方向就会与文案（此时显示「全选」）相反
+    check('groupAllPicked 部分选中为否', groupAllPicked(new Set([acmeKeyA]), acmeGroup) === false)
+    check('groupAllPicked 他组已选不影响本组', groupAllPicked(new Set([labKey]), acmeGroup) === false)
+    check(
+        'toggleGroupPicks 全不选 -> 整组选上',
+        stable([...toggleGroupPicks(new Set<string>(), acmeGroup)]) === stable([acmeKeyA, acmeKeyB]),
+        [...toggleGroupPicks(new Set<string>(), acmeGroup)],
+    )
+    check('toggleGroupPicks 全选 -> 整组取消', toggleGroupPicks(new Set([acmeKeyA, acmeKeyB]), acmeGroup).size === 0)
+    // 部分选中应「补全为全选」而非抹掉已勾的，且不得牵连他组
+    const partial = new Set([acmeKeyA, labKey])
+    const completed = toggleGroupPicks(partial, acmeGroup)
+    check(
+        'toggleGroupPicks 部分选中 -> 补全为全选且保留他组',
+        stable([...completed]) === stable([acmeKeyA, labKey, acmeKeyB]),
+        [...completed],
+    )
+    check('toggleGroupPicks 不改入参', partial.size === 2 && !partial.has(acmeKeyB))
 }

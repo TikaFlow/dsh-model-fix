@@ -30,6 +30,7 @@ import {
     VERSION_KEY,
     addExclude,
     applyGroup,
+    groupAllPicked,
     groupValue,
     isDirty,
     masterValue,
@@ -37,6 +38,7 @@ import {
     removeExclude,
     resolveHits,
     toggleCell,
+    toggleGroupPicks,
     verifyCandidatesOf,
     verifyKey,
     verifyTargets,
@@ -763,19 +765,9 @@ export function Card(props: CardProps) {
             return next
         })
     }
-    // 分组全选：与逐条切换共用同一份勾选集。判据用 every 而非 any——部分选中时仍显示「全选」，
-    // 该组全选中才翻成「取消全选」，与官方 candidateToolbar 的 allVisibleCandidatesPicked 同一语义
+    // 分组全选：点击方向与按钮文案同走 groupAllPicked（判据只此一处，两边各判一次会反直觉）
     const toggleVerifyGroup = (models: readonly VerifyCandidate[]) => {
-        setVerifyPicked((current) => {
-            const next = new Set(current)
-            const allPicked = models.every((candidate) => next.has(verifyKey(candidate.provider, candidate.model)))
-            for (const candidate of models) {
-                const key = verifyKey(candidate.provider, candidate.model)
-                if (allPicked) next.delete(key)
-                else next.add(key)
-            }
-            return next
-        })
+        setVerifyPicked((current) => toggleGroupPicks(current, models))
     }
     // 清空记忆：前端经自有 NS 的 settings scope 直写（与「保存」同一条写通道，立即生效、草稿不动）；
     // 失败要显式提示——否则开关已关而记忆未清，无从察觉。与保存共用 busy 互斥：
@@ -1018,9 +1010,7 @@ export function Card(props: CardProps) {
                                     disabled={busy === 'verify'}
                                     onClick={() => { toggleVerifyGroup(group.models) }}
                                 >
-                                    {group.models.every((candidate) => verifyPicked.has(verifyKey(candidate.provider, candidate.model)))
-                                        ? t('verifyDeselectAll')
-                                        : t('verifySelectAll')}
+                                    {groupAllPicked(verifyPicked, group.models) ? t('verifyDeselectAll') : t('verifySelectAll')}
                                 </Button>
                             </li>,
                             ...group.models.map((candidate) => {

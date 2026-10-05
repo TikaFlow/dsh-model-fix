@@ -180,3 +180,26 @@ export function verifyTargets(
             efforts: allEfforts || candidate.efforts.length === 0 ? candidate.efforts : candidate.efforts.slice(0, 1),
         }))
 }
+
+/**
+ * 该组是否已全选：判据取 `every` 而非 `any`——部分选中时仍显示「全选」，全选中才翻成「取消全选」，
+ * 与官方 `allVisibleCandidatesPicked` 同语义。
+ *
+ * **按钮文案与点击方向必须共用本函数**：两处各写一遍 `every` 一旦不同步，就会出现
+ * 「文案显示取消全选、点击却是全选」的反直觉行为，且不会有任何报错。
+ */
+export function groupAllPicked(picked: ReadonlySet<string>, models: readonly VerifyCandidate[]): boolean {
+    return models.every((candidate) => picked.has(verifyKey(candidate.provider, candidate.model)))
+}
+
+/** 分组「全选 / 取消全选」：已全选则整组移出，否则整组加入。返回新集合（不改入参、只动本组的键） */
+export function toggleGroupPicks(picked: ReadonlySet<string>, models: readonly VerifyCandidate[]): ReadonlySet<string> {
+    const next = new Set(picked)
+    const remove = groupAllPicked(next, models)
+    for (const candidate of models) {
+        const key = verifyKey(candidate.provider, candidate.model)
+        if (remove) next.delete(key)
+        else next.add(key)
+    }
+    return next
+}
