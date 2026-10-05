@@ -100,11 +100,37 @@ export function isProviderBlocking(outcome: ProbeOutcome): outcome is ProviderBl
     return outcome === 'unreachable' || outcome === 'quota' || outcome === 'credential'
 }
 
-/** 一个提供方的探测结论：逐探测结果 + 短路情况（由执行器产出，供汇报函数消费） */
+/** 失败的原始事实（宿主 `LlmFailure` 的可序列化子集）：供调用方做比本插件更细的分类与展示 */
+export interface VerifyFailureFacts {
+    code: string
+    /** HTTP 状态；传输层失败没有它（宿主兜底对象只给 code 与 message） */
+    status: number | undefined
+    /** 人类可读的失败描述——**仅供展示与诊断，分类绝不可依赖它**（各厂商措辞不同且会变） */
+    message: string
+}
+
+/**
+ * 单条探测明细：一个「提供方 / 模型 / 推理级别」及其结论。调用方可据此做后续操作
+ * （只重验某个提供方、只补验某些档位、按 code 细分失败原因等），不必再回解析统计值。
+ *
+ * 明细只含**实际发出**的探测：被短路掉的从未发出去、没有结论可言。哪几条没跑，
+ * 由逐提供方的 `planned` 与 `probed` 之差给出（短路以整组为单位，故按组定位即可）。
+ */
+export interface VerifyProbeResult {
+    provider: string
+    model: string
+    /** 推理级别；模型未声明档位时为 undefined（不带档位探测），经 JSON 传输后该键缺省 */
+    effort: string | undefined
+    outcome: ProbeOutcome
+    /** 失败时的原始事实；收到 block-start 时为 undefined */
+    failure: VerifyFailureFacts | undefined
+}
+
+/** 一个提供方的探测结论：逐条明细 + 短路情况（由执行器产出，供汇报函数消费） */
 export interface ProviderProbeOutcome {
     provider: string
     /** 与该组 `probes` 前缀对齐：短路时长度小于 probes.length */
-    outcomes: ProbeOutcome[]
+    results: VerifyProbeResult[]
     blockedBy: ProviderBlockReason | undefined
     planned: number
 }
@@ -131,9 +157,11 @@ export interface VerifyProviderReport {
     probed: number
 }
 
-/** 验证结果汇总：逐提供方汇报 + 全局计数（RPC 回传卡片内联状态行） */
+/** 验证结果汇总：逐提供方汇报 + 逐条明细 + 全局计数（RPC 回传卡片内联状态行） */
 export interface VerifySummary {
     providers: readonly VerifyProviderReport[]
+    /** 逐条探测明细，顺序为「组序 → 组内探测序」，可重复消费 */
+    results: readonly VerifyProbeResult[]
     models: number
     efforts: number
     unsupported: number
@@ -184,27 +212,26 @@ export function groupProbesByProvider(probes: readonly VerifyProbe[]): ProviderP
  * 单组结论 -> 汇报：可用模型按「提供方 / 模型」去重；档位不可用单独计数，不与其它失败混计。
  * 可达 / 凭据取自**全程**结果而非首个：探测跑到一半才撞上额度耗尽同样该如实记为凭据不可用。
  */
-export function reportProvider(group: ProviderProbeGroup, result: ProviderProbeOutcome): VerifyProviderReport {
+export function reportProvider(result: ProviderProbeOutcome): VerifyProviderReport {
     const usable = new Set<string>()
     let efforts = 0
     let unsupported = 0
     let unreachable = false
     let keyRejected = false
-    for (let index = 0; index < result.outcomes.length; index++) {
-        const outcome = result.outcomes[index]
-        if (outcome === 'usable') {
+    for (const item of result.results) {
+        if (item.outcome === 'usable') {
             efforts++
-            usable.add(JSON.stringify([group.probes[index].provider, group.probes[index].model]))
-        } else if (outcome === 'unsupported-effort') {
+            usable.add(JSON.stringify([item.provider, item.model]))
+        } else if (item.outcome === 'unsupported-effort') {
             unsupported++
-        } else if (outcome === 'unreachable') {
+        } else if (item.outcome === 'unreachable') {
             unreachable = true
-        } else if (outcome === 'quota' || outcome === 'credential') {
+        } else if (item.outcome === 'quota' || item.outcome === 'credential') {
             keyRejected = true
         }
     }
     return {
-        provider: group.provider,
+        provider: result.provider,
         reachable: !unreachable,
         // 从未拿到 HTTP 响应时无从判断凭据，如实不报「有效」
         keyValid: !unreachable && !keyRejected,
@@ -214,12 +241,15 @@ export function reportProvider(group: ProviderProbeGroup, result: ProviderProbeO
         efforts,
         unsupported,
         planned: result.planned,
-        probed: result.outcomes.length,
+        probed: result.results.length,
     }
 }
 
-/** 全局汇总：各组汇报相加（可用模型在组内已去重，跨组本就分属不同提供方，无跨组撞键） */
-export function summarizeProviders(reports: readonly VerifyProviderReport[]): VerifySummary {
+/** 全局汇总：各组汇报相加；明细按「组序 → 组内探测序」平铺，顺序稳定可重复消费 */
+export function summarizeProviders(
+    reports: readonly VerifyProviderReport[],
+    results: readonly VerifyProbeResult[],
+): VerifySummary {
     let models = 0
     let efforts = 0
     let unsupported = 0
@@ -232,14 +262,25 @@ export function summarizeProviders(reports: readonly VerifyProviderReport[]): Ve
         planned += report.planned
         probed += report.probed
     }
-    return { providers: reports, models, efforts, unsupported, planned, probed }
+    return { providers: reports, results, models, efforts, unsupported, planned, probed }
+}
+
+/** 取失败事实的可序列化子集（供调用方自行细分，不参与本插件的判定） */
+function failureFacts(failure: LlmFailure): VerifyFailureFacts {
+    return { code: failure.code, status: failure.status, message: failure.message }
+}
+
+/** 一次探测的判定：结论 + 失败时的原始事实（收到 block-start 时无事实） */
+interface ProbeVerdict {
+    outcome: ProbeOutcome
+    failure: VerifyFailureFacts | undefined
 }
 
 /**
  * 发一次探测并判定：收到首个 `block-start` 即判「受支持」；否则读到终止块、据其失败事实分类。
  * 我方超时引发的 `aborted` 不算「端点不可达」——那会把慢端点误判成断线，进而错误短路整组。
  */
-async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe): Promise<ProbeOutcome> {
+async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe): Promise<ProbeVerdict> {
     const controller = new AbortController()
     let timedOut = false
     const timer = setTimeout(() => { timedOut = true; controller.abort() }, VERIFY_TIMEOUT_MS)
@@ -256,19 +297,22 @@ async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe): P
             // 只认 block-start——它证明适配器已真正开始产出内容块（宿主 isVisibleChunk 同样把 usage / finish 排除在「内容」之外）。
             // 不能沿用「首个非 finish 块即成功」：额度耗尽的 key 也会先来一条 usage，那不是受理信号。
             // 命中即返回，随后的 finally 中断请求、不再消耗生成额度
-            if (chunk.type === 'block-start') return 'usable'
+            if (chunk.type === 'block-start') return { outcome: 'usable', failure: undefined }
             if (chunk.type === 'finish') {
                 const reason = chunk.reason
                 // stop / tool-calls / max-tokens：正常终止却没有内容块，宿主归为退化完成，同样不可用
-                if (reason.kind !== 'error' && reason.kind !== 'aborted') return 'other'
-                if (timedOut) return 'other'
-                return classifyFailure(reason.failure)
+                if (reason.kind !== 'error' && reason.kind !== 'aborted') return { outcome: 'other', failure: undefined }
+                // 我方超时不算端点不可达，但原始失败事实照留，供调用方自行判断
+                return {
+                    outcome: timedOut ? 'other' : classifyFailure(reason.failure),
+                    failure: failureFacts(reason.failure),
+                }
             }
         }
-        return 'other'
+        return { outcome: 'other', failure: undefined }
     } catch {
         // 适配器未注册等抛出的异常一律归入「其它失败」，不参与短路——宁可少短路，不可误短路
-        return 'other'
+        return { outcome: 'other', failure: undefined }
     } finally {
         clearTimeout(timer)
         controller.abort()
@@ -280,17 +324,23 @@ async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe): P
  * 同一提供方共用同一 url 与同一把 key，这次过不了后面同样过不了，没必要再花额度。
  */
 async function runGroup(llm: Pick<LlmRuntime, 'stream'>, group: ProviderProbeGroup): Promise<ProviderProbeOutcome> {
-    const outcomes: ProbeOutcome[] = []
+    const results: VerifyProbeResult[] = []
     let blockedBy: ProviderBlockReason | undefined
     for (const probe of group.probes) {
-        const outcome = await probeOnce(llm, probe)
-        outcomes.push(outcome)
-        if (isProviderBlocking(outcome)) {
-            blockedBy = outcome
+        const verdict = await probeOnce(llm, probe)
+        results.push({
+            provider: probe.provider,
+            model: probe.model,
+            effort: probe.effort,
+            outcome: verdict.outcome,
+            failure: verdict.failure,
+        })
+        if (isProviderBlocking(verdict.outcome)) {
+            blockedBy = verdict.outcome
             break
         }
     }
-    return { provider: group.provider, outcomes, blockedBy, planned: group.probes.length }
+    return { provider: group.provider, results, blockedBy, planned: group.probes.length }
 }
 
 /**
@@ -301,14 +351,15 @@ export async function verifyModels(llm: Pick<LlmRuntime, 'stream'>, payload: unk
     const probes = planProbes(payload)
     if (probes === undefined) throw new Error(`${PLUGIN_NAME}: 验证请求不合法（模型条目或推理级别取值越界）`)
     const groups = groupProbesByProvider(probes)
-    const results = new Array<ProviderProbeOutcome>(groups.length)
+    const outcomes = new Array<ProviderProbeOutcome>(groups.length)
     // 第 w 个 worker 只跑下标 ≡ w (mod workers) 的组：一个普通 for 即可切分，无需共享游标，
     // 各 worker 拿到的组数相差至多一个；组内逐条 await 即「同一 provider 零并发」
     const workers = Math.min(VERIFY_PROVIDER_CONCURRENCY, groups.length)
     await Promise.all(Array.from({ length: workers }, (_, worker) => (async () => {
         for (let at = worker; at < groups.length; at += workers) {
-            results[at] = await runGroup(llm, groups[at])
+            outcomes[at] = await runGroup(llm, groups[at])
         }
     })()))
-    return summarizeProviders(groups.map((group, at) => reportProvider(group, results[at])))
+    const reports = groups.map((_, at) => reportProvider(outcomes[at]))
+    return summarizeProviders(reports, groups.flatMap((_, at) => outcomes[at].results))
 }

@@ -3,7 +3,7 @@
 import { classifyFailure, groupProbesByProvider, isProviderBlocking, planProbes, reportProvider, summarizeProviders, verifyModels } from '@/verify'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm/types'
-import type { ProbeOutcome, ProviderProbeGroup, VerifyProbe, VerifyProviderReport } from '@/verify'
+import type { ProbeOutcome, VerifyProbe, VerifyProbeResult, VerifyProviderReport } from '@/verify'
 import { check, stable } from '@test/helper'
 
 /** 一个模型的载荷；参数收 unknown 以便构造非法入参用例（RPC 入参按不可信输入校验） */
@@ -93,49 +93,46 @@ export async function run(): Promise<void> {
     check('isProviderBlocking 可用不短路', isProviderBlocking('usable') === false)
 
     // ---------- reportProvider：可用模型去重、档位不支持单列、可达与凭据取自全程 ----------
-    const group: ProviderProbeGroup = {
-        provider: 'a',
-        indexes: [0, 1, 2],
-        probes: [
-            { provider: 'a', model: 'm1', effort: 'off' },
-            { provider: 'a', model: 'm1', effort: 'high' },
-            { provider: 'a', model: 'm2', effort: 'low' },
-        ],
-    }
-    const report = (outcomes: ProbeOutcome[], blockedBy?: 'unreachable' | 'quota' | 'credential') =>
-        reportProvider(group, { provider: 'a', outcomes, blockedBy, planned: 3 })
+    const detail = (model: string, outcome: ProbeOutcome, effort?: string): VerifyProbeResult =>
+        ({ provider: 'a', model, effort, outcome, failure: undefined })
+    const report = (results: VerifyProbeResult[], blockedBy?: 'unreachable' | 'quota' | 'credential') =>
+        reportProvider({ provider: 'a', results, blockedBy, planned: 3 })
+    const allOk = report([detail('m1', 'usable', 'off'), detail('m1', 'usable', 'high'), detail('m2', 'usable', 'low')])
     check(
         'reportProvider 全可用：同模型多档只计一个可用模型',
-        stable(report(['usable', 'usable', 'usable'])) === stable({
+        stable(allOk) === stable({
             provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
             models: 2, efforts: 3, unsupported: 0, planned: 3, probed: 3,
         }),
-        report(['usable', 'usable', 'usable']),
+        allOk,
     )
+    const oneUnsupported = report([detail('m1', 'usable', 'off'), detail('m1', 'unsupported-effort', 'high'), detail('m2', 'usable', 'low')])
     check(
         'reportProvider 档位不支持单列，不混入其它失败',
-        stable(report(['usable', 'unsupported-effort', 'usable'])) === stable({
+        stable(oneUnsupported) === stable({
             provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
             models: 2, efforts: 2, unsupported: 1, planned: 3, probed: 3,
         }),
-        report(['usable', 'unsupported-effort', 'usable']),
+        oneUnsupported,
     )
+    const dead = report([detail('m1', 'unreachable')], 'unreachable')
     check(
         'reportProvider 端点不可达：短路且不臆断凭据有效',
-        stable(report(['unreachable'], 'unreachable')) === stable({
+        stable(dead) === stable({
             provider: 'a', reachable: false, keyValid: false, skipped: true, blockedBy: 'unreachable',
             models: 0, efforts: 0, unsupported: 0, planned: 3, probed: 1,
         }),
-        report(['unreachable'], 'unreachable'),
+        dead,
     )
     // 可达但额度耗尽：端点通、key 无效——这正是「凭据有效且有额度」要拆成两态的原因
+    const outOfQuota = report([detail('m1', 'usable', 'off'), detail('m1', 'quota', 'high')], 'quota')
     check(
         'reportProvider 额度耗尽：可达但凭据无效',
-        stable(report(['usable', 'quota'], 'quota')) === stable({
+        stable(outOfQuota) === stable({
             provider: 'a', reachable: true, keyValid: false, skipped: true, blockedBy: 'quota',
             models: 1, efforts: 1, unsupported: 0, planned: 3, probed: 2,
         }),
-        report(['usable', 'quota'], 'quota'),
+        outOfQuota,
     )
 
     // ---------- summarizeProviders：逐字段求和 ----------
@@ -147,16 +144,17 @@ export async function run(): Promise<void> {
         provider: 'b', reachable: false, keyValid: false, skipped: true, blockedBy: 'unreachable',
         models: 0, efforts: 0, unsupported: 0, planned: 5, probed: 1,
     }
+    const details: VerifyProbeResult[] = [detail('m1', 'usable', 'off')]
     check(
         'summarizeProviders 求和（短路组的计划数计入、实测数只计已发出的）',
-        stable(summarizeProviders([ok, blocked])) === stable({
-            providers: [ok, blocked], models: 2, efforts: 3, unsupported: 1, planned: 8, probed: 4,
+        stable(summarizeProviders([ok, blocked], details)) === stable({
+            providers: [ok, blocked], results: details, models: 2, efforts: 3, unsupported: 1, planned: 8, probed: 4,
         }),
-        summarizeProviders([ok, blocked]),
+        summarizeProviders([ok, blocked], details),
     )
     check(
         'summarizeProviders 空输入',
-        stable(summarizeProviders([])) === stable({ providers: [], models: 0, efforts: 0, unsupported: 0, planned: 0, probed: 0 }),
+        stable(summarizeProviders([], [])) === stable({ providers: [], results: [], models: 0, efforts: 0, unsupported: 0, planned: 0, probed: 0 }),
     )
 
     // ---------- verifyModels：带桩跑通整条链，逐组串行且短路 ----------
@@ -188,6 +186,16 @@ export async function run(): Promise<void> {
             && summary.providers.length === 1 && summary.providers[0].reachable && summary.providers[0].keyValid,
             summary,
         )
+        // 明细：逐条给出「提供方 / 模型 / 档位 / 结论」，顺序为「组序 → 组内探测序」
+        check(
+            'verifyModels 返回逐条明细',
+            stable(summary.results) === stable([
+                { provider: 'a', model: 'm1', effort: 'off', outcome: 'usable', failure: undefined },
+                { provider: 'a', model: 'm1', effort: 'high', outcome: 'usable', failure: undefined },
+                { provider: 'a', model: 'm2', effort: 'low', outcome: 'usable', failure: undefined },
+            ]),
+            summary.results,
+        )
         // 提示词固定为一句 Just say OK——它是省额度的前提，不该被顺手改成更啰嗦的说法
         check('verifyModels 每次探测的提示词都是 Just say OK', prompts.length === 3 && prompts.every((text) => text === 'Just say OK'), prompts)
     }
@@ -201,6 +209,15 @@ export async function run(): Promise<void> {
             && summary.providers[0].skipped && summary.providers[0].blockedBy === 'quota'
             && summary.providers[0].reachable && !summary.providers[0].keyValid,
             { calls, summary },
+        )
+        // 明细须带上失败的原始事实，调用方可据此做比本插件更细的分类与展示
+        check(
+            'verifyModels 明细带失败原始事实',
+            stable(summary.results) === stable([{
+                provider: 'a', model: 'm1', effort: 'off', outcome: 'quota',
+                failure: { code: 'QUOTA', status: 429, message: '文案随便写，各厂商都不一样' },
+            }]),
+            summary.results,
         )
     }
     {
