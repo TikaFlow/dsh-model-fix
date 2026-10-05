@@ -244,8 +244,10 @@ const STYLE_TEXT = [
     // 宿主滚动条变量无浅色真值可引，按官方原样透传、不自造字面量兜底
     '.dsh-mf-verifyDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}',
     '.dsh-mf-verifyList{display:flex;flex-direction:column;gap:2px;max-height:320px;margin:0;padding:0;list-style:none;overflow-y:auto}',
-    // 提供方分组头：官方候选框本无分组，此处一行静态标题标明下一批条目归属（零自造色，仅用宿主 label 令牌）
-    '.dsh-mf-verifyGroup{padding:8px 8px 4px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#81858c)}',
+    // 提供方分组头：官方候选框本无分组，此处一行标题标明下一批条目归属（零自造色，仅用宿主 label 令牌）。
+    // 排布照官方 candidateToolbar——align-items:center + gap:8px 的 flex 行；右侧分组全选键 margin-left:auto 顶到行尾
+    '.dsh-mf-verifyGroup{display:flex;align-items:center;gap:8px;padding:8px 8px 4px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary,#81858c)}',
+    '.dsh-mf-verifyGroupAll{margin-left:auto}',
     '.dsh-mf-verifyRow{border-radius:var(--dsw-radius-md,12px)}',
     '.dsh-mf-verifyLabel{display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer}',
     '.dsh-mf-verifyId{flex:auto;min-width:0;overflow:hidden;font-family:var(--ds-font-family-code);font-size:13px;text-overflow:ellipsis;white-space:nowrap}',
@@ -760,6 +762,20 @@ export function Card(props: CardProps) {
             return next
         })
     }
+    // 分组全选：与逐条切换共用同一份勾选集。判据用 every 而非 any——部分选中时仍显示「全选」，
+    // 该组全选中才翻成「取消全选」，与官方 candidateToolbar 的 allVisibleCandidatesPicked 同一语义
+    const toggleVerifyGroup = (models: readonly VerifyCandidate[]) => {
+        setVerifyPicked((current) => {
+            const next = new Set(current)
+            const allPicked = models.every((candidate) => next.has(verifyKey(candidate.provider, candidate.model)))
+            for (const candidate of models) {
+                const key = verifyKey(candidate.provider, candidate.model)
+                if (allPicked) next.delete(key)
+                else next.add(key)
+            }
+            return next
+        })
+    }
     // 清空记忆：前端经自有 NS 的 settings scope 直写（与「保存」同一条写通道，立即生效、草稿不动）；
     // 失败要显式提示——否则开关已关而记忆未清，无从察觉。与保存共用 busy 互斥：
     // 保存整段写含 efforts 实时值，两者并发时后落者会把先落者覆盖掉
@@ -991,7 +1007,21 @@ export function Card(props: CardProps) {
                 ) : (
                     <ul className="dsh-mf-verifyList">
                         {verifyGroups.map((group) => [
-                            <li key={`g-${group.provider}`} className="dsh-mf-verifyGroup">{group.provider}</li>,
+                            <li key={`g-${group.provider}`} className="dsh-mf-verifyGroup">
+                                {group.provider}
+                                {/* 分组全选键：组件、尺寸与文案语义逐条照官方 candidateToolbar 的 ghost 小键 */}
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="dsh-mf-verifyGroupAll"
+                                    disabled={busy === 'verify'}
+                                    onClick={() => { toggleVerifyGroup(group.models) }}
+                                >
+                                    {group.models.every((candidate) => verifyPicked.has(verifyKey(candidate.provider, candidate.model)))
+                                        ? t('verifyDeselectAll')
+                                        : t('verifySelectAll')}
+                                </Button>
+                            </li>,
                             ...group.models.map((candidate) => {
                                 const key = verifyKey(candidate.provider, candidate.model)
                                 return (
