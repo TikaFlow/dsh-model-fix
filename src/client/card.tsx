@@ -247,21 +247,20 @@ const STYLE_TEXT = [
     '.dsh-mf-verifyDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}',
     '.dsh-mf-verifyList{display:flex;flex-direction:column;gap:2px;max-height:320px;margin:0;padding:0;list-style:none;overflow-y:auto}',
     // 提供方分组头：官方候选框本无分组，此处一行标题标明下一批条目归属（零自造色，仅用宿主 label 令牌）。
-    // 排布照官方 candidateToolbar——align-items:center + gap:8px 的 flex 行；右侧分组全选键 margin-left:auto 顶到行尾
-    '.dsh-mf-verifyGroup{display:flex;align-items:center;gap:8px;padding:8px 8px 4px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary,#81858c)}',
+    // 排布照官方 candidateToolbar——align-items:center + gap:8px 的 flex 行；右侧分组全选键 margin-left:auto 顶到行尾。
+    // 纵向内边距取官方 candidateLabel 的 6px 8px，与候选行同档（原为 8px/4px，不在官方档位内）
+    '.dsh-mf-verifyGroup{display:flex;align-items:center;gap:8px;padding:6px 8px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-verifyGroupAll{margin-left:auto}',
     '.dsh-mf-verifyRow{border-radius:var(--dsw-radius-md,12px)}',
     '.dsh-mf-verifyLabel{display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer}',
     '.dsh-mf-verifyId{flex:auto;min-width:0;overflow:hidden;font-family:var(--ds-font-family-code);font-size:13px;text-overflow:ellipsis;white-space:nowrap}',
     '.dsh-mf-verifyEmpty{margin:24px 0;color:var(--dsw-alias-label-secondary,#61666b);text-align:center;font-size:13px;line-height:20px}',
-    // 额度提示：沿用官方插件卡的 .notice（warn 语义、12px/18px），置于候选列表之下
-    '.dsh-mf-verifyQuota{margin:8px 0 0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label,#dd8629)}',
-    // 底部整行自绘：宿主 Modal 的 footer 是 flex-end 的单行，故整行交给本容器。
-    // 档位开关独占一行、确认键组另起一行右对齐——开关的长文案 + 提示图标与两个键挤在一行放不下（实测 520px 亦然），
-    // 分行后也不再随弹层宽度变化而抖动
-    '.dsh-mf-verifyFooter{display:flex;flex-direction:column;align-items:stretch;gap:10px;width:100%}',
-    '.dsh-mf-verifyOption{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;min-width:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-secondary,#61666b)}',
-    '.dsh-mf-verifyActions{display:flex;justify-content:flex-end;gap:8px}',
+    // 额度提示：逐条同官方插件卡的 .notice——warn 语义、12px/18px，且作为 .section 的直接子元素靠 section 的 gap 定距，
+    // 故上间距取 12px；不可套 candidateToolbar→candidateList 的 6px（那是「控件紧贴列表」的档，用在这里显得挤）
+    '.dsh-mf-verifyQuota{margin:12px 0 0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label,#dd8629)}',
+    // 档位开关：放在 body 内而非 footer——宿主 RiskConfirmation（敏感操作前置确认）正是这个排法，
+    // 确认控件留在正文、footer 只放取消/确认两键；上间距逐条取其 .acknowledgement 的 margin-top:20px
+    '.dsh-mf-verifyOption{display:inline-flex;align-items:center;gap:6px;margin-top:20px;min-width:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-secondary,#61666b)}',
     // 注意语义键：卡片 footer 的「验证模型」触发键与弹层内的验证确认键共用，仅把描边/字色换成 warn 令牌；
     // hover 用其 10% 稀释（宿主无 warn 悬停底令牌，与 .dsh-mf-chipVersion 同一 color-mix 手法，不自造色值）。
     // 叠加在 .dsh-mf-discard 之上时靠 :not(:disabled) 的高特异性压过其默认描边/字色
@@ -963,37 +962,21 @@ export function Card(props: CardProps) {
                 closeLabel={t('close')}
                 description={t('verifyDesc')}
                 className="dsh-mf-verifyDialog"
-                footer={<div className="dsh-mf-verifyFooter">
-                    <span className="dsh-mf-verifyOption">
-                        <Switch
-                            checked={verifyAllEfforts}
-                            disabled={busy === 'verify'}
-                            label={t('verifyAllEfforts')}
-                            onChange={setVerifyAllEfforts}
-                        />
-                        <span>{t('verifyAllEfforts')}</span>
-                        {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
-                        <Tooltip label={t('verifyAllEffortsTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
-                            <button type="button" className="dsh-mf-help" aria-label={t('verifyAllEffortsTip')}>
-                                <IconInfoOutlineRegular size={12} />
-                            </button>
-                        </Tooltip>
-                    </span>
-                    <div className="dsh-mf-verifyActions">
-                        <Button variant="outline" data-modal-autofocus disabled={busy === 'verify'} onClick={closeVerify}>{t('cancel')}</Button>
-                        <Button
-                            variant="outline"
-                            className="dsh-mf-warn"
-                            disabled={busy !== null || verifyPicked.size === 0}
-                            onClick={runVerify}
-                        >
-                            {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点；
-                                StateDot 的 ongoing 态就是侧边栏会话列表项左侧那个转圈（同原语、同动效） */}
-                            {busy === 'verify' ? <StateDot state="ongoing" /> : null}
-                            {t('verifyGo')}
-                        </Button>
-                    </div>
-                </div>}
+                footer={<>
+                    {/* 底部只放两键，逐条同官方「获取可用模型」：宿主 .footer 自身即 flex-end + gap:8px，不再自绘容器 */}
+                    <Button variant="outline" data-modal-autofocus disabled={busy === 'verify'} onClick={closeVerify}>{t('cancel')}</Button>
+                    <Button
+                        variant="outline"
+                        className="dsh-mf-warn"
+                        disabled={busy !== null || verifyPicked.size === 0}
+                        onClick={runVerify}
+                    >
+                        {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点；
+                            StateDot 的 ongoing 态就是侧边栏会话列表项左侧那个转圈（同原语、同动效） */}
+                        {busy === 'verify' ? <StateDot state="ongoing" /> : null}
+                        {t('verifyGo')}
+                    </Button>
+                </>}
             >
                 {verifyGroups.length === 0 ? (
                     <p className="dsh-mf-verifyEmpty" role="status">{t('verifyEmpty')}</p>
@@ -1034,6 +1017,23 @@ export function Card(props: CardProps) {
                     </ul>
                 )}
                 <p className="dsh-mf-verifyQuota">{t('verifyQuota')}</p>
+                {/* 档位开关置于 body 内而非 footer：宿主 RiskConfirmation（敏感操作前置确认）正是这个排法——
+                    确认控件留在正文、距上一段 20px，footer 只放取消/确认两键 */}
+                <span className="dsh-mf-verifyOption">
+                    <Switch
+                        checked={verifyAllEfforts}
+                        disabled={busy === 'verify'}
+                        label={t('verifyAllEfforts')}
+                        onChange={setVerifyAllEfforts}
+                    />
+                    <span>{t('verifyAllEfforts')}</span>
+                    {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
+                    <Tooltip label={t('verifyAllEffortsTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                        <button type="button" className="dsh-mf-help" aria-label={t('verifyAllEffortsTip')}>
+                            <IconInfoOutlineRegular size={12} />
+                        </button>
+                    </Tooltip>
+                </span>
             </Modal>
         </>
     )
