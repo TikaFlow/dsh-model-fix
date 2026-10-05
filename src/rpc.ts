@@ -7,8 +7,10 @@
  *   写回触发的 settings/document-updated 一律短路，避免把刚删掉的字段重新填回。
  * - 「恢复备份」→ restoreModels(ctx) 把启动时备份（交集：备份与当前都存在的 provider+model）回退，
  *   事件流守卫全程打开，避免写回触发填充。
- * 三个端点共用同一守卫做互斥：守卫已开（另一写回在途）时一律拒绝——两个写回端点并发时，
- * 后到者的 finally 会提前解除守卫，令先到者的写回失去保护；填充与写回语义也相互冲突。
+ * 三个端点共用同一守卫做互斥：入口一律先查，守卫已开（另一写回在途）即拒——后到者的 finally 会
+ * 提前解除守卫，令先到者的写回失去保护；填充与写回语义也相互冲突。置位分工：forceUpdate 在本
+ * handler 层置位（finally 解除），reset / restore 由各自写回内部置位。守卫互斥只覆盖查守卫的路径：
+ * 事件链的 fix 只查不置位，在途窗口内本层入口仍可进入，该并发由 fix 自身的 revision 冲突重试兜底。
  * channel 为插件自有命名空间拼成的绝对前缀，浏览器半以 `/${PLUGIN_NS}` 配对（两侧同取 src/shared/constants.ts 的 `PLUGIN_NS`，改常量即两侧同步）。
  * connection / webServer 服务经 ctx.get 断言取得宿主真类型（type-only 导入 devDep 的
  * dsh-client-connection / dsh-host-webserver；断言范式与宿主内置插件 ui-settings-general 一致），信任围栏由宿主 connection 统一施加。
