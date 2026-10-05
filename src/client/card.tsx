@@ -968,7 +968,7 @@ export function Card(props: CardProps) {
                         {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点；
                             StateDot 的 ongoing 态就是侧边栏会话列表项左侧那个转圈（同原语、同动效） */}
                         {busy === 'verify' ? <StateDot state="ongoing" /> : null}
-                        {busy === 'verify' ? t('verifying') : t('verifyGo')}
+                        {t('verifyGo')}
                     </Button>
                 </div>}
             >

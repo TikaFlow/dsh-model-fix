@@ -81,7 +81,6 @@ export type CardKey =
     | 'verifyAllEfforts'
     | 'verifyAllEffortsTip'
     | 'verifyGo'
-    | 'verifying'
     | 'verifyDone'
     | 'verifyFailed'
     | 'verifyEmpty'
@@ -213,7 +212,6 @@ export const zh: Record<CardKey, string> = {
     verifyAllEfforts: '验证所有推理级别',
     verifyAllEffortsTip: '开启后会验证该模型声明的全部推理级别，请求数成倍增加；关闭时每个模型仅验证一个推理级别。',
     verifyGo: '验证',
-    verifying: '验证中…',
     verifyDone: '验证完成：{models} 个模型的 {efforts} 个推理级别可用（共 {total} 项）。',
     verifyFailed: '验证失败：{message}',
     verifyEmpty: '暂无模型，请先在「模型」设置中添加模型。',
@@ -302,7 +300,6 @@ export const en: Record<CardKey, string> = {
     verifyAllEfforts: 'Verify every reasoning effort',
     verifyAllEffortsTip: 'Verifies every reasoning effort the model declares, multiplying the request count; when off, only one reasoning effort per model is verified.',
     verifyGo: 'Verify',
-    verifying: 'Verifying…',
     verifyDone: 'Verified: {efforts} reasoning effort(s) across {models} model(s) are usable ({total} request(s) sent).',
     verifyFailed: 'Verification failed: {message}',
     verifyEmpty: 'No models yet. Add models on the Models settings page first.',
