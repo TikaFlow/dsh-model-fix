@@ -1,5 +1,5 @@
 /**
- * 模型可用性验证：对「模型 × 推理级别」笛卡尔积各发一次最小请求，仅以提供方是否受理（状态码 2xx）判定可用，
+ * 模型可用性验证：对「模型 × 推理级别」笛卡尔积各发一次最小请求，仅以适配器是否真正开始产出内容块（`block-start`）判定可用，
  * 不看返回内容——不少提供方并不按提示词原样作答，只判内容会把可用的模型误判为不可用。
  *
  * 请求复用宿主 `ctx.llm`（LlmRuntime）而不是自建 HTTP：凭据只在宿主的凭据缝内可读（插件读不到 API Key），
@@ -9,8 +9,9 @@
  * 并发模型：**同一提供方恒为 1 并发**（一个 provider 一条串行链，前一次返回后才发下一次，规避 429），
  * 跨提供方最多 VERIFY_PROVIDER_CONCURRENCY 路；单次失败即计不可用，不重试不退避（避免在已判定不可用的端点上继续消耗额度与时间）。
  *
- * 判定口径：流中出现首个非 finish 块即成功（证明端点已受理，随即中断、不再消耗生成额度），
- * 终止块取其 reason（stop / max-tokens 成功，error / aborted 失败），单次超时同样判失败。
+ * 判定口径：流中出现首个 `block-start` 即成功（证明适配器已真正开始产出内容块，随即中断、不再消耗生成额度）。
+ * `usage` 不含受理信息——额度耗尽的 key 也会先来一条，只判「非 finish」会把它误判为可用；
+ * 全程无内容块、超时、异常与 error / aborted 终止一律判失败。
  *
  * 纯函数（planProbes / groupProbesByProvider / summarizeProbes）零 ctx、不触网，由 test/verify.test.ts 守护；
  * 脏执行只此一处。
@@ -103,7 +104,7 @@ export function summarizeProbes(probes: readonly VerifyProbe[], ok: readonly boo
     return { models: usable.size, efforts, total: probes.length }
 }
 
-/** 发一次探测并判定可用性：首个非终止块即受理成功，终止块按 reason 判，超时/异常一律不可用 */
+/** 发一次探测并判定可用性：收到首个 `block-start` 即受理成功，全程无内容块、超时或异常一律不可用 */
 async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe): Promise<boolean> {
     const controller = new AbortController()
     const timer = setTimeout(() => { controller.abort() }, VERIFY_TIMEOUT_MS)
@@ -117,13 +118,14 @@ async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe): P
             messages: [{ role: 'user', content: [{ type: 'text', text: VERIFY_PROMPT }] }],
             signal: controller.signal,
         })) {
-            // 首个非终止块即证明端点已受理（2xx）：判定完成，随后的 finally 中断请求、不再消耗生成额度
-            if (chunk.type !== 'finish') return true
-            return chunk.reason.kind === 'stop' || chunk.reason.kind === 'max-tokens'
+            // 只认 block-start——它证明适配器已真正开始产出内容块（宿主 isVisibleChunk 同样把 usage / finish 排除在「内容」之外）。
+            // 不能沿用「首个非 finish 块即成功」：额度耗尽的 key 也会先来一条 usage，那不是受理信号。
+            // 命中即返回，随后的 finally 中断请求、不再消耗生成额度
+            if (chunk.type === 'block-start') return true
         }
         return false
     } catch {
-        // 适配器未注册、凭据不可用、本地档位校验拒绝等一律判不可用（单次失败不中断整批）
+        // 适配器未注册、凭据不可用、额度耗尽、本地档位校验拒绝等一律判不可用（单次失败不中断整批）
         return false
     } finally {
         clearTimeout(timer)
