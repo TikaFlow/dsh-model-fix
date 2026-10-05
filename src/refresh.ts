@@ -9,6 +9,10 @@ import { isIgnoreAll } from '@/guard'
 // 在途守卫防止连续事件叠加拉取——在途期间事件只填充，结算（成功/重试耗尽/卸载）后自然放行
 let lastRefreshAt = 0
 let refreshing = false
+// 重试定时器 id：卸载路径须 clearTimeout——回调闭包持有 ctx，且卸载后触发只会空转；
+// refreshing 是模块级单例（插件重装不重新求值模块），旧定时器在新实例拉取在途时触发
+// 会把它误清为 false，破坏单飞不变量
+let retryTimer: ReturnType<typeof setTimeout> | undefined
 
 /** 距上次成功拉取超过保鲜窗口且无在途拉取时才真正拉取（长期不重启的保鲜路径，由模型配置变更事件驱动） */
 export function refreshIfStale(ctx: Context, isDisposed: () => boolean): void {
@@ -63,7 +67,8 @@ function refresh(ctx: Context, isDisposed: () => boolean, retryCount = MAX_ATTEM
                 refreshing = false
                 return
             }
-            setTimeout(() => {
+            retryTimer = setTimeout(() => {
+                retryTimer = undefined
                 if (isDisposed()) {
                     refreshing = false
                     return
@@ -73,4 +78,11 @@ function refresh(ctx: Context, isDisposed: () => boolean, retryCount = MAX_ATTEM
                 refresh(ctx, isDisposed, retryCount)
             }, RETRY_DELAY_MS)
         })
+}
+
+/** 卸载清理：取消待触发的重试定时器（回调闭包持有 ctx，重装窗口内触发还会误清 refreshing） */
+export function cancelRefreshRetry(): void {
+    if (retryTimer === undefined) return
+    clearTimeout(retryTimer)
+    retryTimer = undefined
 }

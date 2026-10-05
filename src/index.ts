@@ -4,7 +4,7 @@ import { readCache, setCatalog } from '@/catalog'
 import { PLUGIN_NS, API_NS, PLUGIN_NAME } from '@/shared/constants'
 import { resolveConfig, setConfigSource } from '@/config'
 import { migrateConfig, selfHealConfig } from '@/migrate'
-import { refreshIfStale } from '@/refresh'
+import { cancelRefreshRetry, refreshIfStale } from '@/refresh'
 import { installRpc } from '@/rpc'
 import { fix } from '@/fix'
 import { isIgnoreAll } from '@/guard'
@@ -96,6 +96,8 @@ export function apply(ctx: Context, config?: unknown): void {
             })
         return () => {
             disposed = true
+            // 取消待触发的拉取重试定时器（闭包持有 ctx，卸载后不应再触发）
+            cancelRefreshRetry()
         }
     })
 }
