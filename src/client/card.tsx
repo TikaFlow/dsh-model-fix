@@ -959,14 +959,15 @@ export function Card(props: CardProps) {
                         </Tooltip>
                     </span>
                     <Button variant="outline" data-modal-autofocus disabled={busy === 'verify'} onClick={closeVerify}>{t('cancel')}</Button>
-                    {/* 在途指示：宿主 StateDot 的 ongoing 态即侧边栏会话列表每项左侧那个转圈（同一原语、同一动效） */}
-                    {busy === 'verify' ? <StateDot state="ongoing" /> : null}
                     <Button
                         variant="outline"
                         className="dsh-mf-confirmWarn"
                         disabled={busy !== null || verifyPicked.size === 0}
                         onClick={runVerify}
                     >
+                        {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点；
+                            StateDot 的 ongoing 态就是侧边栏会话列表项左侧那个转圈（同原语、同动效） */}
+                        {busy === 'verify' ? <StateDot state="ongoing" /> : null}
                         {busy === 'verify' ? t('verifying') : t('verifyGo')}
                     </Button>
                 </div>}
