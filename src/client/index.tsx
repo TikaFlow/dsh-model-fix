@@ -184,7 +184,7 @@ function boot(
                     tracked.set(id, entry)
                 }
                 const retainInfo = sessions.retainInfo(id)
-                entry.retainUnsub = retainInfo.subscribe(() => {
+                const syncRetain = (): void => {
                     if (retainInfo.getSnapshot().referenceCount <= 0 || entry.projectionUnsub) return
                     const binding = sessions.binding(id)
                     if (!binding) return
@@ -193,7 +193,11 @@ function boot(
                     entry.projectionUnsub = projection.subscribe(() => handleProjection(id, entry, readNext()))
                     // 订阅时先按当前值跑一次，避免已选模型要等下一次变化才恢复记忆
                     handleProjection(id, entry, readNext())
-                })
+                }
+                entry.retainUnsub = retainInfo.subscribe(syncRetain)
+                // subscribe 只订阅失效通知、不推首值：立即按当前快照补一遍，
+                // 已 retain 的会话（track 前就已保留）即刻挂上投影订阅
+                syncRetain()
             }
 
             /** 解绑一个会话的所有订阅 */
@@ -205,7 +209,7 @@ function boot(
                 tracked.delete(id)
             }
 
-            const listUnsub = sessions.list.subscribe(() => {
+            const syncList = (): void => {
                 const ids = new Set(sessions.list.getSnapshot().ids)
                 for (const id of [...tracked.keys()]) {
                     if (!ids.has(id)) untrack(id)
@@ -213,7 +217,11 @@ function boot(
                 for (const id of ids) {
                     if (!tracked.has(id)) trackRetain(id)
                 }
-            })
+            }
+            const listUnsub = sessions.list.subscribe(syncList)
+            // subscribe 只订阅失效通知、不推首值：立即按当前快照补一遍，
+            // 插件激活时已存在的会话同样进入追踪（否则要等 list 下次变化）
+            syncList()
 
             return () => {
                 listUnsub()
