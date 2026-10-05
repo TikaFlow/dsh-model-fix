@@ -12,19 +12,32 @@ import { run as runReset } from '@test/reset.test'
 import { run as runRestore } from '@test/restore.test'
 import { run as runRpcRoute } from '@test/rpc-route.test'
 import { run as runVerify } from '@test/verify.test'
-import { summary } from '@test/helper'
+import { section, summary } from '@test/helper'
 
+section('catalog.test.ts')
 runCatalog()
+section('client-model.test.ts')
 runClientModel()
+section('compat.test.ts')
 runCompat()
+section('config.test.ts')
 runConfig()
+section('effort.test.ts')
 runEffort()
+section('guard.test.ts')
 runGuard()
+section('lookup.test.ts')
 runLookup()
+section('migrate.test.ts')
 runMigrate()
+section('reset.test.ts')
 runReset()
+section('restore.test.ts')
 runRestore()
+section('verify.test.ts')
 await runVerify()
+section('rpc-route.test.ts')
 await runRpcRoute()
+section('fix.test.ts')
 await runFix()
 summary()
