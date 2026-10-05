@@ -21,7 +21,7 @@ import type { ConnectionRpcResult, HostConnectionService } from '@deepseek-ai/ds
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
 import { fix } from '@/fix'
-import { isIgnoreAll } from '@/guard'
+import { endIgnoreAll, isIgnoreAll, startIgnoreAll } from '@/guard'
 import { resetModels } from '@/reset'
 import { restoreModels } from '@/restore'
 import { createChannelRoute } from '@/rpc-route'
@@ -53,6 +53,11 @@ export function installRpc(ctx: Context): void {
                 if (endpoint === ENDPOINT_FORCE_UPDATE) {
                     // 重置/恢复写回期间拒绝：填充会把刚回退掉的字段重新写回，与写回语义冲突
                     if (isIgnoreAll()) return writeInProgress()
+                    // 自身在途同样置守卫：fix 含 await 与冲突重试，不置位的话该窗口内 reset/restore/
+                    // forceUpdate 入口查得 false 可进入，两批 mutate 并发互踩。
+                    // 置位先于 await 同步完成，finally 解除；守卫是单飞标志，不能收进 fix 自身
+                    // （事件链也调 fix，嵌套置位的内层 finally 会提前解除外层守卫）
+                    startIgnoreAll()
                     try {
                         return { ok: true, value: { changed: await fix(ctx, true) } }
                     } catch (error) {
@@ -65,6 +70,8 @@ export function installRpc(ctx: Context): void {
                                 details: {},
                             },
                         }
+                    } finally {
+                        endIgnoreAll()
                     }
                 }
                 if (endpoint === ENDPOINT_RESET_MODELS || endpoint === ENDPOINT_RESTORE_MODELS) {

@@ -23,7 +23,7 @@ export const Config = z.any().volatile()
 const swallowFixError = (): void => {}
 
 /** 自有段变更：先自愈（排除列表去重，有重复才写，自愈写回再触发一轮零写入而收敛）再重新填充；
- * 重置/恢复写回期间（守卫开启）整条链短路，防止把刚删的字段重新填回。 */
+ * 插件写回（重置/恢复/强制更新）期间（守卫开启）整条链短路，防止把刚删的字段重新填回。 */
 function refillAfterOwnChange(ctx: Context): void {
     if (isIgnoreAll()) return
     void selfHealConfig(ctx)
