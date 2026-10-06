@@ -321,11 +321,12 @@ const STYLE_TEXT = [
     '.dsh-mf-verifyQuota{margin:12px 0 0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label,#dd8629)}',
     // 档位开关：放在 body 内而非 footer——宿主 RiskConfirmation（敏感操作前置确认）正是这个排法，
     // 确认控件留在正文、footer 只放取消/确认两键；上间距逐条取其 .acknowledgement 的 margin-top:20px
-    '.dsh-mf-verifyOption{display:inline-flex;align-items:center;gap:6px;margin-top:20px;min-width:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-secondary,#61666b)}',
+    '.dsh-mf-verifyOption{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-secondary,#61666b)}',
     // 验证弹层 footer 的纵向容器与按钮行：宿主 .footer 是单行 flex 且无 wrap，整行块只能自己排。
     // 间距取宿主 .dialog 的列间距 20px（同层），按钮行三个数值逐条复刻宿主 .footer
     '.dsh-mf-verifyFoot{display:flex;flex-direction:column;gap:20px;width:100%}',
-    '.dsh-mf-verifyActions{display:flex;align-items:center;justify-content:flex-end;gap:8px}',
+    '.dsh-mf-verifyActions{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%}',
+    '.dsh-mf-verifyButtons{display:flex;align-items:center;gap:8px}',
     // 注意语义键：卡片 footer 的「验证模型」触发键与弹层内的验证确认键共用，仅把描边/字色换成 warn 令牌；
     // hover 用其 10% 稀释（宿主无 warn 悬停底令牌，与 .dsh-mf-chipVersion 同一 color-mix 手法，不自造色值）。
     // 叠加在 .dsh-mf-discard 之上时靠 :not(:disabled) 的高特异性压过其默认描边/字色
@@ -1129,21 +1130,39 @@ export function Card(props: CardProps) {
                 description={t('verifyDesc')}
                 className="dsh-mf-verifyDialog"
                 footer={<div className="dsh-mf-verifyFoot">
-                    {/* 宿主 .footer 是单行 flex 且无 wrap，塞不进整行块；故在 footer 内自绘纵向容器，
-                        内层按钮行逐值复刻宿主 .footer 的三个数值（justify-content / align-items / gap），视觉与原样一致 */}
+                    {/* 宿主 .footer 是单行 flex、无 wrap、且 justify-content 为 flex-end。弹层加宽后档位开关与两键
+                        并排同一行、开关靠左两键靠右，故在 footer 内自绘容器覆盖宿主那三个数值；
+                        纵向容器留着，因为记录区仍在这一行下方 */}
                     <div className="dsh-mf-verifyActions">
-                        <Button variant="outline" data-modal-autofocus disabled={busy === 'verify'} onClick={closeVerify}>{t('cancel')}</Button>
-                        <Button
-                            variant="outline"
-                            className="dsh-mf-warn"
-                            disabled={busy === null && verifyPicked.size === 0}
-                            onClick={busy === 'verify' ? stopVerify : runVerify}
-                        >
-                            {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点；
-                                StateDot 的 ongoing 态就是侧边栏会话列表项左侧那个转圈（同原语、同动效） */}
-                            {busy === 'verify' ? <StateDot state="ongoing" /> : null}
-                            {t(busy === 'verify' ? 'verifyStop' : 'verifyGo')}
-                        </Button>
+                        <span className="dsh-mf-verifyOption">
+                            <Switch
+                                checked={verifyEfforts}
+                                disabled={busy === 'verify'}
+                                label={t('verifyEfforts')}
+                                onChange={setVerifyEfforts}
+                            />
+                            <span>{t('verifyEfforts')}</span>
+                            {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
+                            <Tooltip label={t('verifyEffortsTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                                <button type="button" className="dsh-mf-help" aria-label={t('verifyEffortsTip')}>
+                                    <IconInfoOutlineRegular size={12} />
+                                </button>
+                            </Tooltip>
+                        </span>
+                        <div className="dsh-mf-verifyButtons">
+                            <Button variant="outline" data-modal-autofocus disabled={busy === 'verify'} onClick={closeVerify}>{t('cancel')}</Button>
+                            <Button
+                                variant="outline"
+                                className="dsh-mf-warn"
+                                disabled={busy === null && verifyPicked.size === 0}
+                                onClick={busy === 'verify' ? stopVerify : runVerify}
+                            >
+                                {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点；
+                                    StateDot 的 ongoing 态就是侧边栏会话列表项左侧那个转圈（同原语、同动效） */}
+                                {busy === 'verify' ? <StateDot state="ongoing" /> : null}
+                                {t(busy === 'verify' ? 'verifyStop' : 'verifyGo')}
+                            </Button>
+                        </div>
                     </div>
                     {/* 记录区置于按钮行下方，与官方安装弹层同序（那边是 wizardFoot 在前、detailsBody 在后）。
                         首次发起才出现：opened 帧一到即有总项数，先于此则没有任何进度可展示 */}
@@ -1198,23 +1217,6 @@ export function Card(props: CardProps) {
                     </ul>
                 )}
                 <p className="dsh-mf-verifyQuota">{t('verifyQuota')}</p>
-                {/* 档位开关置于 body 内而非 footer：宿主 RiskConfirmation（敏感操作前置确认）正是这个排法——
-                    确认控件留在正文、距上一段 20px，footer 只放取消/确认两键 */}
-                <span className="dsh-mf-verifyOption">
-                    <Switch
-                        checked={verifyEfforts}
-                        disabled={busy === 'verify'}
-                        label={t('verifyEfforts')}
-                        onChange={setVerifyEfforts}
-                    />
-                    <span>{t('verifyEfforts')}</span>
-                    {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
-                    <Tooltip label={t('verifyEffortsTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
-                        <button type="button" className="dsh-mf-help" aria-label={t('verifyEffortsTip')}>
-                            <IconInfoOutlineRegular size={12} />
-                        </button>
-                    </Tooltip>
-                </span>
             </Modal>
         </>
     )
