@@ -863,7 +863,7 @@ export function Card(props: CardProps) {
     // 停止：中止在途验证。连接随之断开，Node 半的执行循环随即早停，不再消耗额度。
     // 不顺手关窗——已验到哪一步值得留在记录里，用户看完可以原地重跑
     const stopVerify = () => { verifyAbort.current?.abort() }
-    // 关闭即丢弃本次勾选与记录（下次打开回到未预选、无记录态）；档位开关是模式偏好，保留上次选择
+    // 关闭即丢弃本次勾选与记录，并把档位开关一并复位（下次打开回到未预选、无记录、开关关闭的初始态）
     // 在途时关窗同时中止：验证即用即弃，用户已经离开就没必要继续烧额度。
     // 遮罩 / Escape / × 三种关闭都汇到 Modal 的 onClose，故中止只此一处；跑完后控制器已置空，是空操作
     const closeVerify = () => {
@@ -872,6 +872,7 @@ export function Card(props: CardProps) {
         setVerifyPicked(new Set())
         setVerifyLines([])
         setVerifyTotal(0)
+        setVerifyEfforts(false)
     }
     // 剔除确认的关闭即丢弃目标：不写任何配置，清空即自然不再弹出（不另设开关态，避免两个状态不同步）
     const closePrune = () => { setPruneTargets([]) }
