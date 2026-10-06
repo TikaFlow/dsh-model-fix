@@ -59,8 +59,8 @@ const { Button, Modal, Switch, Tag, StateDot, TerminalBlock, Tooltip, IconInfoOu
 /** 说明气泡宽度上限（px）：宿主 Tooltip 默认半视口，气泡会盖满整行开关区，故按瓦片列宽收窄 */
 const TIP_MAX_WIDTH = 300
 
-/** 验证记录区的行数上限：与官方安装弹层的 TerminalBlock 同值 */
-const VERIFY_TERMINAL_LINES = 10
+/** 验证记录区的行数上限 */
+const VERIFY_TERMINAL_LINES = 8
 
 /** 宿主 TerminalBlock 的展示文案：该包无语言回退，字段缺一即类型报错，故整份照官方 terminalLabels(t) 提供 */
 function terminalLabelsOf(t: TranslateNS<'settings.modelFix'>): TerminalBlockLabels {
@@ -273,8 +273,9 @@ const STYLE_TEXT = [
     // 动作键行（强制更新 / 重置推理级别 / 恢复备份 / 验证模型）：独占一行、靠左起排，不设分割线——它承接上方瓦片，
     // 分隔线留给其下的取消/保存行；键渐多后在本行内换行落位，不相互挤压
     '.dsh-mf-bar{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:12px 0 0}',
-    // 取消/保存行：分隔线之下靠右收尾
-    '.dsh-mf-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 0 0;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1))}',
+    // 取消/保存行：分隔线之下靠右收尾。上间距取 8px（原 12px）——上一行动作键已经自带 12px 上间距，
+    // 两段叠加使这条分割线离键过远；8px 是宿主 .section 内部相邻控件的档位
+    '.dsh-mf-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:8px 0 0;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1))}',
     '.dsh-mf-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
     // footer 键度量照官方 SettingsForm .save（圆角 radius-md + focus 环同源）；force 红字透明底照
     // models 页 .dangerButton 语义；discard 官方无同款（SettingsForm 不设 discard 键），度量与 save 成对
@@ -329,6 +330,9 @@ const STYLE_TEXT = [
     '.dsh-mf-verifyFoot{display:flex;flex-direction:column;gap:20px;width:100%}',
     '.dsh-mf-verifyActions{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%}',
     '.dsh-mf-verifyButtons{display:flex;align-items:center;gap:8px}',
+    // 记录区上下边距：宿主 TerminalBlock 的 .block 自带 margin:16px 0，叠加本层 .dsh-mf-verifyFoot 的
+    // 20px 列间距后达 36px，与按钮行脱节；收窄到 8px（上）与 0（下，末子元素不占位）
+    '.dsh-mf-verifyLog{margin:8px 0 0}',
     // 注意语义键：卡片 footer 的「验证模型」触发键与弹层内的验证确认键共用，仅把描边/字色换成 warn 令牌；
     // hover 用其 10% 稀释（宿主无 warn 悬停底令牌，与 .dsh-mf-chipVersion 同一 color-mix 手法，不自造色值）。
     // 叠加在 .dsh-mf-discard 之上时靠 :not(:disabled) 的高特异性压过其默认描边/字色
