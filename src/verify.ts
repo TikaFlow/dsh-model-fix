@@ -69,6 +69,8 @@ const UNSUPPORTED_EFFORT_CODE = 'UNSUPPORTED_REASONING_EFFORT'
  * 按它判会把一次 400 或一次 5xx 误报成断线，进而错误短路整个 provider 剩下的全部模型。
  */
 const UNREACHABLE_CODES: ReadonlySet<string> = new Set(['TRANSPORT', 'STREAM_CLOSED'])
+/** 宿主规范码：请求参数不正确（`classifyPiAiError` 从文案认出的 4xx / invalid_request，含 413 请求体过大） */
+const INVALID_REQUEST_CODE = 'INVALID_REQUEST'
 
 /**
  * 由终止块的失败事实判定探测结果。一律按宿主的 `code` 判：不看 `status`（对 pi-ai 侧恒缺），
@@ -273,23 +275,18 @@ function sameModelTail(probes: readonly VerifyProbe[], from: number): number {
 }
 
 /**
- * 该失败是否指明「就是这个推理级别不被支持」。三个条件缺一不可：
+ * 该失败是否指明「就是这个推理级别不被支持」。两个条件缺一不可：
  *
- * - **4xx**：不支持必然落在客户端错误里；5xx、限流、超时、传输失败都是别的问题，不能算到档位头上。
- * - **报错原文里带上了带引号的该档位值**：上游拒绝一个值时通常原样回显，如
- *   `Invalid value for 'reasoning_effort': 'xmax'. Supported values are: 'low', 'high'`。
- *   只认**单引号**包裹的整档位 id：裸词会撞上散文里的同名字样（`请把 max 调到 4096 以内`），
- *   而双引号也不收——有些网关在 4xx 里回显请求体，JSON 用的正是双引号，收下它就会把
- *   「上下文超限 / 模型名错」这类失败误判成「这一档被拒」，进而送进剔除清单。宁可漏判不可误删。
- * - 基线已通过（模型本身确实能用），该条件由调用方保证，见 `runGroup`。
- *
- * 这是全插件**唯一**比对报错文案的地方，因为按 `code` 无法区分「档位不支持」与「参数写错」——
- * 上游一律回 4xx 里的 invalid_request，而 `LlmFailure.message` 正是两者唯一的差别。
- * 宿主自己映射 pi-ai 错误时同样只能比对文案（`llm-pi-ai` 的 `classifyPiAiError`）。
+ * - **宿主判为「请求参数不正确」**（`INVALID_REQUEST`）：不支持必然落在客户端错误里；5xx、限流、
+ *   超时、传输中断都是别的问题，不能算到档位头上。该码是宿主 `classifyPiAiError` 用
+ *   `/\b400\b|invalid.?request/i` 从报错文案里认出来的，`status` 在 pi-ai 侧恒缺、我们看不到，
+ *   故只能取宿主已经归一好的结论，**不再自己比对文案**——上游措辞千差万别（实测有只列可用档位的、
+ *   也有原样回显的），还有些网关在 4xx 里回显请求体，按文案匹配只会多出误判面。
+ * - **该模型的基线（不带档位）已通过**，由调用方保证，见 `runGroup`。基线已排除端点、凭据、额度、
+ *   网络与模型名，唯一剩下的变量就是档位。
  */
-function isEffortRejection(failure: VerifyFailureFacts | undefined, effort: string): boolean {
-    if (failure?.status === undefined || failure.status < 400 || failure.status >= 500) return false
-    return failure.message.includes(`'${effort}'`)
+function isEffortRejection(failure: VerifyFailureFacts | undefined): boolean {
+    return failure?.code === INVALID_REQUEST_CODE
 }
 
 /**
@@ -318,7 +315,7 @@ async function runGroup(
         const isBaseline = probe.effort === undefined && tail > 0
         const verdict = await probeOnce(llm, probe, signal)
         // 基线已通过、且该档位的失败指明了「就是它」时，才判该档位不支持。判据见 isEffortRejection
-        const outcome = probe.effort !== undefined && baselineOk.has(probe.model) && isEffortRejection(verdict.failure, probe.effort)
+        const outcome = probe.effort !== undefined && baselineOk.has(probe.model) && isEffortRejection(verdict.failure)
             ? 'unsupported-effort'
             : verdict.outcome
         if (isBaseline && outcome === 'usable') baselineOk.add(probe.model)

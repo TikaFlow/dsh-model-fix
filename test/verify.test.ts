@@ -313,7 +313,7 @@ export async function run(): Promise<void> {
     {
         // 模型级短路：某档位报错且不是「档位不支持」时，换个档位也是同样结果，不必再花额度
         const frames: VerifyProgressFrame[] = []
-        const { llm, calls } = stub({ 'm1@off': [finishError('INVALID_REQUEST', 400)] })
+        const { llm, calls } = stub({ 'm1@off': [finishError('SERVER_ERROR', 500)] })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] }, {
             onProgress: (frame) => { frames.push(frame) },
         })
@@ -335,7 +335,7 @@ export async function run(): Promise<void> {
         })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] })
         check(
-            'verifyModels 基线通过且 4xx 回显带引号档位 → 判该档位不支持且不短后续',
+            'verifyModels 基线通过且宿主判参数不正确 → 判该档位不支持且不短后续',
             calls.length === 4 && summary.planned === 3 && summary.unsupported === 1 && summary.efforts === 2
             && stable(summary.unsupportedEfforts) === stable([{ provider: 'a', model: 'm1', effort: 'max' }]),
             { calls, summary },
@@ -354,14 +354,16 @@ export async function run(): Promise<void> {
         )
     }
     {
-        // 双引号不收：网关在 4xx 里回显请求体用的正是双引号，收下它会把别的失败误判成档位被拒
+        // 报错原文完全不提该档位（实测确有上游只列可用档位）也照判：判据是宿主归一后的 code，不是文案。
+        // 反过来，改用文案匹配会被网关「4xx 里回显请求体」骗到——那段里的档位只是原样回声，不是「这一档被拒」
         const { llm, calls } = stub({
-            'm1@off': [finishErrorText('INVALID_REQUEST', 400, '{"error":"context length exceeded","reasoning_effort":"off"}')],
+            'm1@max': [finishErrorText('INVALID_REQUEST', 400, "Supported values are: 'low', 'high'")],
         })
-        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] })
         check(
-            'verifyModels 双引号回显不判不支持',
-            calls.length === 2 && summary.unsupported === 0,
+            'verifyModels 报错原文未提该档位也照判不支持（判据是 code 不是文案）',
+            calls.length === 4 && summary.unsupported === 1 && summary.efforts === 2
+            && stable(summary.unsupportedEfforts) === stable([{ provider: 'a', model: 'm1', effort: 'max' }]),
             { calls, summary },
         )
     }
@@ -377,7 +379,7 @@ export async function run(): Promise<void> {
     }
     {
         // 模型级短路只压该模型自己的档位，同组其余模型照验（provider 级才是压整组）
-        const { llm, calls } = stub({ 'm1@off': [finishError('INVALID_REQUEST', 400)] })
+        const { llm, calls } = stub({ 'm1@off': [finishError('SERVER_ERROR', 500)] })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] })
         check(
             'verifyModels 模型级短路不牵连同组其它模型',
