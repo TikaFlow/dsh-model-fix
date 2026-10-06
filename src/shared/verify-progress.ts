@@ -30,6 +30,10 @@ export type ProbeOutcome =
     | 'quota'
     /** 凭据缺失或无效 */
     | 'credential'
+    /** 瞬态失败：上游限流（429）或超时，本次没得到结论——**不是该模型/档位不可用的证据**，重试仍可能通过 */
+    | 'rate-limit'
+    /** 瞬态失败：本方或上游超时，理由同上 */
+    | 'timeout'
     /** 其它厂商侧拒绝；多与**具体模型**有关（如同名模型不存在），故不参与短路 */
     | 'other'
 
@@ -39,6 +43,16 @@ export type ProviderBlockReason = 'unreachable' | 'credential'
 /** 该结果是否构成 provider 级失败（命中即整组短路） */
 export function isProviderBlocking(outcome: ProbeOutcome): outcome is ProviderBlockReason {
     return outcome === 'unreachable' || outcome === 'credential'
+}
+
+/**
+ * 该结果是否只是本次没跑成（限流 / 超时），而非模型或档位本身的缺陷。
+ *
+ * 这类结论既不算不可用，也**不能用来短该模型的后续档位**：控制变量法的前提是变量已知失败，
+ * 而限流与超时恰恰说明这次结果不可外推；把它们当失败等于把一次偶发抖动固化成「这个档位不可用」。
+ */
+export function isTransientOutcome(outcome: ProbeOutcome): boolean {
+    return outcome === 'rate-limit' || outcome === 'timeout'
 }
 
 /** 失败的原始事实（宿主 `LlmFailure` 的可序列化子集）：供调用方做比本插件更细的分类与展示 */

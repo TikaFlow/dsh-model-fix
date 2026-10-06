@@ -3,7 +3,7 @@
 import { classifyFailure, groupProbesByProvider, planProbes, reportProvider, summarizeProviders, verifyModels } from '@/verify'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm/types'
-import { decodeProgressFrame, encodeProgressFrame, isProviderBlocking } from '@/shared/verify-progress'
+import { decodeProgressFrame, encodeProgressFrame, isProviderBlocking, isTransientOutcome } from '@/shared/verify-progress'
 import type { ProbeOutcome, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport } from '@/shared/verify-progress'
 import { check, stable } from '@test/helper'
 
@@ -87,7 +87,8 @@ export async function run(): Promise<void> {
     // ---------- classifyFailure：只认 code 与 status，绝不比对文案 ----------
     check('classifyFailure 档位不被支持', classifyFailure(failure('UNSUPPORTED_REASONING_EFFORT')) === 'unsupported-effort')
     check('classifyFailure 额度耗尽', classifyFailure(failure('QUOTA', 429)) === 'quota')
-    check('classifyFailure 余额耗尽', classifyFailure(failure('ACCOUNT_QUOTA_EXCEEDED', 402)) === 'quota')
+    // 宿主给账户余额不足定的字面量就是 ACCOUNT_QUOTA（error.js:26），写成 ACCOUNT_QUOTA_EXCEEDED 永不命中
+    check('classifyFailure 余额耗尽', classifyFailure(failure('ACCOUNT_QUOTA', 402)) === 'quota')
     check('classifyFailure 凭据无效', classifyFailure(failure('INVALID_CREDENTIAL', 401)) === 'credential')
     check('classifyFailure 凭据缺失', classifyFailure(failure('MISSING_CREDENTIAL', 401)) === 'credential')
     // 不可达只认传输层失败码。pi-ai 侧错误一律不带 status（宿主抛错只给 message + code），
@@ -100,6 +101,10 @@ export async function run(): Promise<void> {
     check('classifyFailure 档位码不被 status 盖过', classifyFailure(failure('UNSUPPORTED_REASONING_EFFORT', 400)) === 'unsupported-effort')
     // 零内容完成：请求成功抵达却无内容块，归其它（退化完成），不参与任何短路
     check('classifyFailure 零内容完成归其它而非不可达', classifyFailure(failure('EMPTY_RESPONSE')) === 'other')
+    // 瞬态：本次没跑成，不是否定模型或档位的证据。实测 429 挡掉的那一档，隔一会儿就通了，
+    // 当成「不可用」还顺手跳过后续档位，等于把一次抖动固化成结论
+    check('classifyFailure 上游限流归瞬态而非不可用', classifyFailure(failure('RATE_LIMIT', 429)) === 'rate-limit')
+    check('classifyFailure 上游超时归瞬态而非不可用', classifyFailure(failure('TIMEOUT')) === 'timeout')
 
     // ---------- isProviderBlocking：只有三类 provider 级失败才短路 ----------
     check('isProviderBlocking 端点不可达', isProviderBlocking('unreachable') === true)
@@ -108,6 +113,14 @@ export async function run(): Promise<void> {
     check('isProviderBlocking 档位不支持不短路', isProviderBlocking('unsupported-effort') === false)
     check('isProviderBlocking 其它失败不短路', isProviderBlocking('other') === false)
     check('isProviderBlocking 可用不短路', isProviderBlocking('usable') === false)
+    check('isProviderBlocking 限流不短路（换个时间可能就通）', isProviderBlocking('rate-limit') === false)
+
+    // ---------- isTransientOutcome：瞬态既不算不可用，也不能用来短该模型的后续档位 ----------
+    check('isTransientOutcome 限流', isTransientOutcome('rate-limit') === true)
+    check('isTransientOutcome 超时', isTransientOutcome('timeout') === true)
+    check('isTransientOutcome 厂商侧拒绝不是瞬态', isTransientOutcome('other') === false)
+    check('isTransientOutcome 档位不支持不是瞬态', isTransientOutcome('unsupported-effort') === false)
+    check('isTransientOutcome 可用不是瞬态', isTransientOutcome('usable') === false)
 
     // ---------- reportProvider：可用模型去重、档位不支持单列、可达与凭据取自全程 ----------
     const detail = (model: string, outcome: ProbeOutcome, effort?: string): VerifyProbeResult =>
@@ -274,6 +287,29 @@ export async function run(): Promise<void> {
             'verifyModels 额度耗尽不牵连同组其它模型',
             calls.length === 4 && summary.probed === 4 && summary.planned === 3,
             { calls, summary },
+        )
+    }
+    {
+        // 限流只否定了这一次：不得跳过后续档位，也不得把它算进不可用。实测踩过的坑——某一档被 429 挡掉，
+        // 记录写「不可用」且后面的档位全不验，隔一会儿手动一聊又完全正常
+        const { llm, calls } = stub({ 'm1@off': [finishError('RATE_LIMIT', 429)] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
+        check(
+            'verifyModels 限流不跳过后续档位',
+            calls.length === 3 && summary.probed === 3 && summary.planned === 2 && summary.efforts === 1,
+            { calls, summary },
+        )
+        check(
+            'verifyModels 限流结论单列，不混成不可用',
+            stable(summary.results) === stable([
+                { provider: 'a', model: 'm1', effort: undefined, outcome: 'usable', failure: undefined },
+                {
+                    provider: 'a', model: 'm1', effort: 'off', outcome: 'rate-limit',
+                    failure: { code: 'RATE_LIMIT', status: 429, message: '文案随便写，各厂商都不一样' },
+                },
+                { provider: 'a', model: 'm1', effort: 'high', outcome: 'usable', failure: undefined },
+            ]),
+            summary.results,
         )
     }
     {

@@ -34,7 +34,7 @@ import type { LlmFailure } from '@deepseek-ai/dsh-llm/types'
 import { LEVELS } from '@/constants'
 import { PLUGIN_NAME } from '@/shared/constants'
 import { isPlainObject } from '@/shared/types'
-import { isProviderBlocking } from '@/shared/verify-progress'
+import { isProviderBlocking, isTransientOutcome } from '@/shared/verify-progress'
 import type { ProbeOutcome, ProviderBlockReason, ProviderProbeOutcome, UnsupportedEffort, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
 
 /** 探测提示词：只要一句应答，最省 token */
@@ -54,12 +54,16 @@ export interface ProviderProbeGroup {
     probes: VerifyProbe[]
 }
 
-/** 宿主规范码：额度 / 余额耗尽 */
-const QUOTA_CODES: ReadonlySet<string> = new Set(['QUOTA', 'ACCOUNT_QUOTA_EXCEEDED'])
+/** 宿主规范码：额度 / 余额耗尽（`ACCOUNT_QUOTA` 是宿主给「账户余额不足」定的字面量，不是 `ACCOUNT_QUOTA_EXCEEDED`） */
+const QUOTA_CODES: ReadonlySet<string> = new Set(['QUOTA', 'ACCOUNT_QUOTA'])
 /** 宿主规范码：凭据缺失或无效 */
 const CREDENTIAL_CODES: ReadonlySet<string> = new Set(['INVALID_CREDENTIAL', 'MISSING_CREDENTIAL'])
 /** 宿主规范码：模型未声明请求的这一推理级别（宿主在派发前本地拒绝，请求根本没发出去） */
 const UNSUPPORTED_EFFORT_CODE = 'UNSUPPORTED_REASONING_EFFORT'
+/** 宿主规范码：上游限流（429）；本次没跑成，换个档位重试仍可能通过 */
+const RATE_LIMIT_CODE = 'RATE_LIMIT'
+/** 宿主规范码：上游超时；与本方 `VERIFY_TIMEOUT_MS` 的超时同性质 */
+const TIMEOUT_CODE = 'TIMEOUT'
 /**
  * 宿主给出的传输层失败码：连接中断、流被截断。真「连不上」只有这一类信号。
  *
@@ -74,13 +78,17 @@ const INVALID_REQUEST_CODE = 'INVALID_REQUEST'
 
 /**
  * 由终止块的失败事实判定探测结果。一律按宿主的 `code` 判：不看 `status`（对 pi-ai 侧恒缺），
- * 也不比对文案。未识别的码一律归「其它厂商侧拒绝」，多与具体模型有关，故不参与 provider 级短路。
+ * 也不比对文案。限流与超时单列为瞬态——它们只说明「这一次没跑成」，不是模型或档位不可用的证据，
+ * 故不参与 provider 级短路、也不短该模型的后续档位。其余未识别的码归「其它厂商侧拒绝」，
+ * 多与具体模型有关。
  */
 export function classifyFailure(failure: LlmFailure): Exclude<ProbeOutcome, 'usable'> {
     if (failure.code === UNSUPPORTED_EFFORT_CODE) return 'unsupported-effort'
     if (QUOTA_CODES.has(failure.code)) return 'quota'
     if (CREDENTIAL_CODES.has(failure.code)) return 'credential'
     if (UNREACHABLE_CODES.has(failure.code)) return 'unreachable'
+    if (failure.code === RATE_LIMIT_CODE) return 'rate-limit'
+    if (failure.code === TIMEOUT_CODE) return 'timeout'
     return 'other'
 }
 
@@ -248,9 +256,9 @@ async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe, si
                 const reason = chunk.reason
                 // stop / tool-calls / max-tokens：正常终止却没有内容块，宿主归为退化完成，同样不可用
                 if (reason.kind !== 'error' && reason.kind !== 'aborted') return { outcome: 'other', failure: undefined }
-                // 我方超时不算端点不可达，但原始失败事实照留，供调用方自行判断
+                // 我方超时不算端点不可达，也不算不可用——但原始失败事实照留，供调用方自行判断
                 return {
-                    outcome: timedOut ? 'other' : classifyFailure(reason.failure),
+                    outcome: timedOut ? 'timeout' : classifyFailure(reason.failure),
                     failure: failureFacts(reason.failure),
                 }
             }
@@ -295,6 +303,8 @@ function isEffortRejection(failure: VerifyFailureFacts | undefined): boolean {
  * - **模型级**：某档位**报错**且不是「档位不支持」时，同模型的后续档位换过去也是同样结果，同样不必再花额度。
  *   「档位不支持」恰是唯一值得继续验的结论——换个档位可能就通了，那正是逐档位验的意义。
  *   只对有失败事实的探测生效：正常终止却没有内容块属退化完成，不是报错，换档位仍可能出内容。
+ *   限流与超时同样不停（`isTransientOutcome`）：它们只否定了这一次，否不了下一次，把它固化成
+ *   「后面的档位也别验了」才是真误判——实测限流挡掉的那一档，隔一会儿就通了。
  * 外部中止同样在此早停：只断在途请求而不停循环，后续探测会带着已中止的信号跑出一串假失败。
  */
 async function runGroup(
@@ -335,7 +345,7 @@ async function runGroup(
         } else if (isBaseline && outcome !== 'usable') {
             // 基线都跑不通，换任何档位也是同样结果，不必再逐档位烧额度
             skipped = tail
-        } else if (verdict.failure !== undefined && outcome !== 'unsupported-effort') {
+        } else if (verdict.failure !== undefined && outcome !== 'unsupported-effort' && !isTransientOutcome(outcome)) {
             skipped = tail
         } else {
             skipped = 0

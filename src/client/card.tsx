@@ -88,6 +88,8 @@ const OUTCOME_KEYS: Record<ProbeOutcome, CardKey> = {
     unreachable: 'verifyOutUnreachable',
     quota: 'verifyOutQuota',
     credential: 'verifyOutCredential',
+    'rate-limit': 'verifyOutRateLimit',
+    timeout: 'verifyOutTimeout',
     other: 'verifyOutOther',
 }
 

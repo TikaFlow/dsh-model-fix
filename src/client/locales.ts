@@ -95,6 +95,8 @@ export type CardKey =
     | 'verifyOutUnreachable'
     | 'verifyOutQuota'
     | 'verifyOutCredential'
+    | 'verifyOutRateLimit'
+    | 'verifyOutTimeout'
     | 'verifyOutOther'
     | 'verifyStopped'
     | 'verifyDoneAll'
@@ -266,6 +268,8 @@ export const zh: Record<CardKey, string> = {
     verifyOutUnreachable: '无法连接',
     verifyOutQuota: '额度耗尽',
     verifyOutCredential: '凭据无效',
+    verifyOutRateLimit: '触发限流，未得出结论',
+    verifyOutTimeout: '超时，未得出结论',
     verifyOutOther: '不可用',
     verifyStopped: '已停止',
     // 收尾统计分两档：档位分子分母取 planned / efforts，模型数一律取 tested（实际探过的去重模型数，
@@ -399,6 +403,8 @@ export const en: Record<CardKey, string> = {
     verifyOutUnreachable: 'unreachable',
     verifyOutQuota: 'quota exhausted',
     verifyOutCredential: 'invalid credential',
+    verifyOutRateLimit: 'rate limited, no conclusion',
+    verifyOutTimeout: 'timed out, no conclusion',
     verifyOutOther: 'unavailable',
     verifyStopped: 'Stopped',
     // Closing stats: effort totals use planned / efforts; the model count is tested (distinct models actually probed),
