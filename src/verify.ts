@@ -28,6 +28,8 @@ import type { LlmFailure } from '@deepseek-ai/dsh-llm/types'
 import { LEVELS } from '@/constants'
 import { PLUGIN_NAME } from '@/shared/constants'
 import { isPlainObject } from '@/shared/types'
+import { isProviderBlocking } from '@/shared/verify-progress'
+import type { ProbeOutcome, ProviderBlockReason, ProviderProbeOutcome, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
 
 /** 探测提示词：只要一句应答，最省 token */
 const VERIFY_PROMPT = 'Just say OK'
@@ -38,13 +40,6 @@ const VERIFY_PROVIDER_CONCURRENCY = 5
 /** 单次验证的探测总数上限：笛卡尔积会放大条目，超出即拒绝而非静默截断（前端也据此禁用确认键） */
 const MAX_VERIFY_PROBES = 200
 
-/** 单次探测：一次请求 = 一个「模型 × 推理级别」组合（effort 缺省即不带档位探测） */
-export interface VerifyProbe {
-    provider: string
-    model: string
-    effort?: string
-}
-
 /** 一个提供方的探测组：组内顺序执行即「每 provider 单并发」的结构保证 */
 export interface ProviderProbeGroup {
     provider: string
@@ -52,27 +47,6 @@ export interface ProviderProbeGroup {
     indexes: number[]
     probes: VerifyProbe[]
 }
-
-/**
- * 单次探测的判定结果。分类只依据宿主 `LlmFailure` 的 `code` 与 `status`——宿主明令
- * 「route on `code`, never by parsing `message`」，故本文件不做任何文案比对。
- */
-export type ProbeOutcome =
-    /** 收到 `block-start`：该「模型 × 档位」确实受支持 */
-    | 'usable'
-    /** 宿主在派发前本地判定该档位不被支持（`UNSUPPORTED_REASONING_EFFORT`，请求根本没发出去） */
-    | 'unsupported-effort'
-    /** 传输层失败且无 HTTP status：端点不可达（DNS / 拒绝连接） */
-    | 'unreachable'
-    /** 额度或余额耗尽 */
-    | 'quota'
-    /** 凭据缺失或无效 */
-    | 'credential'
-    /** 其它厂商侧拒绝；多与**具体模型**有关（如同名模型不存在），故不参与短路 */
-    | 'other'
-
-/** provider 级失败：命中即整组短路——同一提供方共用同一 url 与同一把 key，一次过不了后面同样过不了 */
-export type ProviderBlockReason = 'unreachable' | 'quota' | 'credential'
 
 /** 宿主规范码：额度 / 余额耗尽 */
 const QUOTA_CODES: ReadonlySet<string> = new Set(['QUOTA', 'ACCOUNT_QUOTA_EXCEEDED'])
@@ -100,80 +74,6 @@ export function classifyFailure(failure: LlmFailure): Exclude<ProbeOutcome, 'usa
     if (failure.code === EMPTY_RESPONSE_CODE) return 'other'
     if (failure.status === undefined) return 'unreachable'
     return 'other'
-}
-
-/** 该结果是否构成 provider 级失败（命中即整组短路） */
-export function isProviderBlocking(outcome: ProbeOutcome): outcome is ProviderBlockReason {
-    return outcome === 'unreachable' || outcome === 'quota' || outcome === 'credential'
-}
-
-/** 失败的原始事实（宿主 `LlmFailure` 的可序列化子集）：供调用方做比本插件更细的分类与展示 */
-export interface VerifyFailureFacts {
-    code: string
-    /** HTTP 状态；传输层失败没有它（宿主兜底对象只给 code 与 message） */
-    status: number | undefined
-    /** 人类可读的失败描述——**仅供展示与诊断，分类绝不可依赖它**（各厂商措辞不同且会变） */
-    message: string
-}
-
-/**
- * 单条探测明细：一个「提供方 / 模型 / 推理级别」及其结论。调用方可据此做后续操作
- * （只重验某个提供方、只补验某些档位、按 code 细分失败原因等），不必再回解析统计值。
- *
- * 明细只含**实际发出**的探测：被短路掉的从未发出去、没有结论可言。哪几条没跑，
- * 由逐提供方的 `planned` 与 `probed` 之差给出（短路以整组为单位，故按组定位即可）。
- */
-export interface VerifyProbeResult {
-    provider: string
-    model: string
-    /** 推理级别；模型未声明档位时为 undefined（不带档位探测），经 JSON 传输后该键缺省 */
-    effort: string | undefined
-    outcome: ProbeOutcome
-    /** 失败时的原始事实；收到 block-start 时为 undefined */
-    failure: VerifyFailureFacts | undefined
-}
-
-/** 一个提供方的探测结论：逐条明细 + 短路情况（由执行器产出，供汇报函数消费） */
-export interface ProviderProbeOutcome {
-    provider: string
-    /** 与该组 `probes` 前缀对齐：短路时长度小于 probes.length */
-    results: VerifyProbeResult[]
-    blockedBy: ProviderBlockReason | undefined
-    planned: number
-}
-
-/** 单个提供方的验证结论（RPC 回传，逐提供方可见） */
-export interface VerifyProviderReport {
-    provider: string
-    /** 端点可达：全程未出现传输层失败 */
-    reachable: boolean
-    /** 凭据有效且有额度：可达且全程未出现额度 / 凭据类失败（从未可达时不作断言） */
-    keyValid: boolean
-    /** 整组是否因 provider 级失败被短路 */
-    skipped: boolean
-    blockedBy: ProviderBlockReason | undefined
-    /** 该组内可用模型数（按「提供方 / 模型」去重） */
-    models: number
-    /** 该组内可用档位数 */
-    efforts: number
-    /** 判定为「档位不支持」的探测数：逐模型逐档位，故与其它失败分开计数 */
-    unsupported: number
-    /** 计划探测数 */
-    planned: number
-    /** 实际发出数（短路时小于 planned） */
-    probed: number
-}
-
-/** 验证结果汇总：逐提供方汇报 + 逐条明细 + 全局计数（RPC 回传卡片内联状态行） */
-export interface VerifySummary {
-    providers: readonly VerifyProviderReport[]
-    /** 逐条探测明细，顺序为「组序 → 组内探测序」，可重复消费 */
-    results: readonly VerifyProbeResult[]
-    models: number
-    efforts: number
-    unsupported: number
-    planned: number
-    probed: number
 }
 
 /**

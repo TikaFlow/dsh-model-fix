@@ -1,9 +1,10 @@
 // src/verify.ts 用例：探测清单展开（笛卡尔积 / 无档位 / 入参校验）、按提供方分组、失败分类、逐组汇报、
 // 汇总求和，以及带桩跑通的整条执行链（分组串行 + provider 级失败短路）
-import { classifyFailure, groupProbesByProvider, isProviderBlocking, planProbes, reportProvider, summarizeProviders, verifyModels } from '@/verify'
+import { classifyFailure, groupProbesByProvider, planProbes, reportProvider, summarizeProviders, verifyModels } from '@/verify'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm/types'
-import type { ProbeOutcome, VerifyProbe, VerifyProbeResult, VerifyProviderReport } from '@/verify'
+import { isProviderBlocking } from '@/shared/verify-progress'
+import type { ProbeOutcome, VerifyProbe, VerifyProbeResult, VerifyProviderReport } from '@/shared/verify-progress'
 import { check, stable } from '@test/helper'
 
 /** 一个模型的载荷；参数收 unknown 以便构造非法入参用例（RPC 入参按不可信输入校验） */
