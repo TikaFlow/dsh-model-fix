@@ -1,4 +1,4 @@
-// src/verify.ts 用例：探测清单展开（笛卡尔积 / 无档位 / 入参校验）、按提供方分组、失败分类、逐组汇报、
+// src/verify.ts 用例：探测清单展开（逐模型逐档位 / 基线 / 无档位 / 入参校验）、按提供方分组、失败分类、逐组汇报、
 // 汇总求和，以及带桩跑通的整条执行链（分组串行 + provider 级失败短路）
 import { classifyFailure, groupProbesByProvider, planProbes, reportProvider, summarizeProviders, verifyModels } from '@/verify'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
@@ -29,9 +29,9 @@ const finishErrorText = (code: string, status: number, message: string): StreamC
 
 /** 执行本文件的全部用例 */
 export async function run(): Promise<void> {
-    // ---------- planProbes：笛卡尔积（模型序 × 档位序），每个模型前置一次不带 effort 的基线 ----------
+    // ---------- planProbes：逐模型逐档位展开（各模型档位数量不同，是累加非相乘），每个模型前置一次不带 effort 的基线 ----------
     check(
-        'planProbes 展开笛卡尔积（每模型先补基线）',
+        'planProbes 逐模型逐档位展开（每模型先补基线）',
         stable(planProbes({ models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] })) === stable([
             { provider: 'a', model: 'm1' },
             { provider: 'a', model: 'm1', effort: 'off' },
@@ -61,7 +61,7 @@ export async function run(): Promise<void> {
     // 档位必须落在 harness 支持的取值内（'none' 是目录侧拼写，写入配置时已归一为 'off'）
     check('planProbes 未知档位拒绝', planProbes({ models: [entry('a', 'm', ['turbo'])] }) === undefined)
     check('planProbes 目录拼写 none 拒绝', planProbes({ models: [entry('a', 'm', ['none'])] }) === undefined)
-    // ---------- planProbes：探测总数超上限即拒绝（笛卡尔积会放大条目，静默截断会漏验） ----------
+    // ---------- planProbes：探测总数超上限即拒绝（逐档位展开会累积条目，静默截断会漏验） ----------
     const many = Array.from({ length: 100 }, (_, i) => entry('a', `m${i}`, ['low', 'medium', 'high']))
     check('planProbes 超上限拒绝', planProbes({ models: many }) === undefined)
     // 基线也占一次真实请求，故上限按「档位数 + 1」计：40 个四档模型 = 40 × 5 = 200

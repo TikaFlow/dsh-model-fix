@@ -82,7 +82,7 @@ function boot(
     const pruneEfforts = (targets: readonly UnsupportedEffort[]) =>
         rpc.call(`/${MODEL_FIX_NS}`, 'pruneEfforts', { targets })
     /**
-     * 验证模型：载荷是卡片按勾选收敛好的「模型 × 推理级别」清单，Node 半只做笛卡尔积展开与探测。
+     * 验证模型：载荷是卡片按勾选收敛好的「提供方 / 模型 / 各自档位列表」清单，Node 半只做逐模型逐档位展开与探测。
      *
      * 走独立的进度流端点而非 channel RPC——一次调用要回持续多帧的响应，RPC 的「一次调用 = 一个
      * JSON 结果」装不下。用文档相对路由（去掉前导斜杠）是宿主对浏览器侧的约定，服务端 key 保持绝对，
