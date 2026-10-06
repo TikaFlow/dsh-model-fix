@@ -81,11 +81,39 @@ export type CardKey =
     | 'verifyAllEfforts'
     | 'verifyAllEffortsTip'
     | 'verifyGo'
+    | 'verifyStop'
     | 'verifySelectAll'
     | 'verifyDeselectAll'
-    | 'verifyDone'
-    | 'verifyFailed'
     | 'verifyEmpty'
+    | 'verifyCommand'
+    | 'verifyLine'
+    | 'verifyLinePlain'
+    | 'verifyLineProvider'
+    | 'verifySkipped'
+    | 'verifyOutUsable'
+    | 'verifyOutUnsupported'
+    | 'verifyOutUnreachable'
+    | 'verifyOutQuota'
+    | 'verifyOutCredential'
+    | 'verifyOutOther'
+    | 'verifyStopped'
+    | 'verifyDoneAll'
+    | 'verifyDoneLowest'
+    | 'verifyFailed'
+    // 宿主 TerminalBlock 的展示文案：键名与 terminalLabels(t) 逐条对齐官方安装页的映射（ui-plugin-manager/…/locales.ts:152-164）
+    | 'terminalSignal'
+    | 'terminalExitCode'
+    | 'terminalNoExitCode'
+    | 'terminalRunning'
+    | 'terminalFailed'
+    | 'terminalDone'
+    | 'terminalCopy'
+    | 'terminalCopied'
+    | 'terminalNoOutput'
+    | 'terminalCollapseAria'
+    | 'terminalCollapse'
+    | 'terminalExpandAria'
+    | 'terminalExpand'
     | 'clearEffortsTitle'
     | 'clearEffortsConfirm'
     | 'clearEffortsKeep'
@@ -214,11 +242,40 @@ export const zh: Record<CardKey, string> = {
     verifyAllEfforts: '验证所有推理级别',
     verifyAllEffortsTip: '开启后会验证该模型声明的全部推理级别，请求数成倍增加；关闭时每个模型仅验证一个推理级别。',
     verifyGo: '验证',
+    verifyStop: '停止',
     // 分组全选文案照官方「获取可用模型」的 fetchSelectAll / fetchDeselectAll
     verifySelectAll: '全选',
     verifyDeselectAll: '取消全选',
-    verifyDone: '验证完成：{models} 个模型的 {efforts} 个推理级别可用（探测 {probed}/{planned} 项，{unsupported} 项档位不支持，{blocked} 个提供方未验证）。',
+    // 记录区逐行文案：provider 级失败不带模型与档位（那不是某个模型的问题），只交代整组结论
+    verifyCommand: '验证 {total} 项',
+    verifyLine: '{provider} / {model} · 推理等级 {effort}：{result}',
+    verifyLinePlain: '{provider} / {model}：{result}',
+    verifyLineProvider: '{provider}：{result}',
+    verifySkipped: '（已跳过 {count} 项）',
+    verifyOutUsable: '可用',
+    verifyOutUnsupported: '不支持该推理等级',
+    verifyOutUnreachable: '无法连接',
+    verifyOutQuota: '额度耗尽',
+    verifyOutCredential: '凭据无效',
+    verifyOutOther: '不可用',
+    verifyStopped: '已停止',
+    // 收尾统计分两档：总数一律取 planned（计划项），分子取验证通过的可用项
+    verifyDoneAll: '{models}个模型的{efforts} / {planned}个推理级别验证可用',
+    verifyDoneLowest: '共验证{planned}个模型，其中{models}个可用',
     verifyFailed: '验证失败：{message}',
+    terminalSignal: '信号 {signal}',
+    terminalExitCode: '退出码 {code}',
+    terminalNoExitCode: '未正常退出',
+    terminalRunning: '运行中',
+    terminalFailed: '失败',
+    terminalDone: '已完成',
+    terminalCopy: '复制',
+    terminalCopied: '复制成功',
+    terminalNoOutput: '无输出',
+    terminalCollapseAria: '收起输出',
+    terminalCollapse: '收起',
+    terminalExpandAria: '展开其余 {n} 行输出',
+    terminalExpand: '… 其余 {n} 行',
     verifyEmpty: '暂无模型，请先在「模型」设置中添加模型。',
     clearEffortsTitle: '清空推理级别记忆',
     clearEffortsConfirm: '关闭后不再记住新的推理级别，已记住的仍会自动恢复。是否现在清空这些已记住的级别？',
@@ -305,11 +362,41 @@ export const en: Record<CardKey, string> = {
     verifyAllEfforts: 'Verify every reasoning effort',
     verifyAllEffortsTip: 'Verifies every reasoning effort the model declares, multiplying the request count; when off, only one reasoning effort per model is verified.',
     verifyGo: 'Verify',
+    verifyStop: 'Stop',
+    // Group select-all wording mirrors the official "Fetch available models" fetchSelectAll / fetchDeselectAll
     verifySelectAll: 'Select all',
     verifyDeselectAll: 'Deselect all',
-    verifyDone: 'Verified: {efforts} reasoning effort(s) across {models} model(s) are usable ({probed}/{planned} probe(s) sent, {unsupported} unsupported effort(s), {blocked} provider(s) not verified).',
-    verifyFailed: 'Verification failed: {message}',
     verifyEmpty: 'No models yet. Add models on the Models settings page first.',
+    // Per-line log copy: provider-level failures carry no model/effort (not a per-model issue)
+    verifyCommand: 'Verify {total} item(s)',
+    verifyLine: '{provider} / {model} · reasoning effort {effort}: {result}',
+    verifyLinePlain: '{provider} / {model}: {result}',
+    verifyLineProvider: '{provider}: {result}',
+    verifySkipped: '({count} skipped)',
+    verifyOutUsable: 'usable',
+    verifyOutUnsupported: 'reasoning effort not supported',
+    verifyOutUnreachable: 'unreachable',
+    verifyOutQuota: 'quota exhausted',
+    verifyOutCredential: 'invalid credential',
+    verifyOutOther: 'unavailable',
+    verifyStopped: 'Stopped',
+    // Closing stats: totals always use planned, numerator is the verified-usable count
+    verifyDoneAll: '{efforts} / {planned} reasoning effort(s) across {models} model(s) are usable',
+    verifyDoneLowest: 'Verified {planned} model(s) in total, {models} usable',
+    verifyFailed: 'Verification failed: {message}',
+    terminalSignal: 'signal {signal}',
+    terminalExitCode: 'exit code {code}',
+    terminalNoExitCode: 'no exit code',
+    terminalRunning: 'Running',
+    terminalFailed: 'Failed',
+    terminalDone: 'Done',
+    terminalCopy: 'Copy',
+    terminalCopied: 'Copied',
+    terminalNoOutput: 'No output',
+    terminalCollapseAria: 'Collapse output',
+    terminalCollapse: 'Collapse',
+    terminalExpandAria: 'Expand the remaining {n} output lines',
+    terminalExpand: '… {n} more lines',
     clearEffortsTitle: 'Clear remembered efforts',
     clearEffortsConfirm: 'While turned off, new levels are no longer remembered, but the ones already remembered keep auto-restoring. Clear the remembered levels now?',
     clearEffortsKeep: 'Keep',

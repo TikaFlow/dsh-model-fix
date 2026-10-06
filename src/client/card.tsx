@@ -20,6 +20,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 // primitives 由宿主模块表注入
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
+import type { TerminalBlockLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 // scope 类型来自本项目的 ConfigForm decode 包装层
 import type { DecodedScope } from '@/client/scope'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -47,14 +48,64 @@ import type { Flags, Group, RowKey, VerifyCandidate } from '@/client/model'
 import type { CardKey } from '@/client/locales'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locales'
 import { PLUGIN_NAME } from '@/shared/constants'
+import { isProviderBlocking } from '@/shared/verify-progress'
+import type { ProbeOutcome, VerifyProbedFrame, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 
 /** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
 const CHEVRON_DOWN = primitives.IconChevronDownOutlineRegular
-const { Button, Modal, Switch, Tag, StateDot, Tooltip, IconInfoOutlineRegular, IconTrashOutlineRegular } = primitives
+const { Button, Modal, Switch, Tag, StateDot, TerminalBlock, Tooltip, IconInfoOutlineRegular, IconTrashOutlineRegular } = primitives
 
 /** 说明气泡宽度上限（px）：宿主 Tooltip 默认半视口，气泡会盖满整行开关区，故按瓦片列宽收窄 */
 const TIP_MAX_WIDTH = 300
+
+/** 验证记录区的行数上限：与官方安装弹层的 TerminalBlock 同值 */
+const VERIFY_TERMINAL_LINES = 12
+
+/** 宿主 TerminalBlock 的展示文案：该包无语言回退，字段缺一即类型报错，故整份照官方 terminalLabels(t) 提供 */
+function terminalLabelsOf(t: TranslateNS<'settings.modelFix'>): TerminalBlockLabels {
+    return {
+        signal: (signal) => t('terminalSignal', { signal }),
+        exitCode: (code) => t('terminalExitCode', { code: String(code) }),
+        noExitCode: t('terminalNoExitCode'),
+        running: t('terminalRunning'),
+        failed: t('terminalFailed'),
+        done: t('terminalDone'),
+        copy: t('terminalCopy'),
+        copied: t('terminalCopied'),
+        noOutput: t('terminalNoOutput'),
+        collapseAria: t('terminalCollapseAria'),
+        collapse: t('terminalCollapse'),
+        expandAria: (n) => t('terminalExpandAria', { n: String(n) }),
+        expand: (n) => t('terminalExpand', { n: String(n) }),
+    }
+}
+
+/** 每种探测结论对应的展示词；判别值与 `ProbeOutcome` 一一对应，漏一个即类型报错 */
+const OUTCOME_KEYS: Record<ProbeOutcome, CardKey> = {
+    usable: 'verifyOutUsable',
+    'unsupported-effort': 'verifyOutUnsupported',
+    unreachable: 'verifyOutUnreachable',
+    quota: 'verifyOutQuota',
+    credential: 'verifyOutCredential',
+    other: 'verifyOutOther',
+}
+
+/**
+ * 一条探测结论的记录行。
+ *
+ * provider 级失败（不可达 / 额度耗尽 / 凭据无效）不带模型与档位——那不是某个模型的问题，是整组都不成立；
+ * 带 `skipped` 时补一句「还剩几条没验」，免得用户把那一行当成全部结论。
+ */
+function verifyLineOf(frame: VerifyProbedFrame, t: TranslateNS<'settings.modelFix'>): string {
+    const result = t(OUTCOME_KEYS[frame.outcome])
+    const line = isProviderBlocking(frame.outcome)
+        ? t('verifyLineProvider', { provider: frame.provider, result })
+        : frame.effort === undefined
+            ? t('verifyLinePlain', { provider: frame.provider, model: frame.model, result })
+            : t('verifyLine', { provider: frame.provider, model: frame.model, effort: frame.effort, result })
+    return frame.skipped === undefined ? line : `${line}${t('verifySkipped', { count: String(frame.skipped) })}`
+}
 
 /** 项目仓库与反馈入口：README「安装 / 问题反馈」同源，改地址只改这两行 */
 const REPO_URL = 'https://github.com/TikaFlow/dsh-model-fix'
@@ -120,8 +171,12 @@ export interface CardProps {
     resetModels: () => Promise<ConnectionRpcResult<unknown>>
     /** 恢复备份 RPC：回退启动时备份（交集 provider+model）到当前配置；返回被恢复的模型数 */
     restoreModels: () => Promise<ConnectionRpcResult<unknown>>
-    /** 验证模型 RPC：对「模型 × 推理级别」各发一次最小请求，仅以提供方是否受理判定可用；返回可用模型数 / 可用档位数 / 探测总数 */
-    verifyModels: (models: readonly VerifyCandidate[]) => Promise<ConnectionRpcResult<unknown>>
+    /** 验证模型：走进度流端点，对「模型 × 推理级别」各发一次最小请求，逐条回调实时进度；整轮跑完回汇总，被中止（停止 / 关窗 / 断连）回 undefined */
+    verifyModels: (
+        models: readonly VerifyCandidate[],
+        onFrame: (frame: VerifyProgressUpdate) => void,
+        signal: AbortSignal,
+    ) => Promise<VerifySummary | undefined>
     /** 初始折叠态：插件详情页（plugins.bundle.config）、组件实例详情页（plugins.row.config）与「内置插件」选项卡（settings.plugins.tab）默认展开；模型页 footer 席不传即默认收起（与官方插件卡一致）。同时决定保存成功后是否自动收起——只在默认收起的席位上生效 */
     defaultOpen?: boolean
 }
@@ -261,6 +316,10 @@ const STYLE_TEXT = [
     // 档位开关：放在 body 内而非 footer——宿主 RiskConfirmation（敏感操作前置确认）正是这个排法，
     // 确认控件留在正文、footer 只放取消/确认两键；上间距逐条取其 .acknowledgement 的 margin-top:20px
     '.dsh-mf-verifyOption{display:inline-flex;align-items:center;gap:6px;margin-top:20px;min-width:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-secondary,#61666b)}',
+    // 验证弹层 footer 的纵向容器与按钮行：宿主 .footer 是单行 flex 且无 wrap，整行块只能自己排。
+    // 间距取宿主 .dialog 的列间距 20px（同层），按钮行三个数值逐条复刻宿主 .footer
+    '.dsh-mf-verifyFoot{display:flex;flex-direction:column;gap:20px;width:100%}',
+    '.dsh-mf-verifyActions{display:flex;align-items:center;justify-content:flex-end;gap:8px}',
     // 注意语义键：卡片 footer 的「验证模型」触发键与弹层内的验证确认键共用，仅把描边/字色换成 warn 令牌；
     // hover 用其 10% 稀释（宿主无 warn 悬停底令牌，与 .dsh-mf-chipVersion 同一 color-mix 手法，不自造色值）。
     // 叠加在 .dsh-mf-discard 之上时靠 :not(:disabled) 的高特异性压过其默认描边/字色
@@ -534,6 +593,19 @@ export function Card(props: CardProps) {
     const [verifyOpen, setVerifyOpen] = useState(false)
     const [verifyPicked, setVerifyPicked] = useState<ReadonlySet<string>>(() => new Set())
     const [verifyAllEfforts, setVerifyAllEfforts] = useState(false)
+    // 验证记录区：逐行追加探测结论，发起时清空；总项数取自 opened 帧，供记录区抬头显示
+    const [verifyLines, setVerifyLines] = useState<readonly string[]>([])
+    const [verifyTotal, setVerifyTotal] = useState(0)
+    // 在途的 AbortController：点停止与组件卸载都靠它中止——中止经 signal 传导到 Node 半的执行循环
+    const verifyAbort = useRef<AbortController | null>(null)
+    // 卸载即中止在途验证：连接随之断开，宿主 Connection 把断开传导成 request.signal，执行循环随即早停
+    useEffect(() => () => { verifyAbort.current?.abort() }, [])
+    // 记录区的 settle 文案改成「已停止」：正常跑完会关窗，能停在这儿的只有被中止这一种情形，
+    // 而用户主动停止不是失败，故不落宿主那个 error 态的「失败」而落 done 态 + 中性措辞
+    const verifyTerminalLabels = useMemo<TerminalBlockLabels>(
+        () => ({ ...terminalLabelsOf(t), done: t('verifyStopped') }),
+        [t],
+    )
     const saveStarted = useRef(false)
 
     const saved = snap.value
@@ -727,50 +799,56 @@ export function Card(props: CardProps) {
     }
     const runVerify = () => {
         if (busy) return
+        // 记下本次的档位开关取值：结果回来时不能现读，否则用户在途中拨了开关，文案就会张冠李戴
+        const allEfforts = verifyAllEfforts
+        // 每次发起都清空记录，免得上一轮（尤其被用户停止的那轮）的残留行混进这一轮
+        setVerifyLines([])
+        setVerifyTotal(0)
         setBusy('verify')
-        props.verifyModels(verifyTargets(verifyCandidates, verifyPicked, verifyAllEfforts))
-            .then((result) => {
-                if (result.ok) {
-                    // 结构化汇报逐字段取用（RPC 信封的 value 是 unknown）；不引 Node 半的 VerifySummary 类型，避免跨半耦合
-                    const value = result.value as {
-                        models?: number
-                        efforts?: number
-                        unsupported?: number
-                        planned?: number
-                        probed?: number
-                        providers?: readonly { skipped?: boolean }[]
-                    } | undefined
-                    setNotice({
-                        text: t('verifyDone', {
-                            models: value?.models ?? 0,
-                            efforts: value?.efforts ?? 0,
-                            unsupported: value?.unsupported ?? 0,
-                            probed: value?.probed ?? 0,
-                            planned: value?.planned ?? 0,
-                            blocked: (value?.providers ?? []).filter((provider) => provider.skipped === true).length,
-                        }),
-                        tone: 'success',
-                    })
-                } else {
-                    setNotice({ text: t('verifyFailed', { message: truncateMessage(result.error.message) }), tone: 'error' })
-                }
+        const controller = new AbortController()
+        verifyAbort.current = controller
+        props.verifyModels(verifyTargets(verifyCandidates, verifyPicked, allEfforts), (frame) => {
+            if (frame.type === 'opened') {
+                setVerifyTotal(frame.total)
+                return
+            }
+            setVerifyLines((current) => [...current, verifyLineOf(frame, t)])
+        }, controller.signal)
+            .then((summary) => {
+                // undefined = 被中止（点停止 / 关窗 / 断连）。那不是失败：保留进度与弹层，由用户决定要不要重跑
+                if (summary === undefined) return
+                setNotice({
+                    text: t(allEfforts ? 'verifyDoneAll' : 'verifyDoneLowest', {
+                        models: summary.models,
+                        efforts: summary.efforts,
+                        planned: summary.planned,
+                    }),
+                    tone: 'success',
+                })
+                // 结果到手才关窗；记录区的使命就是这轮的过程，随之消失
+                closeVerify()
             })
             .catch((error: unknown) => {
                 setNotice({
                     text: t('verifyFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) }),
                     tone: 'error',
                 })
+                closeVerify()
             })
             .finally(() => {
-                // 结果到手才关窗：探测可能持续数分钟，期间弹层原地转圈（见下），提前关窗会让用户失去进度感知
-                closeVerify()
+                verifyAbort.current = null
                 setBusy(null)
             })
     }
-    // 关闭即丢弃本次勾选（下次打开回到未预选态）；档位开关是模式偏好，保留上次选择
+    // 停止：中止在途验证。连接随之断开，Node 半的执行循环随即早停，不再消耗额度。
+    // 不顺手关窗——已验到哪一步值得留在记录里，用户看完可以原地重跑
+    const stopVerify = () => { verifyAbort.current?.abort() }
+    // 关闭即丢弃本次勾选与记录（下次打开回到未预选、无记录态）；档位开关是模式偏好，保留上次选择
     const closeVerify = () => {
         setVerifyOpen(false)
         setVerifyPicked(new Set())
+        setVerifyLines([])
+        setVerifyTotal(0)
     }
     const toggleVerifyPick = (key: string) => {
         setVerifyPicked((current) => {
@@ -969,29 +1047,44 @@ export function Card(props: CardProps) {
             />
             {/* 「验证模型」弹层：结构逐条照官方 models 页「获取可用模型」的候选框（title / desc / 候选列表 / 底部取消 + 采用），
                 按需求去掉其「搜索 — 全选」工具条一行；改为列表下方一条 warn 额度提示，底部左侧加「验证所有推理级别」开关。
-                在途期间忽略关闭：探测已发给宿主，提前关窗会留下无人收割的一批请求；结果到手才自动关窗 */}
+                关窗（遮罩 / Escape / ×）即中止在途验证：连接一断，Node 半的执行循环随即早停，不会在用户离开之后继续烧额度 */}
             <Modal
                 open={verifyOpen}
-                onClose={() => { if (busy !== 'verify') closeVerify() }}
+                onClose={closeVerify}
                 title={t('verifyTitle')}
                 closeLabel={t('close')}
                 description={t('verifyDesc')}
                 className="dsh-mf-verifyDialog"
-                footer={<>
-                    {/* 底部只放两键，逐条同官方「获取可用模型」：宿主 .footer 自身即 flex-end + gap:8px，不再自绘容器 */}
-                    <Button variant="outline" data-modal-autofocus disabled={busy === 'verify'} onClick={closeVerify}>{t('cancel')}</Button>
-                    <Button
-                        variant="outline"
-                        className="dsh-mf-warn"
-                        disabled={busy !== null || verifyPicked.size === 0}
-                        onClick={runVerify}
-                    >
-                        {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点；
-                            StateDot 的 ongoing 态就是侧边栏会话列表项左侧那个转圈（同原语、同动效） */}
-                        {busy === 'verify' ? <StateDot state="ongoing" /> : null}
-                        {t('verifyGo')}
-                    </Button>
-                </>}
+                footer={<div className="dsh-mf-verifyFoot">
+                    {/* 宿主 .footer 是单行 flex 且无 wrap，塞不进整行块；故在 footer 内自绘纵向容器，
+                        内层按钮行逐值复刻宿主 .footer 的三个数值（justify-content / align-items / gap），视觉与原样一致 */}
+                    <div className="dsh-mf-verifyActions">
+                        <Button variant="outline" data-modal-autofocus disabled={busy === 'verify'} onClick={closeVerify}>{t('cancel')}</Button>
+                        <Button
+                            variant="outline"
+                            className="dsh-mf-warn"
+                            disabled={busy === null && verifyPicked.size === 0}
+                            onClick={busy === 'verify' ? stopVerify : runVerify}
+                        >
+                            {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点；
+                                StateDot 的 ongoing 态就是侧边栏会话列表项左侧那个转圈（同原语、同动效） */}
+                            {busy === 'verify' ? <StateDot state="ongoing" /> : null}
+                            {t(busy === 'verify' ? 'verifyStop' : 'verifyGo')}
+                        </Button>
+                    </div>
+                    {/* 记录区置于按钮行下方，与官方安装弹层同序（那边是 wizardFoot 在前、detailsBody 在后）。
+                        首次发起才出现：opened 帧一到即有总项数，先于此则没有任何进度可展示 */}
+                    {verifyTotal > 0 ? (
+                        <TerminalBlock
+                            command={t('verifyCommand', { total: String(verifyTotal) })}
+                            output={verifyLines.join('\n')}
+                            running={busy === 'verify'}
+                            maxLines={VERIFY_TERMINAL_LINES}
+                            labels={verifyTerminalLabels}
+                            className="dsh-mf-verifyLog"
+                        />
+                    ) : null}
+                </div>}
             >
                 {verifyGroups.length === 0 ? (
                     <p className="dsh-mf-verifyEmpty" role="status">{t('verifyEmpty')}</p>

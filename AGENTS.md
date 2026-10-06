@@ -17,8 +17,8 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/reset.ts` `src/restore.ts` `src/guard.ts` `src/host.ts` | 重置推理级别（仅剔除 `reasoningEfforts`，配置段零写入）/ 启动备份捕获与交集恢复 / 事件流守卫（写回期间短路整条事件链）/ 全部 settings 写回必经的 `queueTask` |
 | `src/verify.ts` | 「验证模型」：校验并展开「模型 × 推理级别」笛卡尔积、按 provider 归组（组内串行即每 provider 单并发）、经宿主 `ctx.llm` 各发一次最小请求；失败按 `LlmFailure` 的 `code`/`status` 分类，端点不可达 / 额度耗尽 / 凭据无效即短路整组；执行器只依赖注入的 `llm.stream`，带桩即可全链路单测；接受外部 `signal`（客户端断开 / 用户停止）与 `onProgress` 出口，中止同时断在途请求**并**让执行循环早停，中止时不发 `done` 帧；返回逐提供方汇报 + 逐条探测明细（含失败原始事实，供后续按明细做操作） |
 | `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个 RPC 端点（前三个以守卫互斥、验证只读不参与）/ 自注册 channel 路由 + 验证进度流（`connection.fetch` 的 exact 路由，SSE 分帧，客户端断开即中止执行）/ 保鲜刷新 |
-| `src/client/index.tsx` | 浏览器半入口：四个卡片刻位注册、词典、RPC 载体、记忆监听子 fiber |
-| `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片、footer 与末尾联系行；**全部样式数值在 `STYLE_TEXT`** |
+| `src/client/index.tsx` | 浏览器半入口：四个卡片刻位注册、词典、RPC 载体、验证进度流读流、记忆监听子 fiber |
+| `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片、验证弹层（实时记录区 + 停止）、footer 与末尾联系行；**全部样式数值在 `STYLE_TEXT`** |
 | `src/client/model.ts` / `effort.ts` / `scope.ts` / `locales.ts` | 快照↔配置纯映射（含验证候选拍取）/ 记忆纯逻辑 / ConfigForm 的 decode 包装 / 中英词典 |
 | `public/models-cache.json` | 构建期平铺复制到 `lib/` 根：models.dev 拍平缓存（首启离线可用） |
 | `docs/decisions.md` | 「设计裁决」全文（AGENTS.md 同节只留提纲）；仅供开发查阅，不进 `files` |
@@ -82,12 +82,12 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 - **参数来源**：图片模态只缓存正向信息；`99999999` / 0 视为无该字段；id 匹配宁可漏不错配；档位序取 `EFFORT_LEVELS`。
 - **推理级别记忆**：`efforts` 是运行时记忆而非用户配置；Node 半只持久化不自动设级别；`rememberEfforts` 关闭只停「保存新的」；`defaultHigh` 三条护栏；两个开关都不读 `excludes`。
 - **写回端点**：重置只剔 `reasoningEfforts`、不写配置段；恢复备份只回退交集、绝不延迟补捕；写回端点以守卫互斥。
-- **验证**：只读诊断、只由用户主动发起、即用即弃；**只认 `block-start`、不看内容**（`usage` 不算受理）；失败只按 `LlmFailure` 的 `code`/`status` 分类（**禁止比对文案**），端点不可达 / 额度耗尽 / 凭据无效即短路整组，我方超时不算不可达、档位不支持只记录不短路；每 provider 单并发、跨 provider ≤5 路、无退避；列表默认不预选；弹层自确认、在途转圈不关窗。
+- **验证**：只读诊断、只由用户主动发起、即用即弃；**只认 `block-start`、不看内容**（`usage` 不算受理）；失败只按 `LlmFailure` 的 `code`/`status` 分类（**禁止比对文案**），端点不可达 / 额度耗尽 / 凭据无效即短路整组，我方超时不算不可达、档位不支持只记录不短路；每 provider 单并发、跨 provider ≤5 路、无退避；列表默认不预选；弹层自确认；进度以 SSE 流实时逐条展示，主键在途变「停止」，**关窗 / 断连即中止执行**（验证即用即弃，用户不在之后继续跑等于白烧额度）。
 - **宿主与卡片**：RPC channel 自注册；按钮取「保存」不取「应用」；卡片末尾固定联系行；不引入 `failed` 态、不做「恢复默认」。
 
 ## 数据流骨架
 
-段变更按 ns 分流为两条链：自有段「自愈 → 填充」、llm-pi-ai 段「填充 → 保鲜刷新」，入口先判事件流守卫。浏览器半：`configForms` → `makeScope` → 四席共用同一张卡 + 记忆监听子 fiber；验证链路为 卡片弹层 → `verifyTargets` → RPC → `ctx.llm`（只读）。
+段变更按 ns 分流为两条链：自有段「自愈 → 填充」、llm-pi-ai 段「填充 → 保鲜刷新」，入口先判事件流守卫。浏览器半：`configForms` → `makeScope` → 四席共用同一张卡 + 记忆监听子 fiber；验证链路为 卡片弹层 → `verifyTargets` → 进度流端点（`fetch` 逐帧回调）→ `ctx.llm`（只读）。
 
 ## 命令
 

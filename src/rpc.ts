@@ -7,8 +7,8 @@
  *   写回触发的 settings/document-updated 一律短路，避免把刚删掉的字段重新填回。
  * - 「恢复备份」→ restoreModels(ctx) 把启动时备份（交集：备份与当前都存在的 provider+model）回退，
  *   事件流守卫全程打开，避免写回触发填充。
- * - 「验证模型」→ verifyModels(llm, payload) 对勾选的「模型 × 推理级别」各发一次最小请求，仅以提供方是否受理
- *   判定可用（详见 src/verify.ts）。只读、不写 settings，故**不占事件流守卫**，也不与三个写回端点互斥。
+ * - 「验证模型」不在此列：它要回一个持续多帧的进度流，走独立的 `connection.fetch` 路由（见文末）。
+ *   只读、不写 settings，故**不占事件流守卫**，也不与三个写回端点互斥。
  * 前三个写回端点共用同一守卫做互斥：入口一律先查，守卫已开（另一写回在途）即拒——后到者的 finally 会
  * 提前解除守卫，令先到者的写回失去保护；填充与写回语义也相互冲突。置位分工：forceUpdate 在本
  * handler 层置位（finally 解除），reset / restore 由各自写回内部置位。守卫互斥只覆盖查守卫的路径：
@@ -46,8 +46,6 @@ const ENDPOINT_FORCE_UPDATE = 'forceUpdate'
 const ENDPOINT_RESET_MODELS = 'resetModels'
 /** 卡片「恢复备份」按钮调用的 endpoint 名 */
 const ENDPOINT_RESTORE_MODELS = 'restoreModels'
-/** 卡片「验证模型」按钮调用的 endpoint 名 */
-const ENDPOINT_VERIFY_MODELS = 'verifyModels'
 
 /** 守卫已开（另一写回在途）时的统一拒绝结果 */
 const writeInProgress = (): ConnectionRpcResult<unknown> => ({
@@ -64,7 +62,8 @@ export function installRpc(ctx: Context): void {
         const webServer = rpcCtx.get('webServer') as WebServer
         rpcCtx.effect(() => {
             const channel = `/${PLUGIN_NS}`
-            const handler: EndpointHandler = async (endpoint, payload) => {
+            // 三个写回端点都不读 payload（各自按整份配置重算），故只接 endpoint 参数
+            const handler: EndpointHandler = async (endpoint) => {
                 if (endpoint === ENDPOINT_FORCE_UPDATE) {
                     // 重置/恢复写回期间拒绝：填充会把刚回退掉的字段重新写回，与写回语义冲突
                     if (isIgnoreAll()) return writeInProgress()
@@ -100,21 +99,6 @@ export function installRpc(ctx: Context): void {
                             ok: false,
                             error: {
                                 code: endpoint === ENDPOINT_RESET_MODELS ? 'model-fix/reset-models-failed' : 'model-fix/restore-models-failed',
-                                message: error instanceof Error ? error.message : String(error),
-                                details: {},
-                            },
-                        }
-                    }
-                }
-                // 验证：只读，不查也不置事件流守卫（与三个写回端点无冲突），故不参与上方互斥
-                if (endpoint === ENDPOINT_VERIFY_MODELS) {
-                    try {
-                        return { ok: true, value: await verifyModels(ctx.llm, payload) }
-                    } catch (error) {
-                        return {
-                            ok: false,
-                            error: {
-                                code: 'model-fix/verify-models-failed',
                                 message: error instanceof Error ? error.message : String(error),
                                 details: {},
                             },

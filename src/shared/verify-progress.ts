@@ -140,6 +140,12 @@ export type VerifyProgressFrame =
     /** 终帧：整轮跑完，`summary` 是与旧版 RPC 等价的完整结论 */
     | { type: 'done'; summary: VerifySummary }
 
+/** 单条探测结果帧；消费方逐条格式化展示，故单列一个名字 */
+export type VerifyProbedFrame = Extract<VerifyProgressFrame, { type: 'probed' }>
+
+/** 非终帧：逐条回调的形状。`done` 帧由调用方单独接住——它带的是整轮汇总，不是可逐行展示的一条 */
+export type VerifyProgressUpdate = Exclude<VerifyProgressFrame, { type: 'done' }>
+
 /** 宿主 hmr 的 SSE 分帧格式：单行 `data: ` + 空行分隔（`.tmp-dsh/packages/client/hmr/src/index.ts:39-42`） */
 const DATA_PREFIX = 'data: '
 

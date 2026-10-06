@@ -29,7 +29,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client'
 import { Card } from '@/client/card'
 import { CARD_NS, en, zh } from '@/client/locales'
-import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS } from '@/shared/constants'
+import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS, VERIFY_STREAM_URL } from '@/shared/constants'
+import { decodeProgressFrame } from '@/shared/verify-progress'
+import type { VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
 import { DEFAULT_CONFIG } from '@/shared/parse'
 import { VERSION_KEY, decodeSection } from '@/client/model'
 import type { Flags, VerifyCandidate } from '@/client/model'
@@ -75,8 +77,54 @@ function boot(
     const forceUpdate = () => rpc.call(`/${MODEL_FIX_NS}`, 'forceUpdate', {})
     const resetModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'resetModels', {})
     const restoreModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'restoreModels', {})
-    // 验证模型：载荷是卡片按勾选收敛好的「模型 × 推理级别」清单，Node 半只做笛卡尔积展开与探测
-    const verifyModels = (models: readonly VerifyCandidate[]) => rpc.call(`/${MODEL_FIX_NS}`, 'verifyModels', { models })
+    /**
+     * 验证模型：载荷是卡片按勾选收敛好的「模型 × 推理级别」清单，Node 半只做笛卡尔积展开与探测。
+     *
+     * 走独立的进度流端点而非 channel RPC——一次调用要回持续多帧的响应，RPC 的「一次调用 = 一个
+     * JSON 结果」装不下。用文档相对路由（去掉前导斜杠）是宿主对浏览器侧的约定，服务端 key 保持绝对，
+     * 两侧同取 `src/shared/constants.ts` 的同一常量。
+     *
+     * @returns 整轮汇总；被中止（点停止 / 关窗 / 断连）时返回 `undefined`，那不是失败
+     */
+    const verifyModels = async (
+        models: readonly VerifyCandidate[],
+        onFrame: (frame: VerifyProgressUpdate) => void,
+        signal: AbortSignal,
+    ): Promise<VerifySummary | undefined> => {
+        try {
+            const response = await fetch(VERIFY_STREAM_URL, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ models }),
+                signal,
+            })
+            if (!response.ok || response.body === null) throw new Error(`HTTP ${response.status}`)
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+            let summary: VerifySummary | undefined
+            for (;;) {
+                const { done, value } = await reader.read()
+                // 解码走 stream 模式：多字节字符可能横跨两个分片边界
+                if (value !== undefined) buffer += decoder.decode(value, { stream: true })
+                // SSE 以空行分帧；末尾不足一帧的残片留给下一批
+                let cut = buffer.indexOf('\n\n')
+                while (cut !== -1) {
+                    const frame = decodeProgressFrame(buffer.slice(0, cut))
+                    buffer = buffer.slice(cut + 2)
+                    cut = buffer.indexOf('\n\n')
+                    if (frame === undefined) continue
+                    if (frame.type === 'done') summary = frame.summary
+                    else onFrame(frame)
+                }
+                if (done) break
+            }
+            return summary
+        } catch (error) {
+            if (signal.aborted) return undefined
+            throw error
+        }
+    }
     // 每模型推理级别记忆经自有 NS 的 settings scope 直写（与「保存」同一条写路径）；
     // 空记忆也写 `{}` 而非删键——字段在文件里恒存在、形态恒定
     const rememberEffort = (provider: string, model: string, effort: string | null): void => {
