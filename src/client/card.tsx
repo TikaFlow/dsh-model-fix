@@ -10,11 +10,11 @@
  * footer 左侧为强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）/ 验证模型（次级键），右侧为取消（仅未保存时渲染）/ 保存；
  * 三把写回键与「清空记忆」均先弹宿主 Modal 二次确认，再经 Connection RPC 或 settings scope 请求 Node 半。
  * 「验证模型」则弹一个自带确认的候选框（逐条照官方 models 页「获取可用模型」的候选框，减去其搜索/全选工具条）：
- * 按提供方分组多选模型，配「验证推理级别」开关，对每个勾选模型声明的每个推理级别发起真实探测，
- * 结果同走卡片内联状态行——验证即用即弃，不留任何配置痕迹。
+ * 按提供方分组多选模型，配「验证推理级别」开关，对每个勾选模型声明的每个推理级别发起真实探测；
+ * 结论只留在该弹层内（实时记录区的末行），不写卡片状态行——验证即用即弃，不留任何配置痕迹。
  * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
- * 结果反馈一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）。
+ * 除验证外的操作结果一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）。
  */
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -809,7 +809,7 @@ export function Card(props: CardProps) {
             })
     }
     // 验证模型：弹层自身已含 warn 提示与 warn 语义的确认键，构成自确认，故不再叠加二次确认弹层。
-    // 结果与「强制更新」同走卡片内联状态行（该行挂在条件展开体之外，折叠不丢在途/已到的结果）
+    // 只清掉上一次操作的结果、结果本身留在弹层内（那行挂在条件展开体之外，折叠不丢在途结果）
     const onVerify = () => {
         if (!ready || busy) return
         setNotice(null)
@@ -845,20 +845,15 @@ export function Card(props: CardProps) {
                     efforts: summary.efforts,
                     planned: summary.planned,
                 })
-                // 验证结论落中性色：它是诊断（「3/5 个档位可用」），既非操作成功也非失败，
-                // 染成绿/红会被读成「保存成功了 / 保存失败了」，那是别的事的结论
-                setNotice({ text: stats, tone: 'neutral' })
+                // 结论只留在弹层内，不写卡片状态行：弹层跑完不关、结论又追加成记录区末行，
+                // 用户当场就看得见；同步到卡片是「渗透」——关窗即随记录一起丢弃，那行反馈没有归属
                 // 明细由 Node 半直接给出（只收明确判为不支持的），前端不自己从 results 里筛——
                 // 两处口径一旦分叉就会漏剔或多剔。中止时压根到不了这里，故不会误弹
                 setPruneTargets(summary.unsupportedEfforts)
-                // 结论追加成记录区末行、弹层留着不关：断连逐条冒出来的行不给出「总共怎么样」，
-                // 让人自己数末行才知道结果。留在窗内让用户看完再关，关窗后卡片状态行仍在
                 setVerifyLines((current) => [...current, t('verifyFinished', { result: stats })])
             })
             .catch((error: unknown) => {
                 const stats = t('verifyFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) })
-                setNotice({ text: stats, tone: 'neutral' })
-                // 与正常结束同形：失败也留窗内、也补末行，用户看完再关
                 setVerifyLines((current) => [...current, t('verifyFinished', { result: stats })])
             })
             .finally(() => {
