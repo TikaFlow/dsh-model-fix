@@ -165,8 +165,11 @@ export function verifyCandidatesOf(user: unknown): VerifyCandidate[] {
 }
 
 /**
- * 从勾选的候选算出校验目标：`allEfforts` 为真时逐个档位探测，否则只取最低的一个
- * （`EFFORT_LEVELS` 首位即最低；无档位模型两种模式都产出空数组，即不带档位探测）。
+ * 从勾选的候选算出校验目标：`allEfforts` 为真时逐个探测该模型**声明的全部**推理级别，否则一律不带档位。
+ *
+ * 「不带档位」而不是挑一个最低档位：不带参数并不等于端点不会推理——端点可能有自己的默认推理级别，
+ * 那种情况下发 `off` 验的不是用户实际会走的那条路径。两种模式下未声明档位的模型都产出空数组，
+ * 即一次不带 `reasoningEffort` 的请求（开档位模式对它没有可验的档位，与关档位模式同形）。
  */
 export function verifyTargets(
     candidates: readonly VerifyCandidate[],
@@ -175,10 +178,7 @@ export function verifyTargets(
 ): VerifyCandidate[] {
     return candidates
         .filter((candidate) => keys.has(verifyKey(candidate.provider, candidate.model)))
-        .map((candidate) => ({
-            ...candidate,
-            efforts: allEfforts || candidate.efforts.length === 0 ? candidate.efforts : candidate.efforts.slice(0, 1),
-        }))
+        .map((candidate) => ({ ...candidate, efforts: allEfforts ? candidate.efforts : [] }))
 }
 
 /**

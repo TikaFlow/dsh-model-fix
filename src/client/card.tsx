@@ -598,7 +598,7 @@ export function Card(props: CardProps) {
     // 「验证模型」弹层：勾选集（键见 verifyKey）、是否逐个档位验证；默认不预选——每次验证都花真实额度
     const [verifyOpen, setVerifyOpen] = useState(false)
     const [verifyPicked, setVerifyPicked] = useState<ReadonlySet<string>>(() => new Set())
-    const [verifyAllEfforts, setVerifyAllEfforts] = useState(false)
+    const [verifyEfforts, setVerifyEfforts] = useState(false)
     // 验证记录区：逐行追加探测结论，发起时清空；总项数取自 opened 帧，供记录区抬头显示
     const [verifyLines, setVerifyLines] = useState<readonly string[]>([])
     const [verifyTotal, setVerifyTotal] = useState(0)
@@ -806,7 +806,7 @@ export function Card(props: CardProps) {
     const runVerify = () => {
         if (busy) return
         // 记下本次的档位开关取值：结果回来时不能现读，否则用户在途中拨了开关，文案就会张冠李戴
-        const allEfforts = verifyAllEfforts
+        const allEfforts = verifyEfforts
         // 每次发起都清空记录，免得上一轮（尤其被用户停止的那轮）的残留行混进这一轮
         setVerifyLines([])
         setVerifyTotal(0)
@@ -1185,15 +1185,15 @@ export function Card(props: CardProps) {
                     确认控件留在正文、距上一段 20px，footer 只放取消/确认两键 */}
                 <span className="dsh-mf-verifyOption">
                     <Switch
-                        checked={verifyAllEfforts}
+                        checked={verifyEfforts}
                         disabled={busy === 'verify'}
-                        label={t('verifyAllEfforts')}
-                        onChange={setVerifyAllEfforts}
+                        label={t('verifyEfforts')}
+                        onChange={setVerifyEfforts}
                     />
-                    <span>{t('verifyAllEfforts')}</span>
+                    <span>{t('verifyEfforts')}</span>
                     {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
-                    <Tooltip label={t('verifyAllEffortsTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
-                        <button type="button" className="dsh-mf-help" aria-label={t('verifyAllEffortsTip')}>
+                    <Tooltip label={t('verifyEffortsTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                        <button type="button" className="dsh-mf-help" aria-label={t('verifyEffortsTip')}>
                             <IconInfoOutlineRegular size={12} />
                         </button>
                     </Tooltip>

@@ -78,8 +78,8 @@ export type CardKey =
     | 'verifyTitle'
     | 'verifyDesc'
     | 'verifyQuota'
-    | 'verifyAllEfforts'
-    | 'verifyAllEffortsTip'
+    | 'verifyEfforts'
+    | 'verifyEffortsTip'
     | 'verifyGo'
     | 'verifyStop'
     | 'verifySelectAll'
@@ -245,8 +245,9 @@ export const zh: Record<CardKey, string> = {
     verifyTitle: '选择要验证的模型',
     verifyDesc: '勾选后将逐个发起请求，确认提供方是否真的受理；验证所耗时间随模型数量增加。',
     verifyQuota: '验证会发起真实请求，可能消耗少量额度。',
-    verifyAllEfforts: '验证所有推理级别',
-    verifyAllEffortsTip: '开启后会验证该模型声明的全部推理级别，请求数成倍增加；关闭时每个模型仅验证一个推理级别。',
+    verifyEfforts: '验证推理级别',
+    // 关档位不等于端点不推理——它可能有自己的默认级别，故措辞要说清「不发参数」而非「不验证」
+    verifyEffortsTip: '开启后逐个验证模型声明的全部推理级别，请求数成倍增加；关闭时不携带推理级别，但这不代表端点不会推理——它可能有自己的默认级别。',
     verifyGo: '验证',
     verifyStop: '停止',
     // 分组全选文案照官方「获取可用模型」的 fetchSelectAll / fetchDeselectAll
@@ -372,8 +373,9 @@ export const en: Record<CardKey, string> = {
     verifyTitle: 'Choose models to verify',
     verifyDesc: 'Each chosen model gets a request to confirm the provider really accepts it; verification takes longer with more models.',
     verifyQuota: 'Verification sends real requests and may use a small amount of your quota.',
-    verifyAllEfforts: 'Verify every reasoning effort',
-    verifyAllEffortsTip: 'Verifies every reasoning effort the model declares, multiplying the request count; when off, only one reasoning effort per model is verified.',
+    verifyEfforts: 'Verify reasoning efforts',
+    // Turning the switch off means "send no parameter", not "the endpoint will not reason"
+    verifyEffortsTip: 'Verifies every reasoning effort the model declares, multiplying the request count; when off, no reasoning effort is sent — which does not mean the endpoint will not reason, as it may have its own default.',
     verifyGo: 'Verify',
     verifyStop: 'Stop',
     // Group select-all wording mirrors the official "Fetch available models" fetchSelectAll / fetchDeselectAll

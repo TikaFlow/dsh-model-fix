@@ -309,23 +309,24 @@ export function run(): void {
     // ---------- 选择键：模型 id 含 '/' 也不能与拼接方案撞车 ----------
     check('verifyKey 二元组序列化', verifyKey('a', 'x/y') === '["a","x/y"]')
     check('verifyKey 不同提供方的同名模型互不相同', verifyKey('a', 'm') !== verifyKey('b', 'm'))
-    // ---------- 校验目标：只取勾选项；全档位或最低档位 ----------
+    // ---------- 校验目标：只取勾选项；开档位逐个验全部声明档位，关档位一律不发档位参数 ----------
     const candidates = verifyCandidatesOf(verifyUser)
     const keys = new Set([verifyKey('acme-gateway', 'z-ai/glm-5'), verifyKey('acme-gateway', 'no-efforts')])
     check(
-        'verifyTargets 默认只取最低档位',
+        'verifyTargets 关档位时一律不带档位（不是挑最低档）',
         stable(verifyTargets(candidates, keys, false)) === stable([
-            { provider: 'acme-gateway', model: 'z-ai/glm-5', efforts: ['off'] },
+            { provider: 'acme-gateway', model: 'z-ai/glm-5', efforts: [] },
             { provider: 'acme-gateway', model: 'no-efforts', efforts: [] },
         ]),
         verifyTargets(candidates, keys, false),
     )
     check(
-        'verifyTargets 全档位模式取全部档位',
+        'verifyTargets 开档位时取全部声明档位；无档位模型与关档位同形',
         stable(verifyTargets(candidates, keys, true)) === stable([
             { provider: 'acme-gateway', model: 'z-ai/glm-5', efforts: ['off', 'low', 'high'] },
             { provider: 'acme-gateway', model: 'no-efforts', efforts: [] },
         ]),
+        verifyTargets(candidates, keys, true),
     )
     check('verifyTargets 未勾选得空', verifyTargets(candidates, new Set(), true).length === 0)
     check('verifyTargets 不改入参候选', stable(candidates[0].efforts) === stable(['off', 'low', 'high']))
