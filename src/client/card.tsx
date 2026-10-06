@@ -183,10 +183,10 @@ export interface CardProps {
     defaultOpen?: boolean
 }
 
-/** 内联状态行：文本 + 色调（成功＝官方 .savedNotice 绿，失败＝.error 红） */
+/** 内联状态行：文本 + 色调。`neutral` 落普通样式（不挂颜色修饰类）——宿主只有 success / error 两个状态色令牌，没有 info / warn */
 interface Notice {
     text: string
-    tone: 'success' | 'error'
+    tone: 'success' | 'error' | 'neutral'
 }
 
 const STYLE_ID = 'dsh-model-fix-card-css'
@@ -834,7 +834,9 @@ export function Card(props: CardProps) {
                     efforts: summary.efforts,
                     planned: summary.planned,
                 })
-                setNotice({ text: stats, tone: 'success' })
+                // 验证结论落中性色：它是诊断（「3/5 个档位可用」），既非操作成功也非失败，
+                // 染成绿/红会被读成「保存成功了 / 保存失败了」，那是别的事的结论
+                setNotice({ text: stats, tone: 'neutral' })
                 // 明细由 Node 半直接给出（只收明确判为不支持的），前端不自己从 results 里筛——
                 // 两处口径一旦分叉就会漏剔或多剔。中止时压根到不了这里，故不会误弹
                 setPruneTargets(summary.unsupportedEfforts)
@@ -844,7 +846,7 @@ export function Card(props: CardProps) {
             })
             .catch((error: unknown) => {
                 const stats = t('verifyFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) })
-                setNotice({ text: stats, tone: 'error' })
+                setNotice({ text: stats, tone: 'neutral' })
                 // 与正常结束同形：失败也留窗内、也补末行，用户看完再关
                 setVerifyLines((current) => [...current, t('verifyFinished', { result: stats })])
             })
@@ -925,10 +927,14 @@ export function Card(props: CardProps) {
     }
 
     // 结果提示挂在条件体之外：折叠不会吞掉在途/已到的结果
+    // 三档色调：宿主只提供 success / error 两个状态色令牌，没有 info / warn；普通样式即不挂颜色修饰类
+    const noticeTone = notice?.tone === 'error'
+        ? ' dsh-mf-noticeError'
+        : notice?.tone === 'success' ? ' dsh-mf-noticeSuccess' : ''
     const isError = notice?.tone === 'error'
     const notices = notice !== null ? (
         <p
-            className={isError ? 'dsh-mf-notice dsh-mf-noticeError' : 'dsh-mf-notice dsh-mf-noticeSuccess'}
+            className={`dsh-mf-notice${noticeTone}`}
             role={isError ? 'alert' : 'status'}
             aria-live={isError ? undefined : 'polite'}
         >
