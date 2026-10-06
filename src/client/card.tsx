@@ -185,10 +185,10 @@ export interface CardProps {
     defaultOpen?: boolean
 }
 
-/** 内联状态行：文本 + 色调。`neutral` 落普通样式（不挂颜色修饰类）——宿主只有 success / error 两个状态色令牌，没有 info / warn */
+/** 内联状态行：文本 + 色调（成功＝官方 .savedNotice 绿，失败＝.error 红） */
 interface Notice {
     text: string
-    tone: 'success' | 'error' | 'neutral'
+    tone: 'success' | 'error'
 }
 
 const STYLE_ID = 'dsh-model-fix-card-css'
@@ -936,14 +936,10 @@ export function Card(props: CardProps) {
     }
 
     // 结果提示挂在条件体之外：折叠不会吞掉在途/已到的结果
-    // 三档色调：宿主只提供 success / error 两个状态色令牌，没有 info / warn；普通样式即不挂颜色修饰类
-    const noticeTone = notice?.tone === 'error'
-        ? ' dsh-mf-noticeError'
-        : notice?.tone === 'success' ? ' dsh-mf-noticeSuccess' : ''
     const isError = notice?.tone === 'error'
     const notices = notice !== null ? (
         <p
-            className={`dsh-mf-notice${noticeTone}`}
+            className={isError ? 'dsh-mf-notice dsh-mf-noticeError' : 'dsh-mf-notice dsh-mf-noticeSuccess'}
             role={isError ? 'alert' : 'status'}
             aria-live={isError ? undefined : 'polite'}
         >
