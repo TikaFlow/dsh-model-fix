@@ -18,6 +18,10 @@
  * dsh-client-connection / dsh-host-webserver；断言范式与宿主内置插件 ui-settings-general 一致），信任围栏由宿主 connection 统一施加。
  * 路由由本插件自注册而不走宿主 `connection.rpc.handle`：后者在**服务自己的 ctx** 上求值
  * `owner.webServer`，而 connection 插件自 0.1.5 起不再注入 webServer，故它必然抛错（详见 rpc-route.ts）。
+ *
+ * 验证进度另开一条 `connection.fetch` 的 exact 路由（`VERIFY_STREAM_ROUTE`）：一次调用要回一个持续多帧的
+ * 响应，而 RPC 的「一次调用 = 一个 JSON 结果」形状装不下。走 Connection 的 Fetch 面还白拿信任围栏、
+ * 浏览器认证与「客户端断开 → `request.signal`」——据此中止执行，不在用户已经离开之后继续烧他的额度。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -25,7 +29,9 @@ import type { ConnectionRpcResult, HostConnectionService } from '@deepseek-ai/ds
 // ctx.llm 服务面声明合并（仅 type-only，不引运行期依赖；LLM 服务是插件 inject 依赖，装载即在）
 import type {} from '@deepseek-ai/dsh-llm'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
-import { PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
+import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
+import { PLUGIN_NAME, PLUGIN_NS, VERIFY_STREAM_ROUTE } from '@/shared/constants'
+import { encodeProgressFrame } from '@/shared/verify-progress'
 import { fix } from '@/fix'
 import { endIgnoreAll, isIgnoreAll, startIgnoreAll } from '@/guard'
 import { resetModels } from '@/reset'
@@ -54,7 +60,7 @@ export function installRpc(ctx: Context): void {
     // 子 fiber 声明 connection + webServer：webServer 用于注册前缀路由，connection 用于信任围栏。
     // 无 webServer 的 profile（如 headless）下子 fiber 不启动，插件其余功能不受影响。
     ctx.inject(['connection', 'webServer'], (rpcCtx) => {
-        const connection = rpcCtx.get('connection') as Pick<HostConnectionService, 'requestRejection'>
+        const connection = rpcCtx.get('connection') as Pick<HostConnectionService, 'requestRejection' | 'fetch'>
         const webServer = rpcCtx.get('webServer') as WebServer
         rpcCtx.effect(() => {
             const channel = `/${PLUGIN_NS}`
@@ -117,7 +123,67 @@ export function installRpc(ctx: Context): void {
                 }
                 return { ok: false, error: { code: 'model-fix/unknown-endpoint', message: `未知端点：${endpoint}`, details: {} } }
             }
-            return webServer.register({ kind: 'prefix', path: channel, handler: createChannelRoute(connection, channel, handler) })
-        }, `${PLUGIN_NAME}: rpc channel`)
+            const disposeChannel = webServer.register({ kind: 'prefix', path: channel, handler: createChannelRoute(connection, channel, handler) })
+            // 验证进度流走 connection.fetch 的 exact 路由而非 channel：它要的是一个持续多帧的响应，
+            // 而 RPC 的一次调用只对应一个 JSON 结果
+            const disposeStream = connection.fetch.register({
+                path: VERIFY_STREAM_ROUTE,
+                methods: ['POST'],
+                requestBody: 'buffered',
+                fetch: verifyStreamFetch(ctx.llm),
+            })
+            return () => {
+                disposeChannel()
+                // fetch.register 的 disposer 是异步的；effect 只负责同步调用它
+                void disposeStream()
+            }
+        }, `${PLUGIN_NAME}: rpc`)
     })
+}
+
+/**
+ * 验证进度流的 Fetch 实现：请求体是勾选清单，响应是以 SSE 分帧的进度。
+ *
+ * 走 `connection.fetch.register` 而非 `webServer.register` 是刻意的：前者由 Connection 代管信任围栏、
+ * 浏览器认证与**客户端断开 → `request.signal`**，后者这些都得自己再搭一遍（见本文件头记的
+ * connection 自 0.1.5 起不再注入 webServer 那个坑）。
+ */
+function verifyStreamFetch(llm: LlmRuntime): (request: Request) => Promise<Response> {
+    const encoder = new TextEncoder()
+    return async (request) => {
+        let payload: unknown
+        try {
+            payload = await request.json()
+        } catch {
+            return new Response('invalid json body', { status: 400 })
+        }
+        const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+                const settle = (): void => {
+                    try {
+                        controller.close()
+                    } catch {
+                        // 客户端已断开，控制器随之失效；无可挽回，也不必上报
+                    }
+                }
+                verifyModels(llm, payload, {
+                    // 客户端断开时 request.signal 会中止，据此让执行循环早停——
+                    // 验证是即用即弃的诊断，用户已经不在之后继续跑等于白烧他的额度
+                    signal: request.signal,
+                    onProgress: (frame) => {
+                        try {
+                            controller.enqueue(encoder.encode(encodeProgressFrame(frame)))
+                        } catch {
+                            // 同上：流已不可写。执行器随即随 signal 停下，不会再压更多帧
+                        }
+                    },
+                }).then(settle, (error: unknown) => {
+                    // 入参非法之类跑不到一帧的情形：只收尾，消费方见「流结束却没等到 done」即知没跑完
+                    console.error(`[${PLUGIN_NAME}] 验证流异常终止`, error)
+                    settle()
+                })
+            },
+        })
+        return new Response(stream, { headers: { 'content-type': 'text/event-stream' } })
+    }
 }

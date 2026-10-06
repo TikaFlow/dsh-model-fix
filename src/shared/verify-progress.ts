@@ -6,6 +6,8 @@
  * 本文件只有类型与纯谓词：零 Node 依赖、零 schemastery、零宿主值导入。
  */
 
+import { isPlainObject } from '@/shared/types'
+
 /** 单次探测：一次请求 = 一个「模型 × 推理级别」组合（effort 缺省即不带档位探测） */
 export interface VerifyProbe {
     provider: string
@@ -137,3 +139,48 @@ export type VerifyProgressFrame =
     }
     /** 终帧：整轮跑完，`summary` 是与旧版 RPC 等价的完整结论 */
     | { type: 'done'; summary: VerifySummary }
+
+/** 宿主 hmr 的 SSE 分帧格式：单行 `data: ` + 空行分隔（`.tmp-dsh/packages/client/hmr/src/index.ts:39-42`） */
+const DATA_PREFIX = 'data: '
+
+/**
+ * 把一帧编成线上文本。内容类型刻意用 `text/event-stream`：宿主的 gzip 中间件显式跳过它
+ * （`host/webserver/src/index.ts:97`），普通内容类型可能被压缩缓冲住——一缓冲，流式就没了。
+ */
+export function encodeProgressFrame(frame: VerifyProgressFrame): string {
+    return `${DATA_PREFIX}${JSON.stringify(frame)}\n\n`
+}
+
+/**
+ * 解析一条 `data: ` 行；SSE 注释帧（`: …` 心跳）与非法 JSON 一律返回 undefined，调用方跳过即可。
+ *
+ * 逐字段校验而非 `JSON.parse` 了事：这条流的终点 `done.summary` 直接驱动卡片上的统计数字，
+ * 形状不对却当成合法帧用，等于把空值当结果展示。
+ */
+export function decodeProgressFrame(line: string): VerifyProgressFrame | undefined {
+    if (!line.startsWith(DATA_PREFIX)) return undefined
+    try {
+        const parsed: unknown = JSON.parse(line.slice(DATA_PREFIX.length))
+        return isProgressFrame(parsed) ? parsed : undefined
+    } catch {
+        return undefined
+    }
+}
+
+/** 帧的形状校验；只查消费方真正会读的字段，不做整棵 `VerifySummary` 的深度校验 */
+function isProgressFrame(value: unknown): value is VerifyProgressFrame {
+    if (!isPlainObject(value)) return false
+    if (value.type === 'opened') return typeof value.total === 'number'
+    if (value.type === 'probed') {
+        return typeof value.provider === 'string' && typeof value.model === 'string'
+            && typeof value.outcome === 'string' && typeof value.done === 'number' && typeof value.total === 'number'
+            // effort 缺省即「该模型未声明档位」，键缺省是合法形态
+            && (value.effort === undefined || typeof value.effort === 'string')
+            // skipped 仅在触发 provider 级短路时出现
+            && (value.skipped === undefined || typeof value.skipped === 'number')
+    }
+    // done 帧只校验消费方会读的三个计数；其余字段（逐提供方汇报与明细）此刻还没人用
+    return value.type === 'done' && isPlainObject(value.summary)
+        && typeof value.summary.models === 'number' && typeof value.summary.efforts === 'number'
+        && typeof value.summary.planned === 'number'
+}

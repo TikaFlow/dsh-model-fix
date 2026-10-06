@@ -15,6 +15,14 @@ export const PLUGIN_NS = 'tikaflow-model-fix'
 /** 插件名（= npm 包名）：Node 半日志前缀与 User-Agent、浏览器半 `export const name` 与样式标签 HMR 标记共用 */
 export const PLUGIN_NAME = 'dsh-model-fix'
 
+/**
+ * 验证进度流的路由：Node 半经 `connection.fetch` 注册的 exact 路径（宿主要求落在 `/api` 之下）。
+ * 浏览器半用 `VERIFY_STREAM_URL` 那一份——宿主约定浏览器一律走文档相对路由，服务端 key 保持绝对。
+ */
+export const VERIFY_STREAM_ROUTE = `/api/${PLUGIN_NS}/verify`
+/** 同一路由的文档相对形式（去掉前导斜杠），供浏览器半 `fetch` 直接使用 */
+export const VERIFY_STREAM_URL = VERIFY_STREAM_ROUTE.slice(1)
+
 /** 推理级别取值，与 harness 的 ModelThinkingLevel 一致（由低到高：浏览器半取「最低档位」即取首个命中项） */
 export const EFFORT_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 

@@ -16,7 +16,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 同批提交；`excludes` 命中者在 provider 循环入口整条跳过；同一两层循环顺带重建 `efforts` 记忆 |
 | `src/reset.ts` `src/restore.ts` `src/guard.ts` `src/host.ts` | 重置推理级别（仅剔除 `reasoningEfforts`，配置段零写入）/ 启动备份捕获与交集恢复 / 事件流守卫（写回期间短路整条事件链）/ 全部 settings 写回必经的 `queueTask` |
 | `src/verify.ts` | 「验证模型」：校验并展开「模型 × 推理级别」笛卡尔积、按 provider 归组（组内串行即每 provider 单并发）、经宿主 `ctx.llm` 各发一次最小请求；失败按 `LlmFailure` 的 `code`/`status` 分类，端点不可达 / 额度耗尽 / 凭据无效即短路整组；执行器只依赖注入的 `llm.stream`，带桩即可全链路单测；接受外部 `signal`（客户端断开 / 用户停止）与 `onProgress` 出口，中止同时断在途请求**并**让执行循环早停，中止时不发 `done` 帧；返回逐提供方汇报 + 逐条探测明细（含失败原始事实，供后续按明细做操作） |
-| `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个 RPC 端点（前三个以守卫互斥、验证只读不参与）/ 自注册 channel 路由 / 保鲜刷新 |
+| `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个 RPC 端点（前三个以守卫互斥、验证只读不参与）/ 自注册 channel 路由 + 验证进度流（`connection.fetch` 的 exact 路由，SSE 分帧，客户端断开即中止执行）/ 保鲜刷新 |
 | `src/client/index.tsx` | 浏览器半入口：四个卡片刻位注册、词典、RPC 载体、记忆监听子 fiber |
 | `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片、footer 与末尾联系行；**全部样式数值在 `STYLE_TEXT`** |
 | `src/client/model.ts` / `effort.ts` / `scope.ts` / `locales.ts` | 快照↔配置纯映射（含验证候选拍取）/ 记忆纯逻辑 / ConfigForm 的 decode 包装 / 中英词典 |

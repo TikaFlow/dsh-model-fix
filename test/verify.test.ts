@@ -3,7 +3,7 @@
 import { classifyFailure, groupProbesByProvider, planProbes, reportProvider, summarizeProviders, verifyModels } from '@/verify'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm/types'
-import { isProviderBlocking } from '@/shared/verify-progress'
+import { decodeProgressFrame, encodeProgressFrame, isProviderBlocking } from '@/shared/verify-progress'
 import type { ProbeOutcome, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport } from '@/shared/verify-progress'
 import { check, stable } from '@test/helper'
 
@@ -356,4 +356,21 @@ export async function run(): Promise<void> {
             summary.providers.map((report) => report.provider),
         )
     }
+
+    // ---------- 进度帧编解码：线上格式与形状校验 ----------
+    const opened = encodeProgressFrame({ type: 'opened', total: 3 })
+    check('encodeProgressFrame 输出 data 行加空行分隔', opened === 'data: {"type":"opened","total":3}\n\n', opened)
+    check('decodeProgressFrame 往返一致', stable(decodeProgressFrame(opened)) === stable({ type: 'opened', total: 3 }))
+    // SSE 心跳是注释行；我们不用 EventSource（它会自动重连，等于重跑整轮），但仍按格式容忍
+    check('decodeProgressFrame 忽略注释帧', decodeProgressFrame(': connected') === undefined)
+    check('decodeProgressFrame 忽略非法 JSON', decodeProgressFrame('data: {oops') === undefined)
+    check('decodeProgressFrame 忽略非帧对象', decodeProgressFrame('data: {"type":"nope"}') === undefined)
+    // done 帧直接驱动卡片上的统计数字，计数缺失就该判非法，而不是把 undefined 当 0 展示
+    check('decodeProgressFrame 拒计数缺失的 done', decodeProgressFrame('data: {"type":"done","summary":{}}') === undefined)
+    check('decodeProgressFrame 拒字段缺失的 probed', decodeProgressFrame('data: {"type":"probed","provider":"a"}') === undefined)
+    check(
+        'decodeProgressFrame 接受无 effort 的 probed（模型未声明档位，键缺省是合法形态）',
+        stable(decodeProgressFrame('data: {"type":"probed","provider":"a","model":"m","outcome":"usable","done":1,"total":1}'))
+        === stable({ type: 'probed', provider: 'a', model: 'm', outcome: 'usable', done: 1, total: 1 }),
+    )
 }
