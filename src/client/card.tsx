@@ -882,7 +882,8 @@ export function Card(props: CardProps) {
      * 剔除不被支持的推理级别：经 Node 半写回。
      *
      * 读取最新配置、revision 围栏与冲突重试、只认目标里当前仍在档位表中的那些、事件流守卫——全在那边，
-     * 浏览器半只负责发请求与展示结果；`pruned` 为 0 表示那些档位在此期间已被用户改掉，没有可写的了。
+     * 浏览器半只负责发请求与展示结果；剔除条数照实显示，为 0 也不例外——目标在剔除期间已被用户改掉，
+     * 或其提供方正在排除列表里（排除提供方在 `planPruneEfforts` 中整组跳过，不撤销已写入的内容）。
      */
     const pruneEfforts = () => {
         if (busy) return
@@ -891,10 +892,7 @@ export function Card(props: CardProps) {
             .then((result) => {
                 if (result.ok) {
                     const pruned = (result.value as { pruned?: number } | undefined)?.pruned ?? 0
-                    setNotice({
-                        text: pruned === 0 ? t('pruneNone') : t('pruneDone', { count: String(pruned) }),
-                        tone: 'success',
-                    })
+                    setNotice({ text: t('pruneDone', { count: String(pruned) }), tone: 'success' })
                 } else {
                     setNotice({ text: t('pruneFailed', { message: truncateMessage(result.error.message) }), tone: 'error' })
                 }
