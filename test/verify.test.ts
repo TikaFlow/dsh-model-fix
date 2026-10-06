@@ -135,13 +135,13 @@ export async function run(): Promise<void> {
         ({ provider: 'a', model, effort, outcome, failure: undefined })
     // tested 取自计划而非明细，故与 results 无关，桩里固定给 2
     const report = (results: VerifyProbeResult[], blockedBy?: 'unreachable' | 'credential', tests: VerifyProbeResult[] = []) =>
-        reportProvider({ provider: 'a', results, tests, blockedBy, planned: 3, tested: 2 })
+        reportProvider({ provider: 'a', results, tests, blockedBy, planned: 3, plannedEfforts: 3, tested: 2 })
     const allOk = report([detail('m1', 'usable', 'off'), detail('m1', 'usable', 'high'), detail('m2', 'usable', 'low')])
     check(
         'reportProvider 全可用：同模型多档只计一个可用模型',
         stable(allOk) === stable({
             provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
-            models: 2, efforts: 3, unsupported: 0, planned: 3, probed: 3, tested: 2,
+            models: 2, efforts: 3, unsupported: 0, planned: 3, plannedEfforts: 3, probed: 3, tested: 2,
         }),
         allOk,
     )
@@ -150,7 +150,7 @@ export async function run(): Promise<void> {
         'reportProvider 档位不支持单列，不混入其它失败',
         stable(oneUnsupported) === stable({
             provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
-            models: 2, efforts: 2, unsupported: 1, planned: 3, probed: 3, tested: 2,
+            models: 2, efforts: 2, unsupported: 1, planned: 3, plannedEfforts: 3, probed: 3, tested: 2,
         }),
         oneUnsupported,
     )
@@ -159,7 +159,7 @@ export async function run(): Promise<void> {
         'reportProvider 端点不可达：短路且不臆断凭据有效',
         stable(dead) === stable({
             provider: 'a', reachable: false, keyValid: false, skipped: true, blockedBy: 'unreachable',
-            models: 0, efforts: 0, unsupported: 0, planned: 3, probed: 1, tested: 2,
+            models: 0, efforts: 0, unsupported: 0, planned: 3, plannedEfforts: 3, probed: 1, tested: 2,
         }),
         dead,
     )
@@ -170,7 +170,7 @@ export async function run(): Promise<void> {
         'reportProvider 额度耗尽：可达但无额度，且不算 provider 级失败',
         stable(outOfQuota) === stable({
             provider: 'a', reachable: true, keyValid: false, skipped: false, blockedBy: undefined,
-            models: 1, efforts: 1, unsupported: 0, planned: 3, probed: 2, tested: 2,
+            models: 1, efforts: 1, unsupported: 0, planned: 3, plannedEfforts: 3, probed: 2, tested: 2,
         }),
         outOfQuota,
     )
@@ -180,7 +180,7 @@ export async function run(): Promise<void> {
         'reportProvider 探测撞端点不可达：如实记为不可达，明细与计数皆空',
         stable(probedDead) === stable({
             provider: 'a', reachable: false, keyValid: false, skipped: true, blockedBy: 'unreachable',
-            models: 0, efforts: 0, unsupported: 0, planned: 3, probed: 0, tested: 2,
+            models: 0, efforts: 0, unsupported: 0, planned: 3, plannedEfforts: 3, probed: 0, tested: 2,
         }),
         probedDead,
     )
@@ -189,7 +189,7 @@ export async function run(): Promise<void> {
         'reportProvider 探测撞额度耗尽：端点可达但无额度（额度不构成短路，故 skipped 为假）',
         stable(probedNoKey) === stable({
             provider: 'a', reachable: true, keyValid: false, skipped: false, blockedBy: undefined,
-            models: 0, efforts: 0, unsupported: 0, planned: 3, probed: 0, tested: 2,
+            models: 0, efforts: 0, unsupported: 0, planned: 3, plannedEfforts: 3, probed: 0, tested: 2,
         }),
         probedNoKey,
     )
@@ -197,24 +197,24 @@ export async function run(): Promise<void> {
     // ---------- summarizeProviders：逐字段求和 ----------
     const ok: VerifyProviderReport = {
         provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
-        models: 2, efforts: 3, unsupported: 1, planned: 3, probed: 3, tested: 2,
+        models: 2, efforts: 3, unsupported: 1, planned: 3, plannedEfforts: 3, probed: 3, tested: 2,
     }
     const blocked: VerifyProviderReport = {
         provider: 'b', reachable: false, keyValid: false, skipped: true, blockedBy: 'unreachable',
-        models: 0, efforts: 0, unsupported: 0, planned: 5, probed: 1, tested: 3,
+        models: 0, efforts: 0, unsupported: 0, planned: 5, plannedEfforts: 4, probed: 1, tested: 3,
     }
     const details: VerifyProbeResult[] = [detail('m1', 'usable', 'off')]
     check(
         'summarizeProviders 求和（短路组的计划数计入、实测数只计已发出的、tested 取自各组计划）',
         stable(summarizeProviders([ok, blocked], details)) === stable({
-            providers: [ok, blocked], results: details, unsupportedEfforts: [], tested: 5, models: 2, efforts: 3, unsupported: 1, planned: 8, probed: 4,
+            providers: [ok, blocked], results: details, unsupportedEfforts: [], tested: 5, models: 2, efforts: 3, unsupported: 1, planned: 8, plannedEfforts: 7, probed: 4,
         }),
         summarizeProviders([ok, blocked], details),
     )
     check(
         'summarizeProviders 空输入',
         stable(summarizeProviders([], [])) === stable({
-            providers: [], results: [], unsupportedEfforts: [], tested: 0, models: 0, efforts: 0, unsupported: 0, planned: 0, probed: 0,
+            providers: [], results: [], unsupportedEfforts: [], tested: 0, models: 0, efforts: 0, unsupported: 0, planned: 0, plannedEfforts: 0, probed: 0,
         }),
     )
     // 不支持档位明细由结果派生：剔除要写配置就得逐条定位，聚合与明细同源、不另立口径
@@ -231,7 +231,7 @@ export async function run(): Promise<void> {
     // 它取自各组汇报的 tested，故与明细是否为空无关
     const allFailed: VerifyProviderReport = {
         provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
-        models: 0, efforts: 0, unsupported: 0, planned: 2, probed: 0, tested: 1,
+        models: 0, efforts: 0, unsupported: 0, planned: 2, plannedEfforts: 2, probed: 0, tested: 1,
     }
     check(
         'summarizeProviders tested 计入全档位被短路的模型，与可用模型数分开',
@@ -265,7 +265,8 @@ export async function run(): Promise<void> {
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] })
         check(
             'verifyModels 全可用：逐档位各发一次并逐组汇报（探测另发，不计统计）',
-            summary.models === 2 && summary.efforts === 3 && summary.probed === 3 && summary.planned === 3 && summary.tested === 2
+            summary.models === 2 && summary.efforts === 3 && summary.probed === 3 && summary.planned === 3
+            && summary.plannedEfforts === 3 && summary.tested === 2
             && calls.length === 5
             && summary.providers.length === 1 && summary.providers[0].reachable && summary.providers[0].keyValid,
             summary,
@@ -282,6 +283,19 @@ export async function run(): Promise<void> {
         )
         // 提示词固定为一句 Just say OK——它是省额度的前提，不该被顺手改成更啰嗦的说法
         check('verifyModels 每次请求的提示词都是 Just say OK', prompts.length === 5 && prompts.every((text) => text === 'Just say OK'), prompts)
+    }
+    {
+        // 没声明档位的模型要验的那一次不带档位：它算一次被验请求（进 planned），但验的是模型不是级别，不进 plannedEfforts——
+        // 否则开档位模式下「X / Y 个推理级别」的分母会虚高，用户会以为有档位没验成
+        const { llm, calls } = stub({})
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', [])] })
+        check(
+            'verifyModels 无档位模型的那次请求计入 planned 但不计入 plannedEfforts',
+            summary.planned === 3 && summary.plannedEfforts === 2 && summary.probed === 3
+            && summary.efforts === 2 && summary.models === 2 && summary.tested === 2
+            && calls.length === 4,
+            summary,
+        )
     }
     {
         // 额度耗尽：只压该模型的剩余档位（额度可能只覆盖其中某个模型），不构成 provider 级失败
@@ -562,8 +576,9 @@ export async function run(): Promise<void> {
         check(
             'verifyModels 从未开跑的提供方不进汇报',
             stable(summary.providers.map((report) => report.provider)) === stable(['a', 'b', 'c'])
-            // 这些模型都没声明档位，那一次不带档位的请求本身就是被验对象，故每组各计 1
-            && summary.planned === 3 && summary.probed === 3 && summary.tested === 3,
+            // 这些模型都没声明档位，那一次不带档位的请求本身就是被验对象，故每组各计 1；
+            // 但它们验的是模型不是级别，故计划推理级别数为 0（开档位模式的分母会是 0，此时改用 verifyDoneLowest 那行）
+            && summary.planned === 3 && summary.probed === 3 && summary.tested === 3 && summary.plannedEfforts === 0,
             summary.providers.map((report) => report.provider),
         )
     }
@@ -578,6 +593,10 @@ export async function run(): Promise<void> {
     check('decodeProgressFrame 忽略非帧对象', decodeProgressFrame('data: {"type":"nope"}') === undefined)
     // done 帧直接驱动卡片上的统计数字，计数缺失就该判非法，而不是把 undefined 当 0 展示
     check('decodeProgressFrame 拒计数缺失的 done', decodeProgressFrame('data: {"type":"done","summary":{}}') === undefined)
+    check(
+        'decodeProgressFrame 接受收尾那行要用的四个计数齐全的 done',
+        decodeProgressFrame('data: {"type":"done","summary":{"tested":2,"models":1,"efforts":3,"plannedEfforts":4}}') !== undefined,
+    )
     check('decodeProgressFrame 拒字段缺失的 probed', decodeProgressFrame('data: {"type":"probed","provider":"a"}') === undefined)
     check(
         'decodeProgressFrame 接受无 effort 的 probed（模型未声明档位，键缺省是合法形态）',

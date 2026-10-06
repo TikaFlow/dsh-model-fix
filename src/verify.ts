@@ -200,6 +200,7 @@ export function reportProvider(result: ProviderProbeOutcome): VerifyProviderRepo
         efforts,
         unsupported,
         planned: result.planned,
+        plannedEfforts: result.plannedEfforts,
         probed: result.results.length,
     }
 }
@@ -213,6 +214,7 @@ export function summarizeProviders(
     let efforts = 0
     let unsupported = 0
     let planned = 0
+    let plannedEfforts = 0
     let probed = 0
     let tested = 0
     for (const report of reports) {
@@ -220,10 +222,11 @@ export function summarizeProviders(
         efforts += report.efforts
         unsupported += report.unsupported
         planned += report.planned
+        plannedEfforts += report.plannedEfforts
         probed += report.probed
         tested += report.tested
     }
-    // 不支持档位明细：只认明确判为不支持、且确实带档位的条目（不带档位的探测走不到那个结论）。
+    // 不支持档位明细：只认明确判为不支持、且确实带档位的条目（不带档位的请求走不到那个结论）。
     // 与上面的聚合同源，不另算一套口径，免得两处分叉。
     const unsupportedEfforts: UnsupportedEffort[] = []
     for (const item of results) {
@@ -240,6 +243,7 @@ export function summarizeProviders(
         efforts,
         unsupported,
         planned,
+        plannedEfforts,
         probed,
     }
 }
@@ -416,13 +420,19 @@ async function runGroup(
     }
     // 计划数 = 该组的验证请求数（探测不在清单里）：关档位时等于勾选模型数，开档位时等于档位数之和
     const models = new Set<string>()
-    for (const probe of group.probes) models.add(JSON.stringify([probe.provider, probe.model]))
+    // 推理级别数只数带档位的条目：没声明档位的模型验的是模型本身，不占级别，故不进「X / Y 个推理级别」的分母
+    let plannedEfforts = 0
+    for (const probe of group.probes) {
+        models.add(JSON.stringify([probe.provider, probe.model]))
+        if (probe.effort !== undefined) plannedEfforts++
+    }
     return {
         provider: group.provider,
         results,
         tests,
         blockedBy,
         planned: group.probes.length,
+        plannedEfforts,
         tested: models.size,
     }
 }

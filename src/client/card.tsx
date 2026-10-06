@@ -839,11 +839,14 @@ export function Card(props: CardProps) {
                     setVerifyStopped(true)
                     return
                 }
-                const stats = t(allEfforts ? 'verifyDoneAll' : 'verifyDoneLowest', {
+                // 两档口径各取各的数：关档位时只有模型数可言，开档位时级别分母取 plannedEfforts——
+                // 没声明档位的模型验的是模型本身、不占级别，用 planned（含它那条）会让分母虚高。
+                // 而档位开关开着却一个级别都没计划时（勾选的模型都没声明档位），级别那行只会显示「0 / 0」，故退回模型口径
+                const stats = t(allEfforts && summary.plannedEfforts > 0 ? 'verifyDoneAll' : 'verifyDoneLowest', {
                     models: summary.models,
                     tested: summary.tested,
                     efforts: summary.efforts,
-                    planned: summary.planned,
+                    levels: summary.plannedEfforts,
                 })
                 // 结论只留在弹层内，不写卡片状态行：弹层跑完不关、结论又追加成记录区末行，
                 // 用户当场就看得见；同步到卡片是「渗透」——关窗即随记录一起丢弃，那行反馈没有归属

@@ -271,10 +271,13 @@ export const zh: Record<CardKey, string> = {
     verifyOutTimeout: '超时，未得出结论',
     verifyOutOther: '不可用',
     verifyStopped: '已停止',
-    // 收尾统计分两档：档位分子分母取 planned / efforts，模型数一律取 tested（实际探过的去重模型数，
-    // 而非 report.models 的可用模型数——全档位失败的模型不计入那个数，会让总数小于用户勾选数）
-    verifyDoneAll: '{tested}个模型的{efforts} / {planned}个推理级别验证可用',
-    verifyDoneLowest: '共验证{tested}个模型，其中{models}个可用',
+    // 收尾统计分两档，与档位开关的两种模式对应：
+    // 关（verifyDoneLowest）报「勾选了几个 / 跑通了几个模型」——请求本就不带档位，没有级别可报；
+    // 开（verifyDoneAll）报「勾选了几个模型 / 几个可用 / 几个计划」，分母取 plannedEfforts——
+    // 没声明档位的模型验的是模型本身、不占级别，故 planned（含它那条）不能当分母。模型数一律取 tested
+    // （计划里的去重模型数，而非 report.models 的可用模型数——全档位失败的模型不计入那个数，会让总数小于用户勾选数）
+    verifyDoneAll: '{tested}个模型的{efforts} / {levels}个推理级别验证可用',
+    verifyDoneLowest: '勾选{tested}个模型，其中{models}个可用',
     verifyFailed: '验证失败：{message}',
     // 收尾末行：逐条记录只交代过程，不交代「总共怎么样」，否则用户只能自己数末行才知道结论
     verifyFinished: '验证结束：{result}',
@@ -405,10 +408,13 @@ export const en: Record<CardKey, string> = {
     verifyOutTimeout: 'timed out, no conclusion',
     verifyOutOther: 'unavailable',
     verifyStopped: 'Stopped',
-    // Closing stats: effort totals use planned / efforts; the model count is tested (distinct models actually probed),
-    // not report.models (usable models only, which drops models whose every effort failed)
-    verifyDoneAll: '{efforts} / {planned} reasoning effort(s) across {tested} model(s) are usable',
-    verifyDoneLowest: 'Verified {tested} model(s) in total, {models} usable',
+    // Closing stats come in two flavours, matching the two states of the effort switch: with it off the requests
+    // carry no effort at all, so the line reports checked / usable models; with it on it reports checked models
+    // plus usable / planned efforts, the denominator being plannedEfforts (models that declare no effort are
+    // verified as models, so they do not occupy an effort slot). The model count is always tested (distinct
+    // models in the plan), not report.models (usable models only, which drops models whose every effort failed)
+    verifyDoneAll: '{efforts} / {levels} reasoning effort(s) across {tested} model(s) are usable',
+    verifyDoneLowest: 'Checked {tested} model(s), {models} usable',
     verifyFailed: 'Verification failed: {message}',
     // Closing line: the per-probe log only narrates the run, so it never states the overall result
     verifyFinished: 'Verification finished: {result}',

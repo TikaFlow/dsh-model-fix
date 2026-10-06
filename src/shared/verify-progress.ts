@@ -109,6 +109,11 @@ export interface ProviderProbeOutcome {
      * 故等于「带档位的请求数 + 不带档位且 `needTest` 为假的请求数」。
      */
     planned: number
+    /**
+     * 计划推理级别数（**不含探测**）：计划里带档位的条目数。模型没声明档位时它验的是模型而非级别，
+     * 那一条算进 `planned` 但不算进这里——「X / Y 个推理级别」的分母只该是级别。
+     */
+    plannedEfforts: number
     /** 计划验过的模型数（按「提供方 / 模型」去重）：即该组里用户勾了几个，取自计划而非明细——模型若被短路到一条未发，明细里就没有它 */
     tested: number
 }
@@ -129,10 +134,12 @@ export interface VerifyProviderReport {
     models: number
     /** 该组内可用档位数 */
     efforts: number
-    /** 判定为「档位不支持」的探测数：逐模型逐档位，故与其它失败分开计数 */
+    /** 判定为「档位不支持」的验证请求数：逐模型逐档位，故与其它失败分开计数 */
     unsupported: number
     /** 计划验证请求数（不含探测） */
     planned: number
+    /** 计划推理级别数：计划里带档位的条目数（模型没声明档位时验的是模型，不占级别） */
+    plannedEfforts: number
     /** 实际发出的验证请求数（短路时小于 planned；探测恒不计入） */
     probed: number
 }
@@ -155,7 +162,7 @@ export interface VerifySummary {
     /** 逐条探测明细，顺序为「组序 → 组内探测序」，可重复消费 */
     results: readonly VerifyProbeResult[]
     /**
-     * 明确判为不被支持的档位明细。统计值前端可直接用 `tested` / `efforts` / `planned`，
+     * 明确判为不被支持的档位明细。统计值前端可直接用 `tested` / `models` / `efforts` / `plannedEfforts`，
      * 但剔除要写配置就得逐条定位，故这块不聚合、只给明细——省得前端再从 `results` 里自己筛一遍，
      * 筛选口径一旦与执行器分叉就会漏剔或多剔。
      */
@@ -170,8 +177,10 @@ export interface VerifySummary {
     /** 判可用的带档位请求数（探测恒不计入） */
     efforts: number
     unsupported: number
-    /** 计划验证请求数（不含探测）：关档位时等于勾选模型数，开档位时等于计划推理级别总数 */
+    /** 计划验证请求数（不含探测）：关档位时等于勾选模型数，开档位时含「没声明档位的模型」各一次请求 */
     planned: number
+    /** 计划推理级别数：计划里带档位的条目数，故开档位时它才是「X / Y 个推理级别」的分母 */
+    plannedEfforts: number
     /** 实际发出的验证请求数（探测恒不计入） */
     probed: number
 }
@@ -251,8 +260,8 @@ function isProgressFrame(value: unknown): value is VerifyProgressFrame {
             // skipped 仅在触发 provider 级短路时出现
             && (value.skipped === undefined || typeof value.skipped === 'number')
     }
-    // done 帧只校验消费方会读的三个计数；其余字段（逐提供方汇报与明细）此刻还没人用
+    // done 帧只校验消费方会读的四个计数（收尾那行文案要用）；其余字段（逐提供方汇报与明细）此刻还没人用
     return value.type === 'done' && isPlainObject(value.summary)
-        && typeof value.summary.models === 'number' && typeof value.summary.efforts === 'number'
-        && typeof value.summary.planned === 'number'
+        && typeof value.summary.tested === 'number' && typeof value.summary.models === 'number'
+        && typeof value.summary.efforts === 'number' && typeof value.summary.plannedEfforts === 'number'
 }
