@@ -15,7 +15,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/config.ts` `src/migrate.ts` `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 配置解析与配置源 / 升级链 `upgradeTo4..7` 与 `migrateConfig` / 缓存读写与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
 | `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 同批提交；`excludes` 命中者在 provider 循环入口整条跳过；同一两层循环顺带重建 `efforts` 记忆 |
 | `src/reset.ts` `src/restore.ts` `src/guard.ts` `src/host.ts` `src/prune.ts` | 重置推理级别（仅剔除 `reasoningEfforts`，配置段零写入）/ 启动备份捕获与交集恢复 / 事件流守卫（写回期间短路整条事件链）/ 全部 settings 写回必经的 `queueTask` / 剔除验证明细中**明确不支持**的档位（写入前判空壳、`excludes` 跳过、幂等） |
-| `src/verify.ts` | 「验证模型」：校验并展开「模型 × 推理级别」笛卡尔积、按 provider 归组（组内串行即每 provider 单并发）、经宿主 `ctx.llm` 各发一次最小请求；失败按 `LlmFailure` 的 `code`/`status` 分类，端点不可达 / 额度耗尽 / 凭据无效即短路整组；执行器只依赖注入的 `llm.stream`，带桩即可全链路单测；接受外部 `signal`（客户端断开 / 用户停止）与 `onProgress` 出口，中止同时断在途请求**并**让执行循环早停，中止时不发 `done` 帧；返回逐提供方汇报 + 逐条探测明细（含失败原始事实）+ **`unsupportedEfforts` 不支持档位明细**（前端不自己筛，剔除直接用） |
+| `src/verify.ts` | 「验证模型」：校验并展开「模型 × 推理级别」笛卡尔积、按 provider 归组（组内串行即每 provider 单并发）、经宿主 `ctx.llm` 各发一次最小请求；失败按 `LlmFailure` 的 `code`/`status` 分类，端点不可达 / 凭据无效即短路整组、额度耗尽只压该模型；执行器只依赖注入的 `llm.stream`，带桩即可全链路单测；接受外部 `signal`（客户端断开 / 用户停止）与 `onProgress` 出口，中止同时断在途请求**并**让执行循环早停，中止时不发 `done` 帧；返回逐提供方汇报 + 逐条探测明细（含失败原始事实）+ **`unsupportedEfforts` 不支持档位明细**（前端不自己筛，剔除直接用） |
 | `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个 channel RPC 写回端点（以守卫互斥、验证只读不参与）+ 验证进度流（`connection.fetch` 的 exact 路由，SSE 分帧，客户端断开即中止执行）/ 保鲜刷新 |
 | `src/client/index.tsx` | 浏览器半入口：四个卡片刻位注册、词典、RPC 载体、验证进度流读流、记忆监听子 fiber |
 | `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片、验证弹层（实时记录区 + 停止）、验证跑完后的剔除确认层、footer 与末尾联系行；**全部样式数值在 `STYLE_TEXT`** |
@@ -82,7 +82,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 - **参数来源**：图片模态只缓存正向信息；`99999999` / 0 视为无该字段；id 匹配宁可漏不错配；档位序取 `EFFORT_LEVELS`。
 - **推理级别记忆**：`efforts` 是运行时记忆而非用户配置；Node 半只持久化不自动设级别；`rememberEfforts` 关闭只停「保存新的」；`defaultHigh` 三条护栏；两个开关都不读 `excludes`。
 - **写回端点**：重置只剔 `reasoningEfforts`、不写配置段；恢复备份只回退交集、绝不延迟补捕；写回端点以守卫互斥。
-- **验证**：只读诊断、只由用户主动发起、即用即弃；**只认 `block-start`、不看内容**（`usage` 不算受理）；失败只按 `LlmFailure` 的 `code`/`status` 分类（**禁止比对文案**），端点不可达 / 额度耗尽 / 凭据无效即短路整组，我方超时不算不可达、档位不支持只记录不短路；某档位**报错**且非档位不支持时短该模型的剩余档位（换档位也是同样结果），退化完成不算报错、不短；每 provider 单并发、跨 provider ≤5 路、无退避；列表默认不预选；档位开关关态=**不发** `reasoningEffort`（端点可能有默认级别，不是取最低档去验）；弹层自确认；进度以 SSE 流实时逐条展示，主键在途变「停止」，**关窗 / 断连即中止执行**（验证即用即弃，用户不在之后继续跑等于白烧额度）；跑完若有**明确判为档位不支持**的结论即弹剔除确认层，明细由 `VerifySummary.unsupportedEfforts` 直接给出、剔除经 Node 半写回（守卫不可省，否则写回触发 `fix` 把刚剔的又填回）。
+- **验证**：只读诊断、只由用户主动发起、即用即弃；**只认 `block-start`、不看内容**（`usage` 不算受理）；失败只按 `LlmFailure` 的 `code`/`status` 分类（**禁止比对文案**），端点不可达 / 凭据无效即短路整组、额度耗尽只压该模型（额度可能只覆盖某个模型），我方超时不算不可达、档位不支持只记录不短路；某档位**报错**且非档位不支持时短该模型的剩余档位（换档位也是同样结果），退化完成不算报错、不短；每 provider 单并发、跨 provider ≤5 路、无退避；列表默认不预选；档位开关关态=**不发** `reasoningEffort`（端点可能有默认级别，不是取最低档去验）；弹层自确认；进度以 SSE 流实时逐条展示，主键在途变「停止」，**关窗 / 断连即中止执行**（验证即用即弃，用户不在之后继续跑等于白烧额度）；跑完若有**明确判为档位不支持**的结论即弹剔除确认层，明细由 `VerifySummary.unsupportedEfforts` 直接给出、剔除经 Node 半写回（守卫不可省，否则写回触发 `fix` 把刚剔的又填回）。
 - **宿主与卡片**：RPC channel 自注册；按钮取「保存」不取「应用」；卡片末尾固定联系行；不引入 `failed` 态、不做「恢复默认」。
 
 ## 数据流骨架

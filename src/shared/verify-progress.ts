@@ -26,19 +26,19 @@ export type ProbeOutcome =
     | 'unsupported-effort'
     /** 传输层失败且无 HTTP status：端点不可达（DNS / 拒绝连接） */
     | 'unreachable'
-    /** 额度或余额耗尽 */
+    /** 额度或余额耗尽；额度可能只覆盖其中某个模型，故只压该模型、不参与 provider 级短路 */
     | 'quota'
     /** 凭据缺失或无效 */
     | 'credential'
     /** 其它厂商侧拒绝；多与**具体模型**有关（如同名模型不存在），故不参与短路 */
     | 'other'
 
-/** provider 级失败：命中即整组短路——同一提供方共用同一 url 与同一把 key，一次过不了后面同样过不了 */
-export type ProviderBlockReason = 'unreachable' | 'quota' | 'credential'
+/** provider 级失败：命中即整组短路——同一提供方共用同一 url 与同一把 key，一次过不了后面同样过不了。额度耗尽不在其列，理由见 `quota` 那一支 */
+export type ProviderBlockReason = 'unreachable' | 'credential'
 
 /** 该结果是否构成 provider 级失败（命中即整组短路） */
 export function isProviderBlocking(outcome: ProbeOutcome): outcome is ProviderBlockReason {
-    return outcome === 'unreachable' || outcome === 'quota' || outcome === 'credential'
+    return outcome === 'unreachable' || outcome === 'credential'
 }
 
 /** 失败的原始事实（宿主 `LlmFailure` 的可序列化子集）：供调用方做比本插件更细的分类与展示 */

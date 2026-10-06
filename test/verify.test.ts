@@ -89,7 +89,7 @@ export async function run(): Promise<void> {
 
     // ---------- isProviderBlocking：只有三类 provider 级失败才短路 ----------
     check('isProviderBlocking 端点不可达', isProviderBlocking('unreachable') === true)
-    check('isProviderBlocking 额度耗尽', isProviderBlocking('quota') === true)
+    check('isProviderBlocking 额度耗尽不短路（额度可能只覆盖其中某个模型）', isProviderBlocking('quota') === false)
     check('isProviderBlocking 凭据无效', isProviderBlocking('credential') === true)
     check('isProviderBlocking 档位不支持不短路', isProviderBlocking('unsupported-effort') === false)
     check('isProviderBlocking 其它失败不短路', isProviderBlocking('other') === false)
@@ -98,7 +98,7 @@ export async function run(): Promise<void> {
     // ---------- reportProvider：可用模型去重、档位不支持单列、可达与凭据取自全程 ----------
     const detail = (model: string, outcome: ProbeOutcome, effort?: string): VerifyProbeResult =>
         ({ provider: 'a', model, effort, outcome, failure: undefined })
-    const report = (results: VerifyProbeResult[], blockedBy?: 'unreachable' | 'quota' | 'credential') =>
+    const report = (results: VerifyProbeResult[], blockedBy?: 'unreachable' | 'credential') =>
         reportProvider({ provider: 'a', results, blockedBy, planned: 3 })
     const allOk = report([detail('m1', 'usable', 'off'), detail('m1', 'usable', 'high'), detail('m2', 'usable', 'low')])
     check(
@@ -127,12 +127,13 @@ export async function run(): Promise<void> {
         }),
         dead,
     )
-    // 可达但额度耗尽：端点通、key 无效——这正是「凭据有效且有额度」要拆成两态的原因
-    const outOfQuota = report([detail('m1', 'usable', 'off'), detail('m1', 'quota', 'high')], 'quota')
+    // 可达但额度耗尽：端点通、无额度——这正是「凭据有效且有额度」要拆成两态的原因。
+    // 额度不再构成 provider 级短路，故此处不带 blockedBy
+    const outOfQuota = report([detail('m1', 'usable', 'off'), detail('m1', 'quota', 'high')])
     check(
-        'reportProvider 额度耗尽：可达但凭据无效',
+        'reportProvider 额度耗尽：可达但无额度，且不算 provider 级失败',
         stable(outOfQuota) === stable({
-            provider: 'a', reachable: true, keyValid: false, skipped: true, blockedBy: 'quota',
+            provider: 'a', reachable: true, keyValid: false, skipped: false, blockedBy: undefined,
             models: 1, efforts: 1, unsupported: 0, planned: 3, probed: 2,
         }),
         outOfQuota,
@@ -226,13 +227,13 @@ export async function run(): Promise<void> {
         check('verifyModels 每次探测的提示词都是 Just say OK', prompts.length === 3 && prompts.every((text) => text === 'Just say OK'), prompts)
     }
     {
-        // 额度耗尽：首个探测即命中，第二、三个档位不该再发（同一 url 同一 key，过不了就是过不了）
+        // 额度耗尽：只压该模型的剩余档位（额度可能只覆盖其中某个模型），不构成 provider 级失败
         const { llm, calls } = stub({ 'm1@off': [finishError('QUOTA', 429)] })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
         check(
-            'verifyModels 额度耗尽短路整组',
+            'verifyModels 额度耗尽跳过后续档位但不算 provider 级失败',
             calls.length === 1 && summary.probed === 1 && summary.planned === 2
-            && summary.providers[0].skipped && summary.providers[0].blockedBy === 'quota'
+            && !summary.providers[0].skipped && summary.providers[0].blockedBy === undefined
             && summary.providers[0].reachable && !summary.providers[0].keyValid,
             { calls, summary },
         )
@@ -244,6 +245,16 @@ export async function run(): Promise<void> {
                 failure: { code: 'QUOTA', status: 429, message: '文案随便写，各厂商都不一样' },
             }]),
             summary.results,
+        )
+    }
+    {
+        // 同提供方的 url 与 key 确是共用的，额度却未必——压整组会把仍可用的模型一并漏掉
+        const { llm, calls } = stub({ 'm1@off': [finishError('QUOTA', 429)] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] })
+        check(
+            'verifyModels 额度耗尽不牵连同组其它模型',
+            calls.length === 2 && summary.probed === 2 && summary.planned === 3,
+            { calls, summary },
         )
     }
     {
