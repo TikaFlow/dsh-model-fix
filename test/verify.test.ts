@@ -280,6 +280,32 @@ export async function run(): Promise<void> {
         )
     }
     {
+        // 模型级短路：某档位报错且不是「档位不支持」时，换个档位也是同样结果，不必再花额度
+        const frames: VerifyProgressFrame[] = []
+        const { llm, calls } = stub({ 'm1@off': [finishError('INVALID_REQUEST', 400)] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] }, {
+            onProgress: (frame) => { frames.push(frame) },
+        })
+        check(
+            'verifyModels 非档位类报错跳过后续档位并记 skipped',
+            calls.length === 1 && summary.probed === 1 && summary.planned === 3
+            && stable(frames[1]) === stable({
+                type: 'probed', provider: 'a', model: 'm1', effort: 'off', outcome: 'other', skipped: 2, done: 1, total: 3,
+            }),
+            { calls, summary, frames },
+        )
+    }
+    {
+        // 模型级短路只压该模型自己的档位，同组其余模型照验（provider 级才是压整组）
+        const { llm, calls } = stub({ 'm1@off': [finishError('INVALID_REQUEST', 400)] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] })
+        check(
+            'verifyModels 模型级短路不牵连同组其它模型',
+            calls.length === 2 && summary.probed === 2 && summary.planned === 3,
+            { calls, summary },
+        )
+    }
+    {
         // 零内容完成是「请求成功抵达、但一个内容块都没有」，既非 provider 级失败也不该短路：
         // 若漏判就会把一次成功响应误报成端点断线，后面的模型全部不再验证
         const { llm, calls } = stub({ 'm1': [finishError('EMPTY_RESPONSE')] })

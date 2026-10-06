@@ -257,8 +257,20 @@ async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe, si
 }
 
 /**
- * 顺序跑完一组的探测（组内零并发）。命中 provider 级失败即短路该组剩余探测——
- * 同一提供方共用同一 url 与同一把 key，这次过不了后面同样过不了，没必要再花额度。
+ * 从 `from` 之后起与它同模型的探测条数。探测按模型分组生成，故这些就是该模型剩下的档位。
+ */
+function sameModelTail(probes: readonly VerifyProbe[], from: number): number {
+    let count = 0
+    for (let index = from + 1; index < probes.length && probes[index]?.model === probes[from]?.model; index++) count++
+    return count
+}
+
+/**
+ * 顺序跑完一组的探测（组内零并发）。两级短路：
+ * - **provider 级**：同一提供方共用同一 url 与同一把 key，这次过不了后面同样过不了，没必要再花额度。
+ * - **模型级**：某档位**报错**且不是「档位不支持」时，同模型的后续档位换过去也是同样结果，同样不必再花额度。
+ *   「档位不支持」恰是唯一值得继续验的结论——换个档位可能就通了，那正是逐档位验的意义。
+ *   只对有失败事实的探测生效：正常终止却没有内容块属退化完成，不是报错，换档位仍可能出内容。
  * 外部中止同样在此早停：只断在途请求而不停循环，后续探测会带着已中止的信号跑出一串假失败。
  */
 async function runGroup(
@@ -280,13 +292,20 @@ async function runGroup(
             outcome: verdict.outcome,
             failure: verdict.failure,
         })
-        // 短路时把该组剩余未发出的条数一并带上，消费方才好交代「这组还剩几条没验」
+        // 两级短路的「剩余未发出的条数」在此一并算出：provider 级断到组尾，模型级只断到该模型自己的档位尾。
+        // 消费方据此交代「还剩几条没验」，被跳过的探测不进 results，故 probed 少于 planned
+        let skipped: number
         if (isProviderBlocking(verdict.outcome)) {
             blockedBy = verdict.outcome
-            emitProbe(probe, verdict, group.probes.length - index - 1)
-            break
+            skipped = group.probes.length - index - 1
+        } else if (verdict.failure !== undefined && verdict.outcome !== 'unsupported-effort') {
+            skipped = sameModelTail(group.probes, index)
+        } else {
+            skipped = 0
         }
-        emitProbe(probe, verdict, undefined)
+        if (skipped > 0) index += skipped
+        emitProbe(probe, verdict, skipped === 0 ? undefined : skipped)
+        if (blockedBy !== undefined) break
     }
     return { provider: group.provider, results, blockedBy, planned: group.probes.length }
 }
