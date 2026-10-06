@@ -35,6 +35,7 @@ import {
     groupValue,
     isDirty,
     masterValue,
+    planPruneEfforts,
     providerIdsOf,
     removeExclude,
     resolveHits,
@@ -48,6 +49,7 @@ import type { Flags, Group, RowKey, VerifyCandidate } from '@/client/model'
 import type { CardKey } from '@/client/locales'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locales'
 import { PLUGIN_NAME } from '@/shared/constants'
+import type { PruneTarget } from '@/shared/types'
 import { isProviderBlocking } from '@/shared/verify-progress'
 import type { ProbeOutcome, VerifyProbedFrame, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
@@ -573,7 +575,7 @@ export function Card(props: CardProps) {
     const [draft, setDraft] = useState<Flags | null>(null)
     // 全部写操作（保存 / 强制更新 / 重置 / 恢复 / 清空记忆 / 验证）共用单一互斥标志：
     // 一者 in-flight 时其余入口与按钮全禁；后续新增动作只加成员，不必改既有互斥
-    const [busy, setBusy] = useState<'save' | 'force' | 'reset' | 'restore' | 'clear' | 'verify' | null>(null)
+    const [busy, setBusy] = useState<'save' | 'force' | 'reset' | 'restore' | 'clear' | 'verify' | 'prune' | null>(null)
     // 折叠态为卡片本地状态（读姿而非配置）：初始值取 defaultOpen（缺省收起、与官方插件卡一致）；草稿跨折叠存活
     const [open, setOpen] = useState(props.defaultOpen ?? false)
     // 保存后自动收起只对默认收起的席位有意义：默认展开的三席（插件详情页 / 组件实例详情页 / 内置插件选项卡）
@@ -589,6 +591,9 @@ export function Card(props: CardProps) {
     const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
     // 「记住推理级别」关掉时的确认：是否清空已有记忆（前端直写，不走 RPC）
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
+    // 剔除确认的目标：验证明细里**明确**被判「档位不支持」的条目。中止 / 出错 / 无此类结论时保持空数组，
+    // 空数组即不弹窗（计划要求的触发条件）；写入前另取点击时的最新配置，不拿验证明细里的旧配置去覆盖
+    const [pruneTargets, setPruneTargets] = useState<readonly PruneTarget[]>([])
     // 「验证模型」弹层：勾选集（键见 verifyKey）、是否逐个档位验证；默认不预选——每次验证都花真实额度
     const [verifyOpen, setVerifyOpen] = useState(false)
     const [verifyPicked, setVerifyPicked] = useState<ReadonlySet<string>>(() => new Set())
@@ -825,6 +830,13 @@ export function Card(props: CardProps) {
                     }),
                     tone: 'success',
                 })
+                // 只认**明确**判为「档位不支持」的条目：超时、限流、额度耗尽只是没验成，不是不支持，
+                // 拿它们去剔除配置就是误伤用户手工填的档位。中止时压根到不了这里，故不会误弹
+                const unsupported = summary.results.flatMap((item) =>
+                    item.outcome === 'unsupported-effort' && item.effort !== undefined
+                        ? [{ provider: item.provider, model: item.model, effort: item.effort }]
+                        : [])
+                setPruneTargets(unsupported)
                 // 结果到手才关窗；记录区的使命就是这轮的过程，随之消失
                 closeVerify()
             })
@@ -849,6 +861,37 @@ export function Card(props: CardProps) {
         setVerifyPicked(new Set())
         setVerifyLines([])
         setVerifyTotal(0)
+    }
+    // 剔除确认的关闭即丢弃目标：不写任何配置，清空即自然不再弹出（不另设开关态，避免两个状态不同步）
+    const closePrune = () => { setPruneTargets([]) }
+    /**
+     * 剔除不被支持的推理级别：前端直读直写，不经 RPC。
+     *
+     * 读取的是**点击时**的最新 user 层，而不是验证明细里那份旧快照——验证可能跑了几分钟，
+     * 期间用户自己改过档位，拿旧快照去覆盖会把人家刚改的抹回去。以读取时的 revision 作围栏写入，
+     * 中途被别人改过就整体拒写，宁可不做也不覆盖。
+     */
+    const pruneEfforts = async () => {
+        setBusy('prune')
+        try {
+            const snap = providersScope.getSnapshot()
+            const { ops, pruned } = planPruneEfforts(snap.user, pruneTargets, shown.excludes)
+            // pruned 为 0 = 验证明细里的档位在此期间已被改掉（已删或已改名），没有可写的了
+            if (pruned === 0) {
+                setNotice({ text: t('pruneNone'), tone: 'success' })
+                return
+            }
+            if (!(await providersScope.mutate(ops, snap.revision))) throw new Error(t('pruneRejected'))
+            setNotice({ text: t('pruneDone', { count: String(pruned) }), tone: 'success' })
+        } catch (error) {
+            setNotice({
+                text: t('pruneFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) }),
+                tone: 'error',
+            })
+        } finally {
+            setBusy(null)
+            closePrune()
+        }
     }
     const toggleVerifyPick = (key: string) => {
         setVerifyPicked((current) => {
@@ -1043,6 +1086,19 @@ export function Card(props: CardProps) {
                 footer={<>
                     <Button variant="outline" data-modal-autofocus onClick={() => { setClearConfirmOpen(false) }}>{t('clearEffortsKeep')}</Button>
                     <Button variant="outline" className="dsh-mf-confirmDanger" disabled={busy !== null} onClick={clearEfforts}>{t('clearEffortsGo')}</Button>
+                </>}
+            />
+            {/* 剔除确认：结构照「清空推理级别记忆」那层二次确认，只把两键文案换成「剔除」。
+                出现与否只看 pruneTargets 是否为空——中止、出错、或没有明确判为档位不支持的结论时都不弹 */}
+            <Modal
+                open={pruneTargets.length > 0}
+                onClose={closePrune}
+                title={t('pruneTitle')}
+                closeLabel={t('close')}
+                description={t('pruneConfirm', { count: String(pruneTargets.length) })}
+                footer={<>
+                    <Button variant="outline" data-modal-autofocus onClick={closePrune}>{t('cancel')}</Button>
+                    <Button variant="outline" className="dsh-mf-confirmDanger" disabled={busy !== null} onClick={pruneEfforts}>{t('pruneGo')}</Button>
                 </>}
             />
             {/* 「验证模型」弹层：结构逐条照官方 models 页「获取可用模型」的候选框（title / desc / 候选列表 / 底部取消 + 采用），

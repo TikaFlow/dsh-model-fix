@@ -109,3 +109,14 @@ export interface PluginConfigSnapshot {
 
 /** 命名空间下的整段配置：version-N -> 对应版本的配置快照（保留低版本历史与更高新版本，便于无损回退） */
 export type VersionedSection = Record<string, unknown>
+
+/**
+ * 一次「剔除不被支持的推理级别」的目标：一个「提供方 / 模型」下的某个推理级别。
+ * 直接取自验证明细里 `outcome === 'unsupported-effort'` 的条目，故与 `VerifyProbeResult` 同形；
+ * 只有**明确**被判为档位不支持的才进这里——超时、限流、额度耗尽一概不算，那只是没能验成，不是不支持。
+ */
+export interface PruneTarget {
+    provider: string
+    model: string
+    effort: string
+}

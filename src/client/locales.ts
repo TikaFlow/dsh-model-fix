@@ -100,6 +100,13 @@ export type CardKey =
     | 'verifyDoneAll'
     | 'verifyDoneLowest'
     | 'verifyFailed'
+    | 'pruneTitle'
+    | 'pruneConfirm'
+    | 'pruneGo'
+    | 'pruneDone'
+    | 'pruneNone'
+    | 'pruneRejected'
+    | 'pruneFailed'
     // 宿主 TerminalBlock 的展示文案：键名与 terminalLabels(t) 逐条对齐官方安装页的映射（ui-plugin-manager/…/locales.ts:152-164）
     | 'terminalSignal'
     | 'terminalExitCode'
@@ -263,6 +270,14 @@ export const zh: Record<CardKey, string> = {
     verifyDoneAll: '{models}个模型的{efforts} / {planned}个推理级别验证可用',
     verifyDoneLowest: '共验证{planned}个模型，其中{models}个可用',
     verifyFailed: '验证失败：{message}',
+    // 剔除确认：只有明确判为「档位不支持」的才进这里；超时/限流/额度耗尽一概不算
+    pruneTitle: '剔除不被支持的推理级别',
+    pruneConfirm: '验证发现 {count} 个推理级别不被支持，是否从模型配置中剔除？',
+    pruneGo: '剔除',
+    pruneDone: '已剔除 {count} 个不被支持的推理级别。',
+    pruneNone: '这些推理级别在配置里已不存在，无需剔除。',
+    pruneRejected: '配置在验证期间被改动，本次未写入。',
+    pruneFailed: '剔除失败：{message}',
     terminalSignal: '信号 {signal}',
     terminalExitCode: '退出码 {code}',
     terminalNoExitCode: '未正常退出',
@@ -384,6 +399,15 @@ export const en: Record<CardKey, string> = {
     verifyDoneAll: '{efforts} / {planned} reasoning effort(s) across {models} model(s) are usable',
     verifyDoneLowest: 'Verified {planned} model(s) in total, {models} usable',
     verifyFailed: 'Verification failed: {message}',
+    // Prune confirmation: only entries judged outright unsupported land here — timeouts, rate limits and
+    // exhausted quota never do
+    pruneTitle: 'Remove unsupported reasoning efforts',
+    pruneConfirm: 'Verification found {count} reasoning effort(s) that are not supported. Remove them from the model configuration?',
+    pruneGo: 'Remove',
+    pruneDone: 'Removed {count} unsupported reasoning effort(s).',
+    pruneNone: 'Those reasoning efforts are no longer in the configuration; nothing to remove.',
+    pruneRejected: 'The configuration changed during verification; nothing was written.',
+    pruneFailed: 'Failed to remove: {message}',
     terminalSignal: 'signal {signal}',
     terminalExitCode: 'exit code {code}',
     terminalNoExitCode: 'no exit code',

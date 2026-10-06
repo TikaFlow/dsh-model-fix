@@ -1,6 +1,7 @@
 /** src/client/model.ts 纯映射层用例：解码（只读 version-7，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化、验证候选拍取、目标收敛与分组全选 */
 
 import { check, stable } from '@test/helper'
+import type { PruneTarget } from '@/shared/types'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 import {
     EXCLUDE_ID_PATTERN,
@@ -12,6 +13,7 @@ import {
     groupValue,
     isDirty,
     masterValue,
+    planPruneEfforts,
     providerIdsOf,
     removeExclude,
     resolveHits,
@@ -354,4 +356,91 @@ export function run(): void {
         [...completed],
     )
     check('toggleGroupPicks 不改入参', partial.size === 2 && !partial.has(acmeKeyB))
+
+    // ---------- planPruneEfforts：只剔除明确判为不支持的档位，其余原样 ----------
+    const pruneUser = {
+        providers: {
+            acme: {
+                models: [
+                    { id: 'm1', reasoningEfforts: { off: 1, high: 2, max: 3 }, contextWindow: 128000 },
+                    { id: 'm2', reasoningEfforts: { low: 7 } },
+                    { id: 'plain' },
+                ],
+            },
+            lab: { models: [{ id: 'n1', reasoningEfforts: { off: 1, high: 2 } }] },
+        },
+    }
+    const prune = (targets: readonly PruneTarget[], excluded: string[] = []) => planPruneEfforts(pruneUser, targets, excluded)
+    // 只剔指定档位；模型其余字段（contextWindow 等）与同提供方的其他模型原样保留
+    check(
+        'planPruneEfforts 部分剔除',
+        stable(prune([{ provider: 'acme', model: 'm1', effort: 'high' }]))
+            === stable({
+                pruned: 1,
+                ops: [{
+                    op: 'set',
+                    path: ['providers', 'acme', 'models'],
+                    value: [
+                        { id: 'm1', reasoningEfforts: { off: 1, max: 3 }, contextWindow: 128000 },
+                        { id: 'm2', reasoningEfforts: { low: 7 } },
+                        { id: 'plain' },
+                    ],
+                }],
+            }),
+        prune([{ provider: 'acme', model: 'm1', effort: 'high' }]),
+    )
+    // 档位被剔空则整个键不再写出，否则留下空壳反复触发写入判定
+    check(
+        'planPruneEfforts 剔空档位则整个键不写出',
+        stable(prune([{ provider: 'acme', model: 'm2', effort: 'low' }]).ops[0])
+            === stable({
+                op: 'set',
+                path: ['providers', 'acme', 'models'],
+                value: [
+                    { id: 'm1', reasoningEfforts: { off: 1, high: 2, max: 3 }, contextWindow: 128000 },
+                    { id: 'm2' },
+                    { id: 'plain' },
+                ],
+            }),
+        prune([{ provider: 'acme', model: 'm2', effort: 'low' }]).ops[0],
+    )
+    // 验证明细记的是当时的结论：之后用户已改掉的档位不该被覆盖回来，故一律不命中、不写
+    check(
+        'planPruneEfforts 档位已不存在则零写入',
+        stable(prune([{ provider: 'acme', model: 'm1', effort: 'low' }])) === stable({ pruned: 0, ops: [] }),
+    )
+    check(
+        'planPruneEfforts 模型不存在则零写入',
+        stable(prune([{ provider: 'acme', model: 'ghost', effort: 'high' }])) === stable({ pruned: 0, ops: [] }),
+    )
+    check(
+        'planPruneEfforts 无档位模型零写入',
+        stable(prune([{ provider: 'acme', model: 'plain', effort: 'high' }])) === stable({ pruned: 0, ops: [] }),
+    )
+    // 排除语义对本插件的写入处处生效，不因这次由用户发起而破例
+    check(
+        'planPruneEfforts 排除提供方整组跳过',
+        stable(prune([{ provider: 'lab', model: 'n1', effort: 'high' }], ['lab'])) === stable({ pruned: 0, ops: [] }),
+    )
+    // 逐 provider 整段 set：同一提供方的多个目标合并成一个 op，op 顺序沿配置里的提供方序
+    check(
+        'planPruneEfforts 逐 provider 合并为一个 op',
+        stable(prune([{ provider: 'acme', model: 'm1', effort: 'max' }, { provider: 'lab', model: 'n1', effort: 'high' }]))
+            === stable({
+                pruned: 2,
+                ops: [
+                    {
+                        op: 'set',
+                        path: ['providers', 'acme', 'models'],
+                        value: [
+                            { id: 'm1', reasoningEfforts: { off: 1, high: 2 }, contextWindow: 128000 },
+                            { id: 'm2', reasoningEfforts: { low: 7 } },
+                            { id: 'plain' },
+                        ],
+                    },
+                    { op: 'set', path: ['providers', 'lab', 'models'], value: [{ id: 'n1', reasoningEfforts: { off: 1 } }] },
+                ],
+            }),
+        prune([{ provider: 'acme', model: 'm1', effort: 'max' }, { provider: 'lab', model: 'n1', effort: 'high' }]),
+    )
 }
