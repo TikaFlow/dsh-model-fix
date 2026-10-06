@@ -253,10 +253,11 @@ export const zh: Record<CardKey, string> = {
     // 分组全选文案照官方「获取可用模型」的 fetchSelectAll / fetchDeselectAll
     verifySelectAll: '全选',
     verifyDeselectAll: '取消全选',
-    // 记录区逐行文案：provider 级失败不带模型与档位（那不是某个模型的问题），只交代整组结论
+    // 记录区逐行文案：provider 级失败不带模型与档位（那不是某个模型的问题），只交代整组结论。
+    // 层级一律用冒号而非斜杠分隔——模型 id 本身就含斜杠（如 z-ai/glm-5），拿它当分隔符读不出层级
     verifyCommand: '验证 {total} 项',
-    verifyLine: '{provider} / {model} · 推理等级 {effort}：{result}',
-    verifyLinePlain: '{provider} / {model}：{result}',
+    verifyLine: '{provider}: {model} @ {effort}：{result}',
+    verifyLinePlain: '{provider}: {model}：{result}',
     verifyLineProvider: '{provider}：{result}',
     verifySkipped: '（已跳过 {count} 项）',
     verifyOutUsable: '可用',
@@ -383,10 +384,11 @@ export const en: Record<CardKey, string> = {
     verifySelectAll: 'Select all',
     verifyDeselectAll: 'Deselect all',
     verifyEmpty: 'No models yet. Add models on the Models settings page first.',
-    // Per-line log copy: provider-level failures carry no model/effort (not a per-model issue)
+    // Per-line log copy: provider-level failures carry no model/effort (not a per-model issue).
+    // Levels are colon-separated rather than slash-separated — model ids themselves contain slashes (e.g. z-ai/glm-5)
     verifyCommand: 'Verify {total} item(s)',
-    verifyLine: '{provider} / {model} · reasoning effort {effort}: {result}',
-    verifyLinePlain: '{provider} / {model}: {result}',
+    verifyLine: '{provider}: {model} @ {effort}: {result}',
+    verifyLinePlain: '{provider}: {model}: {result}',
     verifyLineProvider: '{provider}: {result}',
     verifySkipped: '({count} skipped)',
     verifyOutUsable: 'usable',
