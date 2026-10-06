@@ -4,6 +4,7 @@ import { run as runClientModel } from '@test/client-model.test'
 import { run as runCompat } from '@test/compat.test'
 import { run as runConfig } from '@test/config.test'
 import { run as runEffort } from '@test/effort.test'
+import { run as runEmpty } from '@test/empty.test'
 import { run as runFix } from '@test/fix.test'
 import { run as runGuard } from '@test/guard.test'
 import { run as runLookup } from '@test/lookup.test'
@@ -25,6 +26,8 @@ section('config.test.ts')
 runConfig()
 section('effort.test.ts')
 runEffort()
+section('empty.test.ts')
+runEmpty()
 section('guard.test.ts')
 runGuard()
 section('lookup.test.ts')

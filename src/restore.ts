@@ -4,6 +4,7 @@ import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { isPlainObject, providersOf } from '@/shared/types'
+import { stripEmptyFields } from '@/empty'
 import { startIgnoreAll, endIgnoreAll } from '@/guard'
 import { queueTask } from '@/host'
 
@@ -41,7 +42,8 @@ export function captureBackup(ctx: Context): void {
  * 恢复计划（纯函数，零 ctx 依赖可单测）——交集语义：
  * 只恢复「备份与当前都存在」的 provider 内的「备份与当前都存在」的 model；
  * 被整删的 provider、被删的 model、启动后新增的 provider/model 一律跳过（不复活、不覆盖新增）。
- * 对该 provider 重建 models 数组：交集的 model 用备份值（深拷贝），当前独有 model 原样保留。
+ * 对该 provider 重建 models 数组：交集的 model 用备份值（深拷贝后按 `stripEmptyFields` 清掉空壳字段，
+ * 空壳在 harness 语义上等同未声明，带回来只是把脏值原样复刻），当前独有 model 原样保留。
  * 仅当重建结果与该 provider 当前 models 有差异才产出整段 set op（零变更零 op）。
  * 返回 { modelOps, changed }，changed 为被恢复（交集 model 中被改写）的模型数。
  */
@@ -60,14 +62,16 @@ export function planRestore(
         const currentModels = currentProvider.models
         if (!Array.isArray(backupModels) || !Array.isArray(currentModels)) continue
         // 交集 model id -> 备份值；当前独有 model id -> 原样保留
-        const backupById = new Map<string, unknown>()
+        const backupById = new Map<string, Record<string, unknown>>()
         for (const m of backupModels) {
             if (isPlainObject(m) && m.id !== undefined && m.id !== null) backupById.set(String(m.id), m)
         }
         const restored = currentModels.map((m) => {
             if (!isPlainObject(m) || m.id === undefined || m.id === null) return m
             const hit = backupById.get(String(m.id))
-            return hit !== undefined ? structuredClone(hit) : m
+            // 恢复值同样过一遍空壳清理：备份是插件动手前的原样，空壳留着等于把它又写回去；
+            // 清理后与当前值相同即视为「无可恢复」，不产出 op（零变更零 op）
+            return hit === undefined ? m : stripEmptyFields(structuredClone(hit))
         })
         // 逐个比较（判据取 @deepseek-ai/dsh-util-values 的 deepEqualJson）：
         // 仅当有交集 model 的值被改写才产出 op，changed 计被恢复（值不同于当前）的模型数

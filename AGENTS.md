@@ -14,6 +14,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/shared/` | 跨半共享层（零 Node 依赖 / 零 schemastery / 零非基线 `@deepseek-ai/*`）：常量、`isPlainObject`/`providersOf`、当前版本配置的解析与物化与各组行键表、验证契约（明细 / 汇报 / 进度帧，浏览器半须据此解析回传，禁反向 import Node 半） |
 | `src/config.ts` `src/migrate.ts` `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 配置解析与配置源 / 升级链 `upgradeTo4..7` 与 `migrateConfig` / 缓存读写与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
 | `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 同批提交；`excludes` 命中者在 provider 循环入口整条跳过；同一两层循环顺带重建 `efforts` 记忆 |
+| `src/empty.ts` | 空壳字段的唯一判据 `stripEmptyFields`：`reasoningEfforts` / `input` / `compat` 的空形态一律等同「未声明」，**四条写回路径（`fix` 填充、`reset`、`restore`、`prune` 剔除）统一过它**，不在各模块另写一份；无空壳时返回原引用，调用方以引用相等判「无需重建」 |
 | `src/reset.ts` `src/restore.ts` `src/guard.ts` `src/host.ts` `src/prune.ts` | 重置推理级别（仅剔除 `reasoningEfforts`，配置段零写入）/ 启动备份捕获与交集恢复 / 事件流守卫（写回期间短路整条事件链）/ 全部 settings 写回必经的 `queueTask` / 剔除验证明细中**明确不支持**的档位（写入前判空壳、`excludes` 跳过、幂等） |
 | `src/verify.ts` | 「验证模型」：校验入参（含浏览器半逐模型声明的 `needTest`）并按模型序展开为「模型 × 其声明的档位」的**被验**请求序列（各模型档位数量不同，是累加非相乘）、按 provider 归组（组内串行即每 provider 单并发）、经宿主 `ctx.llm` 各发一次最小请求；`needTest` 为真的模型由执行器在其第一条被验请求前现发一次不带 `reasoningEffort` 的**探测**（每模型至多一次，不进计划/明细/统计/进度帧，但参与 `reachable` / `keyValid` 记账）；失败**只按** `LlmFailure` 的 `code` 分类（不看 `status`），端点不可达（只认传输层失败码）/ 凭据无效即短路整组、额度耗尽只压该模型、限流与超时归瞬态（既不判不可用也不短该模型的后续档位）；执行器只依赖注入的 `llm.stream`，带桩即可全链路单测；接受外部 `signal`（客户端断开 / 用户停止）与 `onProgress` 出口，中止同时断在途请求**并**让执行循环早停，中止时不发 `done` 帧；返回逐提供方汇报 + 逐条被验明细（含失败原始事实）+ **`unsupportedEfforts` 不支持档位明细**（前端不自己筛，剔除直接用）；汇报带两个计划数：`planned`（被验请求数）与 `plannedEfforts`（其中带档位的条目数，即级别口径的分母） |
 | `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个 channel RPC 写回端点（以守卫互斥、验证只读不参与）+ 验证进度流（`connection.fetch` 的 exact 路由，SSE 分帧，客户端断开即中止执行）/ 保鲜刷新 |
@@ -77,7 +78,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 
 代码里看不出动机的前提，全文见 [`docs/decisions.md`](docs/decisions.md)。改动下列任一模块前，先读对应条目：
 
-- **解析与填充**：快照优先级（当前版本 → 更高版本降级 → 默认，非法或残缺按当前生效值规范化）；`allowUpdate` 含缺失补写、数据无档位不删已有值；`force` 单次绕过；`fix` 读 `descriptor.user` + revision 围栏；空 `input`/`compat` 一律删；`compat` 开关即增删且只写路由级。
+- **解析与填充**：快照优先级（当前版本 → 更高版本降级 → 默认，非法或残缺按当前生效值规范化）；`allowUpdate` 含缺失补写、数据无档位不删已有值；`force` 单次绕过；`fix` 读 `descriptor.user` + revision 围栏；空壳字段一律删且**判据只有一处** `stripEmptyFields`（`reasoningEfforts`/`input`/`compat` 的空形态等同未声明，`fix`/`reset`/`restore`/`prune` 四条写回路径共用，缺失补写也按清理后的值认）；`compat` 开关即增删且只写路由级。
 - **排除与列表**：`excludes` 是零操作排除而非撤销；允许填不存在的 id；不自动清理失效 id（列表顺序即录入意图）。
 - **参数来源**：图片模态只缓存正向信息；`99999999` / 0 视为无该字段；id 匹配宁可漏不错配；档位序取 `EFFORT_LEVELS`。
 - **推理级别记忆**：`efforts` 是运行时记忆而非用户配置；Node 半只持久化不自动设级别；`rememberEfforts` 关闭只停「保存新的」；`defaultHigh` 三条护栏；两个开关都不读 `excludes`。

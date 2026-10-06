@@ -20,6 +20,7 @@ import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import type { PluginConfig } from '@/shared/types'
 import { isPlainObject } from '@/shared/types'
 import type { UnsupportedEffort } from '@/shared/verify-progress'
+import { stripEmptyFields } from '@/empty'
 import { startIgnoreAll, endIgnoreAll } from '@/guard'
 import { queueTask } from '@/host'
 
@@ -39,6 +40,7 @@ const PRUNE_FIELD = 'reasoningEfforts'
  *
  * 档位被剔空时，**在写入前**就判定并让整个 `reasoningEfforts` 键不出现在新值里（不是先写空再删）：
  * 路径 op 不支持数组下标中间段，只能整段 `set`，而空壳留着会反复触发写入判定。
+ * 该键连同其余空壳字段（`input` / `compat`）一律走 `stripEmptyFields` 的统一判据，不在此处另写一份。
  *
  * @returns `{ modelOps, pruned }`，`pruned` 只计真正从现有档位表里剔掉的条数
  */
@@ -82,9 +84,8 @@ export function planPruneEfforts(
             if (hit === 0) continue
             pruned += hit
             next ??= models.slice()
-            next[i] = Object.keys(kept).length === 0
-                ? Object.fromEntries(Object.entries(model).filter(([key]) => key !== PRUNE_FIELD))
-                : { ...model, [PRUNE_FIELD]: kept }
+            // 档位剔空时 reasoningEfforts 整个键删掉（空对象等同未声明），其余空壳字段一并按统一判据清理
+            next[i] = stripEmptyFields({ ...model, [PRUNE_FIELD]: kept })
         }
         if (next) modelOps.push({ op: 'set', path: ['providers', providerId, 'models'], value: next })
     }

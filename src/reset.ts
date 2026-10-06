@@ -5,6 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import type { PluginConfig } from '@/shared/types'
 import { isPlainObject } from '@/shared/types'
+import { stripEmptyFields } from '@/empty'
 import { startIgnoreAll, endIgnoreAll } from '@/guard'
 import { queueTask } from '@/host'
 
@@ -15,7 +16,8 @@ const RESET_FIELD = 'reasoningEfforts'
  * 重置推理级别的模型参数计划（纯函数，零 ctx 依赖可单测）：
  * 每个非排除 provider 逐模型剔除推理级别字段、其余键原样保留
  * （contextWindow / maxTokens / input 不在清除范围），
- * 仅当该 provider 至少一个模型有推理级别键时才整段重建写回（零变更零 op，与 fix 写回纪律一致）。
+ * 仅当该 provider 至少一个模型有推理级别键时才整段重建写回（零变更零 op，与 fix 写回纪律一致）；
+ * 重建值里的其余空壳字段按 `stripEmptyFields` 的统一判据一并清掉，不在本模块另写一份空值判据。
  * 配置段一律不写——开关保持原值，重置后修改配置仍会按原开关触发填充。
  * 返回 { modelOps, changed }，changed 为受影响（至少剔除一个推理级别）的模型数，与 fix 的模型计数口径一致。
  */
@@ -40,10 +42,13 @@ export function planResetModels(config: PluginConfig, providers: Record<string, 
                 if (key === RESET_FIELD) continue
                 kept[key] = value
             }
-            if (Object.keys(model).length === Object.keys(kept).length) continue
+            // 写回触发仍只看「带没带推理级别」：重置只对带推理级别的模型生效，
+            // 否则带空壳字段的模型会被算进 changed，卡片上的「重置 N 个模型」就虚高了
+            if (!Object.hasOwn(model, RESET_FIELD)) continue
             changed++
             next ??= models.slice()
-            next[i] = kept
+            // 顺手按统一判据清掉其余空壳字段，不在此处另写一份空值判据
+            next[i] = stripEmptyFields(kept)
         }
         if (next) modelOps.push({ op: 'set', path: ['providers', providerId, 'models'], value: next })
     }

@@ -7,26 +7,11 @@ import { lookup, toReasoningEfforts } from '@/lookup'
 import { DEVELOPER_COMPAT_APIS, MAX_ATTEMPTS } from '@/constants'
 import { API_NS, CONFIG_VERSION, PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
 import { getConfig } from '@/config'
+import { stripEmptyFields } from '@/empty'
 import { queueTask } from '@/host'
 import { versionKey } from '@/shared/parse'
 import { isCapacity } from '@/types'
 import { isPlainObject, type EffortMemory } from '@/shared/types'
-
-/** 剔除空 input/compat：两者在 harness 语义上等同缺失，删除无损，操作幂等 */
-function stripEmptyArtifacts(model: Record<string, unknown>): Record<string, unknown> {
-    let next: Record<string, unknown> | undefined
-    const input = model.input
-    if (Array.isArray(input) && input.length === 0) {
-        next = { ...model }
-        delete next.input
-    }
-    const compat = model.compat
-    if (isPlainObject(compat) && Object.keys(compat).length === 0) {
-        next ??= { ...model }
-        delete next.compat
-    }
-    return next ?? model
-}
 
 /** 缓存图片信息转换为写回的 input 模态数组：仅支持图片时填 ['text','image']，无数据或纯文本不填（未声明即按纯文本处理） */
 function toInputValue(image: boolean | undefined): string[] | undefined {
@@ -43,7 +28,8 @@ function isSettingsConflict(error: unknown): boolean {
  * （二者互不影响），记忆清理另起自有 NS 的独立 mutate：
  * - 模型参数：缺失推理级别/容量/图片模态且有目录数据则填充（受 autoFill 对应字段控制），
  *   allowUpdate（force 时单次绕过，不落存储）开启则按目录最新值同步——含缺失补写与已有覆盖
- *   （旧值缺失经 deepEqualJson 判为不一致，属设计裁决，见 AGENTS.md「设计裁决」），并剔除空 input/compat。
+ *   （旧值缺失经 deepEqualJson 判为不一致，属设计裁决，见 AGENTS.md「设计裁决」），并剔除空壳字段
+ *   （`reasoningEfforts`/`input`/`compat`，判据唯一处在 src/empty.ts，缺失补写也按清理后的值为准）。
  *   读 descriptor.user（原始字段），按 provider 整数组写回 models（路径 op 不支持数组下标，故 value 为全量重建的数组，
  *   未变更元素原样保留）；数据无档位不删除已有配置。
  * - 路由 compat：按 compat 规则组为 openai-completions 路由添加或**移除**字段（与模型填充不同，关闭即移除，
@@ -116,15 +102,17 @@ export async function fix(ctx: Context, force = false): Promise<number> {
                         const kept = oldEfforts[providerId]?.[modelId]
                         if (kept !== undefined) (newEfforts[providerId] ??= {})[modelId] = kept
                     }
-                    const { reasoningEfforts, contextWindow, maxTokens } = model as {
+                    // 取值一律取自剔除空壳后的模型：空壳在 harness 语义上等同未声明，缺失补写就得认它——
+                    // 否则 `reasoningEfforts: {}` 会既不被填又被清掉，要等下一轮事件才补上，凭空多一个来回
+                    const cleaned = stripEmptyFields(model)
+                    const { reasoningEfforts, contextWindow, maxTokens } = cleaned as {
                         reasoningEfforts?: unknown
                         contextWindow?: unknown
                         maxTokens?: unknown
                     }
-                    const cleaned = stripEmptyArtifacts(model)
                     const entry = lookup(indexed, providerId, modelId)
                     const efforts = toReasoningEfforts(entry)
-                    // 图片模态以剔除空数组后的值为准（harness 语义：空数组 = 未声明）
+                    // 图片模态同上：判据取自 cleaned.input
                     const input = cleaned.input
                     const inputValue = toInputValue(entry?.image)
                     // 推理级别

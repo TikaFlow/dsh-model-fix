@@ -58,6 +58,18 @@ export function run(): void {
     )
     check('剔空档位：pruned 仍为 1', emptied.pruned === 1, emptied.pruned)
 
+    // 空壳清理不再各写一份：被剔除的模型上其余空壳字段按统一判据一并清掉
+    const shells = planPruneEfforts(
+        base,
+        { acme: { models: [{ id: 'm1', reasoningEfforts: { high: 2, low: 3 }, input: [], compat: {} }] } },
+        [{ provider: 'acme', model: 'm1', effort: 'high' }],
+    )
+    check(
+        '空壳字段按统一判据连带清理（非空字段与用户自定义键保留）',
+        stable(modelsValueOf(shells.modelOps, 'providers.acme.models')?.[0]) === stable({ id: 'm1', reasoningEfforts: { low: 3 } }),
+        modelsValueOf(shells.modelOps, 'providers.acme.models'),
+    )
+
     // 幂等：验明确认之后用户自己改掉的档位不再命中——零写入，也不虚报条数
     check(
         '档位已不存在：零写入零计数',

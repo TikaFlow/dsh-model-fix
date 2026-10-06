@@ -233,19 +233,37 @@ export async function run(): Promise<void> {
         check('forgetRemoved 关：自有 NS 零 mutate', ctx.mutateCalls.length === 0 && changes === 0, ctx.mutateCalls)
     }
 
-    // ---------- 9. stripEmptyArtifacts：空 input/compat 被剔除（无填充也写） ----------
+    // ---------- 9. 空壳字段清理：reasoningEfforts/input/compat 的空形态一律剔除（无填充也写） ----------
     {
         resetModules()
         const ctx = makeStubCtx({
-            api: { providers: { testprovider: { models: [{ id: 'model-unknown', input: [], compat: {} }] } } },
+            api: { providers: { testprovider: { models: [{ id: 'model-unknown', reasoningEfforts: {}, input: [], compat: {} }] } } },
         })
         setConfig(cfg({ autoFill: { reasoning: false, context: false, image: false } }))
         setCatalog(CAT)
         const changes = await fix(ctx as unknown as Context)
         const model = modelsOf(ctx, 'testprovider')[0]
-        check('空字段剔除：变更计数为 1', changes === 1)
-        check('空字段剔除：input 与 compat 均移除', model !== undefined && model.input === undefined && model.compat === undefined)
-        check('空字段剔除：id 保留', model?.id === 'model-unknown')
+        check('空壳清理：变更计数为 1', changes === 1)
+        check('空壳清理：三个空形态字段均移除', model !== undefined && model.reasoningEfforts === undefined && model.input === undefined && model.compat === undefined)
+        check('空壳清理：id 保留', model?.id === 'model-unknown')
+    }
+
+    // ---------- 9b. 空壳等同未声明：reasoningEfforts: {} 被缺失补写，而不是「已声明」被清掉 ----------
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-a', reasoningEfforts: {} }] } } },
+        })
+        setConfig(cfg({ autoFill: { reasoning: true, context: false, image: false } }))
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('空 reasoningEfforts：变更计数为 1', changes === 1)
+        check(
+            '空 reasoningEfforts：按缺失补写填上目录档位（不被清空后留待下轮）',
+            stable(model?.reasoningEfforts) === stable({ off: null, low: 'low', high: 'high' }),
+            model,
+        )
     }
 
     // ---------- 10. compat 添加：openai-completions 路由补 supportsDeveloperRole: false ----------

@@ -2,7 +2,7 @@
 import { planResetModels } from '@/reset'
 import type { PluginConfig } from '@/shared/types'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import { check } from '@test/helper'
+import { check, stable } from '@test/helper'
 
 const base: PluginConfig = {
     autoFill: { reasoning: true, context: false, image: true },
@@ -63,6 +63,22 @@ export function run(): void {
         && next[0]!.temperature === 0.7
         && next[0]!.customField === 42)
     check('changed 计数 = 受影响模型数（normal 仅模型 a 剔除字段）', plan.changed === 1)
+
+    // 重建值里的空壳字段按统一判据一并清掉，不在本模块另写一份空值判据
+    const shellPlan = planResetModels(base, { p: { models: [{ id: 'a', reasoningEfforts: { high: 'high' }, input: [], compat: {} }] } })
+    check(
+        '被重置的模型：其余空壳字段连带清理',
+        stable(modelsValueOf(shellPlan.modelOps, 'providers.p.models')) === stable([{ id: 'a' }]),
+        modelsValueOf(shellPlan.modelOps, 'providers.p.models'),
+    )
+
+    // 写回触发只看「带没带推理级别」：只有空壳的模型不算被重置，否则卡片上的「重置 N 个模型」会虚高
+    const shellOnly = planResetModels(base, { p: { models: [{ id: 'a', input: [], compat: {} }] } })
+    check(
+        '只有空壳字段的模型不计入重置、不产出 op',
+        shellOnly.modelOps.length === 0 && shellOnly.changed === 0,
+        shellOnly,
+    )
 
     // 无推理级别的 provider 不产出 op（零变更零 op，与 fix 写回纪律一致）
     check('无推理级别的 provider 不产出 op（零变更零 op）',

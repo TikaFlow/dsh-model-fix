@@ -2,7 +2,7 @@
 import { planRestore } from '@/restore'
 import { providersOf } from '@/shared/types'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import { check } from '@test/helper'
+import { check, stable } from '@test/helper'
 
 /** 取 modelOps 中 path 匹配的第一条 set op 的 value（provider 级 models 数组） */
 function modelsValueOf(modelOps: SettingsPathOp[], providerPath: string): Record<string, unknown>[] | undefined {
@@ -57,6 +57,19 @@ export function run(): void {
     const sameCurrent = structuredClone(backup.providers)
     const samePlan = planRestore(backup.providers, sameCurrent)
     check('无差异时零 op、changed 为 0', samePlan.modelOps.length === 0 && samePlan.changed === 0)
+
+    // 恢复值同样过空壳清理：备份是插件动手前的原样快照，空壳带回来只是把脏值复刻一遍
+    const shellBackup = { p: { models: [{ id: 'm1', name: 'M', input: [], compat: {} }] } }
+    const shellPlan = planRestore(shellBackup, { p: { models: [{ id: 'm1', name: 'M-filled' }] } })
+    check(
+        '恢复值里的空壳字段按统一判据清掉',
+        stable(modelsValueOf(shellPlan.modelOps, 'providers.p.models')) === stable([{ id: 'm1', name: 'M' }]),
+        modelsValueOf(shellPlan.modelOps, 'providers.p.models'),
+    )
+    check('清理后与当前无差异时零 op（无可恢复）', (() => {
+        const p = planRestore(shellBackup, { p: { models: [{ id: 'm1', name: 'M' }] } })
+        return p.modelOps.length === 0 && p.changed === 0
+    })())
 
     // 备份缺失（捕获失败）：零 op
     check('备份缺失时零 op', (() => {
