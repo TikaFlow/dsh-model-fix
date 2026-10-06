@@ -602,12 +602,12 @@ export function Card(props: CardProps) {
     // 验证记录区：逐行追加探测结论，发起时清空；总项数取自 opened 帧，供记录区抬头显示
     const [verifyLines, setVerifyLines] = useState<readonly string[]>([])
     const [verifyTotal, setVerifyTotal] = useState(0)
-    // 在途的 AbortController：点停止与组件卸载都靠它中止——中止经 signal 传导到 Node 半的执行循环
+    // 在途的 AbortController：点停止、关窗与组件卸载都靠它中止——中止经 signal 传导到 Node 半的执行循环
     const verifyAbort = useRef<AbortController | null>(null)
     // 卸载即中止在途验证：连接随之断开，宿主 Connection 把断开传导成 request.signal，执行循环随即早停
     useEffect(() => () => { verifyAbort.current?.abort() }, [])
-    // 记录区的 settle 文案改成「已停止」：正常跑完会关窗，能停在这儿的只有被中止这一种情形，
-    // 而用户主动停止不是失败，故不落宿主那个 error 态的「失败」而落 done 态 + 中性措辞
+    // 记录区的 settle 文案改成「已停止」：能以中止收场的只有停止键与关窗两种情形（正常跑完会关窗），
+    // 而用户主动中止不是失败，故不落宿主那个 error 态的「失败」而落 done 态 + 中性措辞
     const verifyTerminalLabels = useMemo<TerminalBlockLabels>(
         () => ({ ...terminalLabelsOf(t), done: t('verifyStopped') }),
         [t],
@@ -853,7 +853,10 @@ export function Card(props: CardProps) {
     // 不顺手关窗——已验到哪一步值得留在记录里，用户看完可以原地重跑
     const stopVerify = () => { verifyAbort.current?.abort() }
     // 关闭即丢弃本次勾选与记录（下次打开回到未预选、无记录态）；档位开关是模式偏好，保留上次选择
+    // 在途时关窗同时中止：验证即用即弃，用户已经离开就没必要继续烧额度。
+    // 遮罩 / Escape / × 三种关闭都汇到 Modal 的 onClose，故中止只此一处；跑完后控制器已置空，是空操作
     const closeVerify = () => {
+        verifyAbort.current?.abort()
         setVerifyOpen(false)
         setVerifyPicked(new Set())
         setVerifyLines([])
