@@ -602,15 +602,16 @@ export function Card(props: CardProps) {
     // 验证记录区：逐行追加探测结论，发起时清空；总项数取自 opened 帧，供记录区抬头显示
     const [verifyLines, setVerifyLines] = useState<readonly string[]>([])
     const [verifyTotal, setVerifyTotal] = useState(0)
+    // 本轮是否以中止收场：跑完与失败都留在窗内，只有停止键会中止，故记录区的 settle 措辞按它分「完成 / 已停止」
+    const [verifyStopped, setVerifyStopped] = useState(false)
     // 在途的 AbortController：点停止、关窗与组件卸载都靠它中止——中止经 signal 传导到 Node 半的执行循环
     const verifyAbort = useRef<AbortController | null>(null)
     // 卸载即中止在途验证：连接随之断开，宿主 Connection 把断开传导成 request.signal，执行循环随即早停
     useEffect(() => () => { verifyAbort.current?.abort() }, [])
-    // 记录区的 settle 文案改成「已停止」：能以中止收场的只有停止键与关窗两种情形（正常跑完会关窗），
-    // 而用户主动中止不是失败，故不落宿主那个 error 态的「失败」而落 done 态 + 中性措辞
+    // 中止不落宿主那个 error 态的「失败」——用户主动停止不是失败，故改 done 态 + 中性措辞「已停止」
     const verifyTerminalLabels = useMemo<TerminalBlockLabels>(
-        () => ({ ...terminalLabelsOf(t), done: t('verifyStopped') }),
-        [t],
+        () => ({ ...terminalLabelsOf(t), done: verifyStopped ? t('verifyStopped') : t('terminalDone') }),
+        [t, verifyStopped],
     )
     const saveStarted = useRef(false)
 
@@ -810,6 +811,7 @@ export function Card(props: CardProps) {
         // 每次发起都清空记录，免得上一轮（尤其被用户停止的那轮）的残留行混进这一轮
         setVerifyLines([])
         setVerifyTotal(0)
+        setVerifyStopped(false)
         setBusy('verify')
         const controller = new AbortController()
         verifyAbort.current = controller
@@ -822,28 +824,29 @@ export function Card(props: CardProps) {
         }, controller.signal)
             .then((summary) => {
                 // undefined = 被中止（点停止 / 关窗 / 断连）。那不是失败：保留进度与弹层，由用户决定要不要重跑
-                if (summary === undefined) return
-                setNotice({
-                    text: t(allEfforts ? 'verifyDoneAll' : 'verifyDoneLowest', {
-                        models: summary.models,
-                        tested: summary.tested,
-                        efforts: summary.efforts,
-                        planned: summary.planned,
-                    }),
-                    tone: 'success',
+                if (summary === undefined) {
+                    setVerifyStopped(true)
+                    return
+                }
+                const stats = t(allEfforts ? 'verifyDoneAll' : 'verifyDoneLowest', {
+                    models: summary.models,
+                    tested: summary.tested,
+                    efforts: summary.efforts,
+                    planned: summary.planned,
                 })
+                setNotice({ text: stats, tone: 'success' })
                 // 明细由 Node 半直接给出（只收明确判为不支持的），前端不自己从 results 里筛——
                 // 两处口径一旦分叉就会漏剔或多剔。中止时压根到不了这里，故不会误弹
                 setPruneTargets(summary.unsupportedEfforts)
-                // 结果到手才关窗；记录区的使命就是这轮的过程，随之消失
-                closeVerify()
+                // 结论追加成记录区末行、弹层留着不关：断连逐条冒出来的行不给出「总共怎么样」，
+                // 让人自己数末行才知道结果。留在窗内让用户看完再关，关窗后卡片状态行仍在
+                setVerifyLines((current) => [...current, t('verifyFinished', { result: stats })])
             })
             .catch((error: unknown) => {
-                setNotice({
-                    text: t('verifyFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) }),
-                    tone: 'error',
-                })
-                closeVerify()
+                const stats = t('verifyFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) })
+                setNotice({ text: stats, tone: 'error' })
+                // 与正常结束同形：失败也留窗内、也补末行，用户看完再关
+                setVerifyLines((current) => [...current, t('verifyFinished', { result: stats })])
             })
             .finally(() => {
                 verifyAbort.current = null

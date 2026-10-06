@@ -100,6 +100,7 @@ export type CardKey =
     | 'verifyDoneAll'
     | 'verifyDoneLowest'
     | 'verifyFailed'
+    | 'verifyFinished'
     | 'pruneTitle'
     | 'pruneConfirm'
     | 'pruneGo'
@@ -272,6 +273,8 @@ export const zh: Record<CardKey, string> = {
     verifyDoneAll: '{tested}个模型的{efforts} / {planned}个推理级别验证可用',
     verifyDoneLowest: '共验证{tested}个模型，其中{models}个可用',
     verifyFailed: '验证失败：{message}',
+    // 收尾末行：逐条记录只交代过程，不交代「总共怎么样」，否则用户只能自己数末行才知道结论
+    verifyFinished: '验证结束：{result}',
     // 剔除确认：只有明确判为「档位不支持」的才进这里；超时/限流/额度耗尽一概不算
     pruneTitle: '剔除不被支持的推理级别',
     pruneConfirm: '验证发现 {count} 个推理级别不被支持，是否从模型配置中剔除？',
@@ -403,6 +406,8 @@ export const en: Record<CardKey, string> = {
     verifyDoneAll: '{efforts} / {planned} reasoning effort(s) across {tested} model(s) are usable',
     verifyDoneLowest: 'Verified {tested} model(s) in total, {models} usable',
     verifyFailed: 'Verification failed: {message}',
+    // Closing line: the per-probe log only narrates the run, so it never states the overall result
+    verifyFinished: 'Verification finished: {result}',
     // Prune confirmation: only entries judged outright unsupported land here — timeouts, rate limits and
     // exhausted quota never do
     pruneTitle: 'Remove unsupported reasoning efforts',
