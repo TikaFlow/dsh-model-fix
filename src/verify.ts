@@ -176,14 +176,28 @@ export function summarizeProviders(
         probed += report.probed
     }
     // 不支持档位明细：只认明确判为不支持、且确实带档位的条目（不带档位的探测走不到那个结论）。
-    // 与上面的聚合同源，不另算一套口径，免得两处分叉
+    // 与上面的聚合同源，不另算一套口径，免得两处分叉。
+    // 同一趟顺带数「验了多少个模型」：不能用 report.models——那是可用模型数，全档位失败的模型不计入，
+    // 拿它当验证数会在开档位模式下小于用户勾选数
     const unsupportedEfforts: UnsupportedEffort[] = []
+    const testedModels = new Set<string>()
     for (const item of results) {
+        testedModels.add(JSON.stringify([item.provider, item.model]))
         if (item.outcome === 'unsupported-effort' && item.effort !== undefined) {
             unsupportedEfforts.push({ provider: item.provider, model: item.model, effort: item.effort })
         }
     }
-    return { providers: reports, results, unsupportedEfforts, models, efforts, unsupported, planned, probed }
+    return {
+        providers: reports,
+        results,
+        unsupportedEfforts,
+        tested: testedModels.size,
+        models,
+        efforts,
+        unsupported,
+        planned,
+        probed,
+    }
 }
 
 /** 取失败事实的可序列化子集（供调用方自行细分，不参与本插件的判定） */

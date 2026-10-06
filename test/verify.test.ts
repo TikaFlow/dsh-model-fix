@@ -151,14 +151,14 @@ export async function run(): Promise<void> {
     check(
         'summarizeProviders 求和（短路组的计划数计入、实测数只计已发出的）',
         stable(summarizeProviders([ok, blocked], details)) === stable({
-            providers: [ok, blocked], results: details, unsupportedEfforts: [], models: 2, efforts: 3, unsupported: 1, planned: 8, probed: 4,
+            providers: [ok, blocked], results: details, unsupportedEfforts: [], tested: 1, models: 2, efforts: 3, unsupported: 1, planned: 8, probed: 4,
         }),
         summarizeProviders([ok, blocked], details),
     )
     check(
         'summarizeProviders 空输入',
         stable(summarizeProviders([], [])) === stable({
-            providers: [], results: [], unsupportedEfforts: [], models: 0, efforts: 0, unsupported: 0, planned: 0, probed: 0,
+            providers: [], results: [], unsupportedEfforts: [], tested: 0, models: 0, efforts: 0, unsupported: 0, planned: 0, probed: 0,
         }),
     )
     // 不支持档位明细由结果派生：剔除要写配置就得逐条定位，聚合与明细同源、不另立口径
@@ -170,6 +170,16 @@ export async function run(): Promise<void> {
         stable(summarizeProviders([], unsupportedDetail).unsupportedEfforts)
         === stable([{ provider: 'a', model: 'm1', effort: 'high' }]),
         summarizeProviders([], unsupportedDetail).unsupportedEfforts,
+    )
+    // tested 记「探过的模型」而非「可用的模型」：全档位失败的模型也要计入，否则开档位模式下总数小于用户勾选数
+    const allFailed = [
+        { provider: 'a', model: 'm1', effort: 'off', outcome: 'other', failure: undefined },
+        { provider: 'a', model: 'm1', effort: 'high', outcome: 'other', failure: undefined },
+    ] as VerifyProbeResult[]
+    check(
+        'summarizeProviders tested 计入全档位失败的模型，与可用模型数分开',
+        summarizeProviders([], allFailed).tested === 1 && summarizeProviders([], allFailed).models === 0,
+        summarizeProviders([], allFailed),
     )
 
     // ---------- verifyModels：带桩跑通整条链，逐组串行且短路 ----------

@@ -116,11 +116,14 @@ export interface VerifySummary {
     /** 逐条探测明细，顺序为「组序 → 组内探测序」，可重复消费 */
     results: readonly VerifyProbeResult[]
     /**
-     * 明确判为不被支持的档位明细。统计值前端可直接用 `models` / `efforts` / `planned`，
+     * 明确判为不被支持的档位明细。统计值前端可直接用 `tested` / `efforts` / `planned`，
      * 但剔除要写配置就得逐条定位，故这块不聚合、只给明细——省得前端再从 `results` 里自己筛一遍，
      * 筛选口径一旦与执行器分叉就会漏剔或多剔。
      */
     unsupportedEfforts: readonly UnsupportedEffort[]
+    /** 本次验证的模型数（按「提供方 / 模型」去重），即用户勾了几个 */
+    tested: number
+    /** 可用模型数：至少有一个档位通过的去重模型数，全档位失败的模型不计入 */
     models: number
     efforts: number
     unsupported: number

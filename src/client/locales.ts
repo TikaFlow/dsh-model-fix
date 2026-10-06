@@ -266,9 +266,10 @@ export const zh: Record<CardKey, string> = {
     verifyOutCredential: '凭据无效',
     verifyOutOther: '不可用',
     verifyStopped: '已停止',
-    // 收尾统计分两档：总数一律取 planned（计划项），分子取验证通过的可用项
-    verifyDoneAll: '{models}个模型的{efforts} / {planned}个推理级别验证可用',
-    verifyDoneLowest: '共验证{planned}个模型，其中{models}个可用',
+    // 收尾统计分两档：档位分子分母取 planned / efforts，模型数一律取 tested（实际探过的去重模型数，
+    // 而非 report.models 的可用模型数——全档位失败的模型不计入那个数，会让总数小于用户勾选数）
+    verifyDoneAll: '{tested}个模型的{efforts} / {planned}个推理级别验证可用',
+    verifyDoneLowest: '共验证{tested}个模型，其中{models}个可用',
     verifyFailed: '验证失败：{message}',
     // 剔除确认：只有明确判为「档位不支持」的才进这里；超时/限流/额度耗尽一概不算
     pruneTitle: '剔除不被支持的推理级别',
@@ -395,9 +396,10 @@ export const en: Record<CardKey, string> = {
     verifyOutCredential: 'invalid credential',
     verifyOutOther: 'unavailable',
     verifyStopped: 'Stopped',
-    // Closing stats: totals always use planned, numerator is the verified-usable count
-    verifyDoneAll: '{efforts} / {planned} reasoning effort(s) across {models} model(s) are usable',
-    verifyDoneLowest: 'Verified {planned} model(s) in total, {models} usable',
+    // Closing stats: effort totals use planned / efforts; the model count is tested (distinct models actually probed),
+    // not report.models (usable models only, which drops models whose every effort failed)
+    verifyDoneAll: '{efforts} / {planned} reasoning effort(s) across {tested} model(s) are usable',
+    verifyDoneLowest: 'Verified {tested} model(s) in total, {models} usable',
     verifyFailed: 'Verification failed: {message}',
     // Prune confirmation: only entries judged outright unsupported land here — timeouts, rate limits and
     // exhausted quota never do

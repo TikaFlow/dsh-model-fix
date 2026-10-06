@@ -826,6 +826,7 @@ export function Card(props: CardProps) {
                 setNotice({
                     text: t(allEfforts ? 'verifyDoneAll' : 'verifyDoneLowest', {
                         models: summary.models,
+                        tested: summary.tested,
                         efforts: summary.efforts,
                         planned: summary.planned,
                     }),
