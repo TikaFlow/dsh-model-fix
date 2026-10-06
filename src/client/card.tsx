@@ -888,6 +888,9 @@ export function Card(props: CardProps) {
      * 读取最新配置、revision 围栏与冲突重试、只认目标里当前仍在档位表中的那些、事件流守卫——全在那边，
      * 浏览器半只负责发请求与展示结果；剔除条数照实显示，为 0 也不例外——目标在剔除期间已被用户改掉，
      * 或其提供方正在排除列表里（排除提供方在 `planPruneEfforts` 中整组跳过，不撤销已写入的内容）。
+     *
+     * 无论成败都关掉两层弹层（剔除确认 + 其下的验证弹层）：结果写在卡片状态行上，
+     * 弹层不关用户看不到，那条反馈等于没有。
      */
     const pruneEfforts = () => {
         if (busy) return
@@ -910,6 +913,7 @@ export function Card(props: CardProps) {
             .finally(() => {
                 setBusy(null)
                 closePrune()
+                closeVerify()
             })
     }
     const toggleVerifyPick = (key: string) => {
