@@ -84,7 +84,12 @@ export function classifyFailure(failure: LlmFailure): Exclude<ProbeOutcome, 'usa
 
 /**
  * 校验并展开 RPC 入参为探测清单（笛卡尔积：模型序 × 入参给定的档位序）。
- * 无档位的模型产出一次不带 reasoningEffort 的探测；任何非法条目或超出 MAX_VERIFY_PROBES 一律拒绝（返回 undefined）。
+ *
+ * 每个模型都以一次**不带 reasoningEffort** 的探测开头作基线，后续才逐档位：连不带档位都跑不通的模型，
+ * 换任何档位也是同样结果，没必要把每个档位各烧一次；跑得通的模型再逐档位验，此时某档位失败即可归因到
+ * 该档位本身——上游对「这一档不被支持」的报错格式千差万别，只能靠这个对照，不能靠 code 或文案。
+ * 无档位的模型只有基线那一次。
+ * 任何非法条目或超出 MAX_VERIFY_PROBES 一律拒绝（返回 undefined）。
  */
 export function planProbes(payload: unknown): VerifyProbe[] | undefined {
     if (!isPlainObject(payload)) return
@@ -96,12 +101,12 @@ export function planProbes(payload: unknown): VerifyProbe[] | undefined {
         const { provider, model, efforts } = entry
         if (typeof provider !== 'string' || provider === '' || typeof model !== 'string' || model === '') return
         if (!Array.isArray(efforts)) return
+        probes.push({ provider, model })
         for (const effort of efforts) {
             // 档位须落在 harness 支持的取值内：入参来自浏览器，而浏览器亦只从配置里取键，仍按不可信输入校验
             if (typeof effort !== 'string' || !LEVELS.has(effort)) return
             probes.push({ provider, model, effort })
         }
-        if (efforts.length === 0) probes.push({ provider, model })
     }
     return probes.length > MAX_VERIFY_PROBES ? undefined : probes
 }
@@ -133,7 +138,9 @@ export function reportProvider(result: ProviderProbeOutcome): VerifyProviderRepo
     let keyRejected = false
     for (const item of result.results) {
         if (item.outcome === 'usable') {
-            efforts++
+            // 可用模型数含基线（不带档位也跑得通就算这个模型可用）；可用**档位**数只计带档位的探测，
+            // 基线是判据不是被验对象，不进「X / Y 个推理级别」的分子分母
+            if (item.effort !== undefined) efforts++
             usable.add(JSON.stringify([item.provider, item.model]))
         } else if (item.outcome === 'unsupported-effort') {
             unsupported++
@@ -266,6 +273,26 @@ function sameModelTail(probes: readonly VerifyProbe[], from: number): number {
 }
 
 /**
+ * 该失败是否指明「就是这个推理级别不被支持」。三个条件缺一不可：
+ *
+ * - **4xx**：不支持必然落在客户端错误里；5xx、限流、超时、传输失败都是别的问题，不能算到档位头上。
+ * - **报错原文里带上了带引号的该档位值**：上游拒绝一个值时通常原样回显，如
+ *   `Invalid value for 'reasoning_effort': 'xmax'. Supported values are: 'low', 'high'`。
+ *   只认**单引号**包裹的整档位 id：裸词会撞上散文里的同名字样（`请把 max 调到 4096 以内`），
+ *   而双引号也不收——有些网关在 4xx 里回显请求体，JSON 用的正是双引号，收下它就会把
+ *   「上下文超限 / 模型名错」这类失败误判成「这一档被拒」，进而送进剔除清单。宁可漏判不可误删。
+ * - 基线已通过（模型本身确实能用），该条件由调用方保证，见 `runGroup`。
+ *
+ * 这是全插件**唯一**比对报错文案的地方，因为按 `code` 无法区分「档位不支持」与「参数写错」——
+ * 上游一律回 4xx 里的 invalid_request，而 `LlmFailure.message` 正是两者唯一的差别。
+ * 宿主自己映射 pi-ai 错误时同样只能比对文案（`llm-pi-ai` 的 `classifyPiAiError`）。
+ */
+function isEffortRejection(failure: VerifyFailureFacts | undefined, effort: string): boolean {
+    if (failure?.status === undefined || failure.status < 400 || failure.status >= 500) return false
+    return failure.message.includes(`'${effort}'`)
+}
+
+/**
  * 顺序跑完一组的探测（组内零并发）。两级短路：
  * - **provider 级**：同一提供方共用同一 url 与同一把 key，这次过不了后面同样过不了，没必要再花额度。
  * - **模型级**：某档位**报错**且不是「档位不支持」时，同模型的后续档位换过去也是同样结果，同样不必再花额度。
@@ -281,33 +308,52 @@ async function runGroup(
 ): Promise<ProviderProbeOutcome> {
     const results: VerifyProbeResult[] = []
     let blockedBy: ProviderBlockReason | undefined
+    // 本组内基线已通过的模型：它们的档位探测失败即判该档位不支持
+    const baselineOk = new Set<string>()
     for (let index = 0; index < group.probes.length; index++) {
         if (signal.aborted) break
         const probe = group.probes[index]
+        const tail = sameModelTail(group.probes, index)
+        // 基线 = 不带档位、且同模型后面还有探测（即开档位模式给每个模型补的那一次；无档位模型只有它自己）
+        const isBaseline = probe.effort === undefined && tail > 0
         const verdict = await probeOnce(llm, probe, signal)
+        // 基线已通过、且该档位的失败指明了「就是它」时，才判该档位不支持。判据见 isEffortRejection
+        const outcome = probe.effort !== undefined && baselineOk.has(probe.model) && isEffortRejection(verdict.failure, probe.effort)
+            ? 'unsupported-effort'
+            : verdict.outcome
+        if (isBaseline && outcome === 'usable') baselineOk.add(probe.model)
         results.push({
             provider: probe.provider,
             model: probe.model,
             effort: probe.effort,
-            outcome: verdict.outcome,
+            outcome,
             failure: verdict.failure,
         })
         // 两级短路的「剩余未发出的条数」在此一并算出：provider 级断到组尾，模型级只断到该模型自己的档位尾。
         // 消费方据此交代「还剩几条没验」，被跳过的探测不进 results，故 probed 少于 planned
         let skipped: number
-        if (isProviderBlocking(verdict.outcome)) {
-            blockedBy = verdict.outcome
+        if (isProviderBlocking(outcome)) {
+            blockedBy = outcome
             skipped = group.probes.length - index - 1
-        } else if (verdict.failure !== undefined && verdict.outcome !== 'unsupported-effort') {
-            skipped = sameModelTail(group.probes, index)
+        } else if (isBaseline && outcome !== 'usable') {
+            // 基线都跑不通，换任何档位也是同样结果，不必再逐档位烧额度
+            skipped = tail
+        } else if (verdict.failure !== undefined && outcome !== 'unsupported-effort') {
+            skipped = tail
         } else {
             skipped = 0
         }
         if (skipped > 0) index += skipped
-        emitProbe(probe, verdict, skipped === 0 ? undefined : skipped)
+        emitProbe(probe, { outcome, failure: verdict.failure }, skipped === 0 ? undefined : skipped)
         if (blockedBy !== undefined) break
     }
-    return { provider: group.provider, results, blockedBy, planned: group.probes.length }
+    // 计划数只计带档位的探测：基线是判据不是被验对象，不进「X / Y 个推理级别」的分母
+    return {
+        provider: group.provider,
+        results,
+        blockedBy,
+        planned: group.probes.filter((probe) => probe.effort !== undefined).length,
+    }
 }
 
 /** 一次验证的可选控制项；不传即静默跑完，行为与引入进度帧之前完全一致 */
