@@ -90,12 +90,15 @@ export async function run(): Promise<void> {
     check('classifyFailure 余额耗尽', classifyFailure(failure('ACCOUNT_QUOTA_EXCEEDED', 402)) === 'quota')
     check('classifyFailure 凭据无效', classifyFailure(failure('INVALID_CREDENTIAL', 401)) === 'credential')
     check('classifyFailure 凭据缺失', classifyFailure(failure('MISSING_CREDENTIAL', 401)) === 'credential')
-    // 传输层失败没有 HTTP status（宿主 normalizeLlmFailure 的兜底对象只给 message + code）
-    check('classifyFailure 无 status 判端点不可达', classifyFailure(failure('ECONNREFUSED')) === 'unreachable')
+    // 不可达只认传输层失败码。pi-ai 侧错误一律不带 status（宿主抛错只给 message + code），
+    // 故「无 status」不能当不可达——那会把一次 400 或一次 5xx 误报成断线并短路整个 provider，这是实测踩过的坑
+    check('classifyFailure 传输层失败码判端点不可达', classifyFailure(failure('TRANSPORT')) === 'unreachable')
+    check('classifyFailure 流被截断亦判不可达', classifyFailure(failure('STREAM_CLOSED')) === 'unreachable')
+    check('classifyFailure 未识别的码归其它而非不可达', classifyFailure(failure('PI_AI_ERROR')) === 'other')
     check('classifyFailure 有 status 归其它', classifyFailure(failure('MODEL_NOT_FOUND', 404)) === 'other')
     // 档位码优先：它由宿主在派发前本地抛出，本就没有 HTTP 响应
     check('classifyFailure 档位码不被 status 盖过', classifyFailure(failure('UNSUPPORTED_REASONING_EFFORT', 400)) === 'unsupported-effort')
-    // 零内容完成：请求成功抵达却无内容块，同样没有 status——必须显式排除，否则会被当成断线而误短路整组
+    // 零内容完成：请求成功抵达却无内容块，归其它（退化完成），不参与任何短路
     check('classifyFailure 零内容完成归其它而非不可达', classifyFailure(failure('EMPTY_RESPONSE')) === 'other')
 
     // ---------- isProviderBlocking：只有三类 provider 级失败才短路 ----------
@@ -275,7 +278,7 @@ export async function run(): Promise<void> {
     }
     {
         // 端点不可达：可达与凭据都判否
-        const { llm, calls } = stub({ 'm1': [finishError('ECONNREFUSED')] })
+        const { llm, calls } = stub({ 'm1': [finishError('TRANSPORT')] })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', []), entry('a', 'm2', [])] })
         check(
             'verifyModels 端点不可达短路并记为不可达',
@@ -396,7 +399,7 @@ export async function run(): Promise<void> {
     }
     {
         // 两个提供方互不牵连：一个不可达，另一个照常验证
-        const { llm, calls } = stub({ 'm1': [finishError('ECONNREFUSED')] })
+        const { llm, calls } = stub({ 'm1': [finishError('TRANSPORT')] })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', []), entry('b', 'n1', [])] })
         check(
             'verifyModels 短路只影响本组',
@@ -438,7 +441,7 @@ export async function run(): Promise<void> {
     {
         // provider 级短路那条自带 skipped：消费方才好交代「这组还剩几条没验」
         const frames: VerifyProgressFrame[] = []
-        const { llm, calls } = stub({ 'm1': [finishError('ECONNREFUSED')] })
+        const { llm, calls } = stub({ 'm1': [finishError('TRANSPORT')] })
         await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] }, {
             onProgress: (frame) => { frames.push(frame) },
         })

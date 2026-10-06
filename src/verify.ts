@@ -58,27 +58,27 @@ export interface ProviderProbeGroup {
 const QUOTA_CODES: ReadonlySet<string> = new Set(['QUOTA', 'ACCOUNT_QUOTA_EXCEEDED'])
 /** 宿主规范码：凭据缺失或无效 */
 const CREDENTIAL_CODES: ReadonlySet<string> = new Set(['INVALID_CREDENTIAL', 'MISSING_CREDENTIAL'])
-/** 宿主规范码：模型未声明请求的这一推理级别 */
+/** 宿主规范码：模型未声明请求的这一推理级别（宿主在派发前本地拒绝，请求根本没发出去） */
 const UNSUPPORTED_EFFORT_CODE = 'UNSUPPORTED_REASONING_EFFORT'
 /**
- * 宿主规范码：请求正常完成但一个内容块都没有（部分方言偶发的退化完成）。
- * 它**没有 HTTP status**——请求是成功抵达的。若漏判就会掉进下面的「status 缺失即不可达」，
- * 把一次成功响应误报成断线并错误短路整组，故必须显式排除。
+ * 宿主给出的传输层失败码：连接中断、流被截断。真「连不上」只有这一类信号。
+ *
+ * **不能拿「`status` 缺失」当不可达**：pi-ai 侧的错误一律不带 status——`llm-pi-ai` 抛错只给
+ * `new LlmError(message, code)`，终止错误也只给 `{ message, code }`，任何上游状态码（400、5xx）
+ * 在到达我们之前就被压成了文案。故 status 缺失只说明「不是 HTTP 层拒绝」，不说明「连不上」；
+ * 按它判会把一次 400 或一次 5xx 误报成断线，进而错误短路整个 provider 剩下的全部模型。
  */
-const EMPTY_RESPONSE_CODE = 'EMPTY_RESPONSE'
+const UNREACHABLE_CODES: ReadonlySet<string> = new Set(['TRANSPORT', 'STREAM_CLOSED'])
 
 /**
- * 由终止块的失败事实判定探测结果。
- *
- * 传输层失败没有 HTTP status——宿主 `normalizeLlmFailure` 的兜底对象只带 `message` 与 `code`，
- * 而 HTTP 层拒绝会带上 `status`，故 status 缺失即判「端点不可达」。这比比对报错文案可靠得多。
+ * 由终止块的失败事实判定探测结果。一律按宿主的 `code` 判：不看 `status`（对 pi-ai 侧恒缺），
+ * 也不比对文案。未识别的码一律归「其它厂商侧拒绝」，多与具体模型有关，故不参与 provider 级短路。
  */
 export function classifyFailure(failure: LlmFailure): Exclude<ProbeOutcome, 'usable'> {
     if (failure.code === UNSUPPORTED_EFFORT_CODE) return 'unsupported-effort'
     if (QUOTA_CODES.has(failure.code)) return 'quota'
     if (CREDENTIAL_CODES.has(failure.code)) return 'credential'
-    if (failure.code === EMPTY_RESPONSE_CODE) return 'other'
-    if (failure.status === undefined) return 'unreachable'
+    if (UNREACHABLE_CODES.has(failure.code)) return 'unreachable'
     return 'other'
 }
 
