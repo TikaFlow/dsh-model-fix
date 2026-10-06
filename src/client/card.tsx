@@ -60,7 +60,7 @@ const { Button, Modal, Switch, Tag, StateDot, TerminalBlock, Tooltip, IconInfoOu
 const TIP_MAX_WIDTH = 300
 
 /** 验证记录区的行数上限：与官方安装弹层的 TerminalBlock 同值 */
-const VERIFY_TERMINAL_LINES = 12
+const VERIFY_TERMINAL_LINES = 10
 
 /** 宿主 TerminalBlock 的展示文案：该包无语言回退，字段缺一即类型报错，故整份照官方 terminalLabels(t) 提供 */
 function terminalLabelsOf(t: TranslateNS<'settings.modelFix'>): TerminalBlockLabels {
@@ -302,7 +302,11 @@ const STYLE_TEXT = [
     // 「验证模型」弹层：逐条照官方 models 页「获取可用模型」候选框（ModelsSection 的 fetchDialog / candidate* 类）。
     // 宿主滚动条变量无浅色真值可引，按官方原样透传、不自造字面量兜底
     '.dsh-mf-verifyDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}',
-    '.dsh-mf-verifyList{display:flex;flex-direction:column;gap:2px;max-height:320px;margin:0;padding:0;list-style:none;overflow-y:auto}',
+    '.dsh-mf-verifyList{display:flex;flex-direction:column;gap:2px;max-height:240px;margin:0;padding:0;list-style:none;overflow-y:auto}',
+    // 验证弹层比宿主默认的 380px 宽一档：候选列表里的模型 id 常带斜杠（如 z-ai/glm-5），窄框里会折行、
+    // 与右侧开关挤在一起。宿主 .dialog 的 width 同为单类选择器，本插件的 <style> 后于宿主样式表注入，
+    // 同优先级下后者胜出，故能覆盖
+    '.dsh-mf-verifyDialog{width:min(560px,100%)}',
     // 提供方分组头：官方候选框本无分组，此处一行标题标明下一批条目归属（零自造色，仅用宿主 label 令牌）。
     // 排布照官方 candidateToolbar——align-items:center + gap:8px 的 flex 行；右侧分组全选键 margin-left:auto 顶到行尾。
     // 纵向内边距取官方 candidateLabel 的 6px 8px，与候选行同档（原为 8px/4px，不在官方档位内）
