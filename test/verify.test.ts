@@ -1,5 +1,5 @@
-// src/verify.ts 用例：探测清单展开（逐模型逐档位 / 基线 / 无档位 / 入参校验）、按提供方分组、失败分类、逐组汇报、
-// 汇总求和，以及带桩跑通的整条执行链（分组串行 + provider 级失败短路）
+// src/verify.ts 用例：请求计划展开（逐模型逐档位 / needTest 声明 / 入参校验）、按提供方分组、失败分类、逐组汇报、
+// 汇总求和，以及带桩跑通的整条执行链（探测现发 + 分组串行 + provider 级失败短路）
 import { classifyFailure, groupProbesByProvider, planProbes, reportProvider, summarizeProviders, verifyModels } from '@/verify'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm/types'
@@ -7,8 +7,11 @@ import { decodeProgressFrame, encodeProgressFrame, isProviderBlocking, isTransie
 import type { ProbeOutcome, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport } from '@/shared/verify-progress'
 import { check, stable } from '@test/helper'
 
-/** 一个模型的载荷；参数收 unknown 以便构造非法入参用例（RPC 入参按不可信输入校验） */
-const entry = (provider: unknown, model: unknown, efforts: unknown): Record<string, unknown> => ({ provider, model, efforts })
+/**
+ * 一个模型的载荷；参数收 unknown 以便构造非法入参用例（RPC 入参按不可信输入校验）。
+ * `needTest` 默认「有档位才需要探测」——那正是卡片按开关收敛出来的口径。
+ */
+const entry = (provider: unknown, model: unknown, efforts: unknown, needTest: unknown = Array.isArray(efforts) && efforts.length > 0): Record<string, unknown> => ({ provider, model, efforts, needTest })
 
 /** 失败事实桩：message 各厂商不同，分类不得依赖它 */
 const failure = (code: string, status?: number): LlmFailure =>
@@ -29,24 +32,21 @@ const finishErrorText = (code: string, status: number, message: string): StreamC
 
 /** 执行本文件的全部用例 */
 export async function run(): Promise<void> {
-    // ---------- planProbes：逐模型逐档位展开（各模型档位数量不同，是累加非相乘），每个模型前置一次不带 effort 的基线 ----------
+    // ---------- planProbes：逐模型逐档位展开（各模型档位数量不同，是累加非相乘），清单里只有被验对象、探测不进计划 ----------
     check(
-        'planProbes 逐模型逐档位展开（每模型先补基线）',
+        'planProbes 逐模型逐档位展开（清单里没有探测）',
         stable(planProbes({ models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] })) === stable([
-            { provider: 'a', model: 'm1' },
-            { provider: 'a', model: 'm1', effort: 'off' },
-            { provider: 'a', model: 'm1', effort: 'high' },
-            { provider: 'a', model: 'm2' },
-            { provider: 'a', model: 'm2', effort: 'low' },
+            { provider: 'a', model: 'm1', effort: 'off', needTest: true },
+            { provider: 'a', model: 'm1', effort: 'high', needTest: true },
+            { provider: 'a', model: 'm2', effort: 'low', needTest: true },
         ]),
     )
-    // ---------- planProbes：无档位模型只有基线那一次，不重复探测 ----------
+    // ---------- planProbes：没有档位可验时，那一次不带档位的请求本身就是被验对象 ----------
     check(
-        'planProbes 无档位模型只有基线一次，不重复探测',
+        'planProbes 无档位模型只留被验的那一次',
         stable(planProbes({ models: [entry('a', 'plain', []), entry('a', 'x', ['max'])] })) === stable([
-            { provider: 'a', model: 'plain' },
-            { provider: 'a', model: 'x' },
-            { provider: 'a', model: 'x', effort: 'max' },
+            { provider: 'a', model: 'plain', needTest: false },
+            { provider: 'a', model: 'x', effort: 'max', needTest: true },
         ]),
     )
     // ---------- planProbes：入参校验一律拒绝 ----------
@@ -61,18 +61,26 @@ export async function run(): Promise<void> {
     // 档位必须落在 harness 支持的取值内（'none' 是目录侧拼写，写入配置时已归一为 'off'）
     check('planProbes 未知档位拒绝', planProbes({ models: [entry('a', 'm', ['turbo'])] }) === undefined)
     check('planProbes 目录拼写 none 拒绝', planProbes({ models: [entry('a', 'm', ['none'])] }) === undefined)
-    // ---------- planProbes：探测总数超上限即拒绝（逐档位展开会累积条目，静默截断会漏验） ----------
+    // ---------- planProbes：needTest 由浏览器半声明，缺了或不是布尔值就无从判「要不要发探测」 ----------
+    check('planProbes needTest 缺失拒绝', planProbes({ models: [{ provider: 'a', model: 'm', efforts: [] }] }) === undefined)
+    check('planProbes needTest 非布尔拒绝', planProbes({ models: [entry('a', 'm', [], 'yes')] }) === undefined)
+    // 无档位却声明要探测 = 探测没有对照对象，纯属白烧额度，按非法处理
+    check('planProbes 无档位却声明 needTest 拒绝', planProbes({ models: [entry('a', 'm', [], true)] }) === undefined)
+    // ---------- planProbes：请求总数超上限即拒绝（逐档位展开会累积条目，静默截断会漏验） ----------
     const many = Array.from({ length: 100 }, (_, i) => entry('a', `m${i}`, ['low', 'medium', 'high']))
     check('planProbes 超上限拒绝', planProbes({ models: many }) === undefined)
-    // 基线也占一次真实请求，故上限按「档位数 + 1」计：40 个四档模型 = 40 × 5 = 200
+    // 探测也占一次真实请求，故上限按「档位数 + 探测数」计：40 个四档模型 = 40 × (4 + 1) = 200，
+    // 但清单里只有被验对象，故长度为 160
     const atLimit = Array.from({ length: 40 }, (_, i) => entry('a', `m${i}`, ['low', 'medium', 'high', 'off']))
-    check('planProbes 恰在上限放行', planProbes({ models: atLimit })?.length === 200)
+    check('planProbes 恰在上限放行', planProbes({ models: atLimit })?.length === 160)
+    // 再多一个模型即 41 × 5 = 205 > 200：探测计入上限而非照旧放行
+    check('planProbes 探测计入上限', planProbes({ models: [...atLimit, entry('a', 'm40', ['low', 'medium', 'high', 'off'])] }) === undefined)
 
     // ---------- groupProbesByProvider：同 provider 归一组、组内原序、下标回填 ----------
     const interleaved: VerifyProbe[] = [
-        { provider: 'a', model: 'm1', effort: 'off' },
-        { provider: 'b', model: 'n1', effort: 'low' },
-        { provider: 'a', model: 'm2', effort: 'high' },
+        { provider: 'a', model: 'm1', effort: 'off', needTest: true },
+        { provider: 'b', model: 'n1', effort: 'low', needTest: true },
+        { provider: 'a', model: 'm2', effort: 'high', needTest: true },
     ]
     check(
         'groupProbesByProvider 按 provider 归组并保序',
@@ -122,17 +130,18 @@ export async function run(): Promise<void> {
     check('isTransientOutcome 档位不支持不是瞬态', isTransientOutcome('unsupported-effort') === false)
     check('isTransientOutcome 可用不是瞬态', isTransientOutcome('usable') === false)
 
-    // ---------- reportProvider：可用模型去重、档位不支持单列、可达与凭据取自全程 ----------
+    // ---------- reportProvider：可用模型去重、档位不支持单列、可达与凭据取自全程（含探测） ----------
     const detail = (model: string, outcome: ProbeOutcome, effort?: string): VerifyProbeResult =>
         ({ provider: 'a', model, effort, outcome, failure: undefined })
-    const report = (results: VerifyProbeResult[], blockedBy?: 'unreachable' | 'credential') =>
-        reportProvider({ provider: 'a', results, blockedBy, planned: 3 })
+    // tested 取自计划而非明细，故与 results 无关，桩里固定给 2
+    const report = (results: VerifyProbeResult[], blockedBy?: 'unreachable' | 'credential', tests: VerifyProbeResult[] = []) =>
+        reportProvider({ provider: 'a', results, tests, blockedBy, planned: 3, tested: 2 })
     const allOk = report([detail('m1', 'usable', 'off'), detail('m1', 'usable', 'high'), detail('m2', 'usable', 'low')])
     check(
         'reportProvider 全可用：同模型多档只计一个可用模型',
         stable(allOk) === stable({
             provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
-            models: 2, efforts: 3, unsupported: 0, planned: 3, probed: 3,
+            models: 2, efforts: 3, unsupported: 0, planned: 3, probed: 3, tested: 2,
         }),
         allOk,
     )
@@ -141,7 +150,7 @@ export async function run(): Promise<void> {
         'reportProvider 档位不支持单列，不混入其它失败',
         stable(oneUnsupported) === stable({
             provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
-            models: 2, efforts: 2, unsupported: 1, planned: 3, probed: 3,
+            models: 2, efforts: 2, unsupported: 1, planned: 3, probed: 3, tested: 2,
         }),
         oneUnsupported,
     )
@@ -150,7 +159,7 @@ export async function run(): Promise<void> {
         'reportProvider 端点不可达：短路且不臆断凭据有效',
         stable(dead) === stable({
             provider: 'a', reachable: false, keyValid: false, skipped: true, blockedBy: 'unreachable',
-            models: 0, efforts: 0, unsupported: 0, planned: 3, probed: 1,
+            models: 0, efforts: 0, unsupported: 0, planned: 3, probed: 1, tested: 2,
         }),
         dead,
     )
@@ -161,25 +170,44 @@ export async function run(): Promise<void> {
         'reportProvider 额度耗尽：可达但无额度，且不算 provider 级失败',
         stable(outOfQuota) === stable({
             provider: 'a', reachable: true, keyValid: false, skipped: false, blockedBy: undefined,
-            models: 1, efforts: 1, unsupported: 0, planned: 3, probed: 2,
+            models: 1, efforts: 1, unsupported: 0, planned: 3, probed: 2, tested: 2,
         }),
         outOfQuota,
+    )
+    // 探测也是真发出去的一次请求，故它撞上的端点 / 凭据问题同样如实记账，只是不计任何计数
+    const probedDead = report([], 'unreachable', [detail('m1', 'unreachable')])
+    check(
+        'reportProvider 探测撞端点不可达：如实记为不可达，明细与计数皆空',
+        stable(probedDead) === stable({
+            provider: 'a', reachable: false, keyValid: false, skipped: true, blockedBy: 'unreachable',
+            models: 0, efforts: 0, unsupported: 0, planned: 3, probed: 0, tested: 2,
+        }),
+        probedDead,
+    )
+    const probedNoKey = report([], undefined, [detail('m1', 'quota')])
+    check(
+        'reportProvider 探测撞额度耗尽：端点可达但无额度（额度不构成短路，故 skipped 为假）',
+        stable(probedNoKey) === stable({
+            provider: 'a', reachable: true, keyValid: false, skipped: false, blockedBy: undefined,
+            models: 0, efforts: 0, unsupported: 0, planned: 3, probed: 0, tested: 2,
+        }),
+        probedNoKey,
     )
 
     // ---------- summarizeProviders：逐字段求和 ----------
     const ok: VerifyProviderReport = {
         provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
-        models: 2, efforts: 3, unsupported: 1, planned: 3, probed: 3,
+        models: 2, efforts: 3, unsupported: 1, planned: 3, probed: 3, tested: 2,
     }
     const blocked: VerifyProviderReport = {
         provider: 'b', reachable: false, keyValid: false, skipped: true, blockedBy: 'unreachable',
-        models: 0, efforts: 0, unsupported: 0, planned: 5, probed: 1,
+        models: 0, efforts: 0, unsupported: 0, planned: 5, probed: 1, tested: 3,
     }
     const details: VerifyProbeResult[] = [detail('m1', 'usable', 'off')]
     check(
-        'summarizeProviders 求和（短路组的计划数计入、实测数只计已发出的）',
+        'summarizeProviders 求和（短路组的计划数计入、实测数只计已发出的、tested 取自各组计划）',
         stable(summarizeProviders([ok, blocked], details)) === stable({
-            providers: [ok, blocked], results: details, unsupportedEfforts: [], tested: 1, models: 2, efforts: 3, unsupported: 1, planned: 8, probed: 4,
+            providers: [ok, blocked], results: details, unsupportedEfforts: [], tested: 5, models: 2, efforts: 3, unsupported: 1, planned: 8, probed: 4,
         }),
         summarizeProviders([ok, blocked], details),
     )
@@ -199,15 +227,16 @@ export async function run(): Promise<void> {
         === stable([{ provider: 'a', model: 'm1', effort: 'high' }]),
         summarizeProviders([], unsupportedDetail).unsupportedEfforts,
     )
-    // tested 记「探过的模型」而非「可用的模型」：全档位失败的模型也要计入，否则开档位模式下总数小于用户勾选数
-    const allFailed = [
-        { provider: 'a', model: 'm1', effort: 'off', outcome: 'other', failure: undefined },
-        { provider: 'a', model: 'm1', effort: 'high', outcome: 'other', failure: undefined },
-    ] as VerifyProbeResult[]
+    // tested 记「计划里探过的模型」而非「可用的模型」：全档位被短路的模型也要计入，否则开档位模式下总数小于用户勾选数。
+    // 它取自各组汇报的 tested，故与明细是否为空无关
+    const allFailed: VerifyProviderReport = {
+        provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
+        models: 0, efforts: 0, unsupported: 0, planned: 2, probed: 0, tested: 1,
+    }
     check(
-        'summarizeProviders tested 计入全档位失败的模型，与可用模型数分开',
-        summarizeProviders([], allFailed).tested === 1 && summarizeProviders([], allFailed).models === 0,
-        summarizeProviders([], allFailed),
+        'summarizeProviders tested 计入全档位被短路的模型，与可用模型数分开',
+        summarizeProviders([allFailed], []).tested === 1 && summarizeProviders([allFailed], []).models === 0,
+        summarizeProviders([allFailed], []),
     )
 
     // ---------- verifyModels：带桩跑通整条链，逐组串行且短路 ----------
@@ -232,28 +261,27 @@ export async function run(): Promise<void> {
     }
 
     {
-        const { llm, prompts } = stub({})
+        const { llm, prompts, calls } = stub({})
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] })
         check(
-            'verifyModels 全可用：逐档位各发一次并逐组汇报',
-            summary.models === 2 && summary.efforts === 3 && summary.probed === 5 && summary.planned === 3
+            'verifyModels 全可用：逐档位各发一次并逐组汇报（探测另发，不计统计）',
+            summary.models === 2 && summary.efforts === 3 && summary.probed === 3 && summary.planned === 3 && summary.tested === 2
+            && calls.length === 5
             && summary.providers.length === 1 && summary.providers[0].reachable && summary.providers[0].keyValid,
             summary,
         )
-        // 明细：逐条给出「提供方 / 模型 / 档位 / 结论」，顺序为「组序 → 组内探测序」；每模型首个不带档位的即基线
+        // 明细：逐条给出「提供方 / 模型 / 档位 / 结论」，顺序为「组序 → 组内探测序」；探测不在其中
         check(
-            'verifyModels 返回逐条明细',
+            'verifyModels 返回逐条明细（不含探测）',
             stable(summary.results) === stable([
-                { provider: 'a', model: 'm1', effort: undefined, outcome: 'usable', failure: undefined },
                 { provider: 'a', model: 'm1', effort: 'off', outcome: 'usable', failure: undefined },
                 { provider: 'a', model: 'm1', effort: 'high', outcome: 'usable', failure: undefined },
-                { provider: 'a', model: 'm2', effort: undefined, outcome: 'usable', failure: undefined },
                 { provider: 'a', model: 'm2', effort: 'low', outcome: 'usable', failure: undefined },
             ]),
             summary.results,
         )
         // 提示词固定为一句 Just say OK——它是省额度的前提，不该被顺手改成更啰嗦的说法
-        check('verifyModels 每次探测的提示词都是 Just say OK', prompts.length === 5 && prompts.every((text) => text === 'Just say OK'), prompts)
+        check('verifyModels 每次请求的提示词都是 Just say OK', prompts.length === 5 && prompts.every((text) => text === 'Just say OK'), prompts)
     }
     {
         // 额度耗尽：只压该模型的剩余档位（额度可能只覆盖其中某个模型），不构成 provider 级失败
@@ -261,7 +289,7 @@ export async function run(): Promise<void> {
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
         check(
             'verifyModels 额度耗尽跳过后续档位但不算 provider 级失败',
-            calls.length === 2 && summary.probed === 2 && summary.planned === 2
+            calls.length === 2 && summary.probed === 1 && summary.planned === 2
             && !summary.providers[0].skipped && summary.providers[0].blockedBy === undefined
             && summary.providers[0].reachable && !summary.providers[0].keyValid,
             { calls, summary },
@@ -270,7 +298,6 @@ export async function run(): Promise<void> {
         check(
             'verifyModels 明细带失败原始事实',
             stable(summary.results) === stable([
-                { provider: 'a', model: 'm1', effort: undefined, outcome: 'usable', failure: undefined },
                 {
                     provider: 'a', model: 'm1', effort: 'off', outcome: 'quota',
                     failure: { code: 'QUOTA', status: 429, message: '文案随便写，各厂商都不一样' },
@@ -285,7 +312,7 @@ export async function run(): Promise<void> {
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] })
         check(
             'verifyModels 额度耗尽不牵连同组其它模型',
-            calls.length === 4 && summary.probed === 4 && summary.planned === 3,
+            calls.length === 4 && summary.probed === 2 && summary.planned === 3,
             { calls, summary },
         )
     }
@@ -296,13 +323,12 @@ export async function run(): Promise<void> {
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
         check(
             'verifyModels 限流不跳过后续档位',
-            calls.length === 3 && summary.probed === 3 && summary.planned === 2 && summary.efforts === 1,
+            calls.length === 3 && summary.probed === 2 && summary.planned === 2 && summary.efforts === 1,
             { calls, summary },
         )
         check(
             'verifyModels 限流结论单列，不混成不可用',
             stable(summary.results) === stable([
-                { provider: 'a', model: 'm1', effort: undefined, outcome: 'usable', failure: undefined },
                 {
                     provider: 'a', model: 'm1', effort: 'off', outcome: 'rate-limit',
                     failure: { code: 'RATE_LIMIT', status: 429, message: '文案随便写，各厂商都不一样' },
@@ -318,7 +344,8 @@ export async function run(): Promise<void> {
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', []), entry('a', 'm2', [])] })
         check(
             'verifyModels 端点不可达短路并记为不可达',
-            calls.length === 1 && summary.providers[0].blockedBy === 'unreachable'
+            calls.length === 1 && summary.probed === 1 && summary.planned === 2
+            && summary.providers[0].blockedBy === 'unreachable'
             && !summary.providers[0].reachable && !summary.providers[0].keyValid,
             { calls, summary },
         )
@@ -329,7 +356,7 @@ export async function run(): Promise<void> {
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
         check(
             'verifyModels 档位不支持不短路、计入 unsupported',
-            calls.length === 3 && summary.probed === 3 && summary.planned === 2 && summary.unsupported === 1
+            calls.length === 3 && summary.probed === 2 && summary.planned === 2 && summary.unsupported === 1
             && summary.efforts === 1 && !summary.providers[0].skipped,
             { calls, summary },
         )
@@ -340,7 +367,8 @@ export async function run(): Promise<void> {
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', []), entry('a', 'm2', [])] })
         check(
             'verifyModels 其它厂商拒绝不短路',
-            // 不带档位的探测不计入 efforts——它没有档位可言；可用性由 models 体现
+            // 这两个模型都没声明档位，故那一次不带档位的请求本身就是被验对象：它不计 efforts
+            // （没有档位可言），可用性由 models 体现
             calls.length === 2 && summary.probed === 2 && summary.efforts === 0 && summary.models === 1
             && summary.providers[0].reachable && summary.providers[0].keyValid && !summary.providers[0].skipped,
             { calls, summary },
@@ -354,24 +382,24 @@ export async function run(): Promise<void> {
             onProgress: (frame) => { frames.push(frame) },
         })
         check(
-            'verifyModels 非档位类报错跳过后续档位并记 skipped',
+            'verifyModels 非档位类报错跳过后续档位并记 skipped（探测帧不发出）',
             // 报错原文没有带引号的档位名，故判不出「不支持」，按模型级短路跳过后续档位
-            calls.length === 2 && summary.probed === 2 && summary.planned === 3
-            && stable(frames[2]) === stable({
-                type: 'probed', provider: 'a', model: 'm1', effort: 'off', outcome: 'other', skipped: 2, done: 2, total: 4,
+            calls.length === 2 && summary.probed === 1 && summary.planned === 3
+            && stable(frames[1]) === stable({
+                type: 'probed', provider: 'a', model: 'm1', effort: 'off', outcome: 'other', skipped: 2, done: 1, total: 3,
             }),
             { calls, summary, frames },
         )
     }
     {
-        // 基线对照：基线（不带档位）已通过 + 4xx + 原文回显带引号的该档位 ⇒ 判该档位不支持，
+        // 探测对照：探测（不带档位）已通过 + 4xx + 原文回显带引号的该档位 ⇒ 判该档位不支持，
         // 且**不**短该模型后续档位——换个档位可能就通了，那正是逐档位验的意义
         const { llm, calls } = stub({
             'm1@max': [finishErrorText('INVALID_REQUEST', 400, "Invalid value for 'reasoning_effort': 'max'.")],
         })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] })
         check(
-            'verifyModels 基线通过且宿主判参数不正确 → 判该档位不支持且不短后续',
+            'verifyModels 探测通过且宿主判参数不正确 → 判该档位不支持且不短后续',
             calls.length === 4 && summary.planned === 3 && summary.unsupported === 1 && summary.efforts === 2
             && stable(summary.unsupportedEfforts) === stable([{ provider: 'a', model: 'm1', effort: 'max' }]),
             { calls, summary },
@@ -385,7 +413,7 @@ export async function run(): Promise<void> {
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
         check(
             'verifyModels 5xx 即使回显了档位也不判不支持',
-            calls.length === 2 && summary.unsupported === 0 && summary.probed === 2,
+            calls.length === 2 && summary.unsupported === 0 && summary.probed === 1,
             { calls, summary },
         )
     }
@@ -404,12 +432,12 @@ export async function run(): Promise<void> {
         )
     }
     {
-        // 基线都不通，档位一律不判不支持：无从归因到档位，直接短该模型
+        // 探测都不通，档位一律不判不支持：无从归因到档位，直接短该模型
         const { llm, calls } = stub({ 'm1': [finishError('INVALID_REQUEST', 400)] })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
         check(
-            'verifyModels 基线不通则不判档位不支持、直接短该模型',
-            calls.length === 1 && summary.unsupported === 0 && summary.planned === 2,
+            'verifyModels 探测不通则不判档位不支持、直接短该模型（一条记录都不留）',
+            calls.length === 1 && summary.probed === 0 && summary.unsupported === 0 && summary.planned === 2 && summary.tested === 1,
             { calls, summary },
         )
     }
@@ -419,7 +447,7 @@ export async function run(): Promise<void> {
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] })
         check(
             'verifyModels 模型级短路不牵连同组其它模型',
-            calls.length === 4 && summary.probed === 4 && summary.planned === 3,
+            calls.length === 4 && summary.probed === 2 && summary.planned === 3,
             { calls, summary },
         )
     }
@@ -456,7 +484,7 @@ export async function run(): Promise<void> {
         check('verifyModels 入参非法抛错（由 RPC 层转失败结果）', threw)
     }
     {
-        // 正常帧序列：opened 起 → 每条 probed → 收于唯一一条 done
+        // 正常帧序列：opened 起 → 每条被验请求 probed → 收于唯一一条 done；探测一条帧都不发
         const frames: VerifyProgressFrame[] = []
         const { llm } = stub({})
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] }, {
@@ -464,29 +492,43 @@ export async function run(): Promise<void> {
         })
         const last = frames[frames.length - 1]
         check(
-            'verifyModels 进度帧：opened 起、逐条 probed、done 收尾',
-            stable(frames.slice(0, 6)) === stable([
-                { type: 'opened', total: 5 },
-                { type: 'probed', provider: 'a', model: 'm1', effort: undefined, outcome: 'usable', done: 1, total: 5 },
-                { type: 'probed', provider: 'a', model: 'm1', effort: 'off', outcome: 'usable', done: 2, total: 5 },
-                { type: 'probed', provider: 'a', model: 'm1', effort: 'high', outcome: 'usable', done: 3, total: 5 },
-                { type: 'probed', provider: 'a', model: 'm2', effort: undefined, outcome: 'usable', done: 4, total: 5 },
-                { type: 'probed', provider: 'a', model: 'm2', effort: 'low', outcome: 'usable', done: 5, total: 5 },
-            ]) && frames.length === 7 && last.type === 'done' && last.summary === summary,
+            'verifyModels 进度帧：opened 起、逐条 probed、done 收尾（探测不占帧）',
+            stable(frames.slice(0, 4)) === stable([
+                { type: 'opened', total: 3 },
+                { type: 'probed', provider: 'a', model: 'm1', effort: 'off', outcome: 'usable', done: 1, total: 3 },
+                { type: 'probed', provider: 'a', model: 'm1', effort: 'high', outcome: 'usable', done: 2, total: 3 },
+                { type: 'probed', provider: 'a', model: 'm2', effort: 'low', outcome: 'usable', done: 3, total: 3 },
+            ]) && frames.length === 5 && last.type === 'done' && last.summary === summary,
             frames,
+        )
+    }
+    {
+        // 探测撞上端点不通：整组立刻停，但探测既不产明细也不产帧——记录里不留它的痕迹，
+        // 「整组没验成」由汇报里的 blockedBy 如实交代
+        const frames: VerifyProgressFrame[] = []
+        const { llm, calls } = stub({ 'm1': [finishError('TRANSPORT')] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] }, {
+            onProgress: (frame) => { frames.push(frame) },
+        })
+        check(
+            'verifyModels 探测撞端点不通即短整组，且一条 probed 帧都不发',
+            calls.length === 1 && summary.probed === 0 && summary.planned === 3 && summary.tested === 1
+            && summary.providers[0].blockedBy === 'unreachable' && !summary.providers[0].reachable
+            && frames.every((frame) => frame.type !== 'probed') && frames[0].type === 'opened',
+            { calls, summary, frames },
         )
     }
     {
         // provider 级短路那条自带 skipped：消费方才好交代「这组还剩几条没验」
         const frames: VerifyProgressFrame[] = []
-        const { llm, calls } = stub({ 'm1': [finishError('TRANSPORT')] })
+        const { llm, calls } = stub({ 'm1@off': [finishError('INVALID_CREDENTIAL', 401)] })
         await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] }, {
             onProgress: (frame) => { frames.push(frame) },
         })
         check(
             'verifyModels provider 级短路那条 probed 带 skipped',
-            calls.length === 1 && stable(frames[1]) === stable({
-                type: 'probed', provider: 'a', model: 'm1', effort: undefined, outcome: 'unreachable', skipped: 3, done: 1, total: 4,
+            calls.length === 2 && stable(frames[1]) === stable({
+                type: 'probed', provider: 'a', model: 'm1', effort: 'off', outcome: 'credential', skipped: 2, done: 1, total: 3,
             }),
             frames,
         )
@@ -503,7 +545,7 @@ export async function run(): Promise<void> {
         check(
             'verifyModels 中止后早停且不发 done',
             calls.length === 2 && frames.every((frame) => frame.type !== 'done')
-            && summary.probed === 2 && summary.planned === 3,
+            && summary.probed === 1 && summary.planned === 3,
             { calls, frames, summary },
         )
     }
@@ -520,8 +562,8 @@ export async function run(): Promise<void> {
         check(
             'verifyModels 从未开跑的提供方不进汇报',
             stable(summary.providers.map((report) => report.provider)) === stable(['a', 'b', 'c'])
-            // 这些模型都没声明档位，只有基线那一次探测，故 planned（只计带档位的）为 0
-            && summary.planned === 0 && summary.probed === 3,
+            // 这些模型都没声明档位，那一次不带档位的请求本身就是被验对象，故每组各计 1
+            && summary.planned === 3 && summary.probed === 3 && summary.tested === 3,
             summary.providers.map((report) => report.provider),
         )
     }

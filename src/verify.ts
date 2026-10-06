@@ -14,9 +14,17 @@
  * 其余情况读到终止块，按 `LlmFailure` 的 `code` / `status` 分类（宿主明令 route on `code`，不比对文案）：
  * 档位不被支持 / 额度耗尽 / 凭据无效 / 端点不可达（无 HTTP status）/ 其它。
  *
- * 短路：同一提供方共用同一 url 与同一把 key，**端点不可达 / 额度耗尽 / 凭据无效**这三类一旦出现，
- * 该组剩余探测必然同样失败，故立即短路——省下的额度就是省下的钱。档位不被支持属逐模型逐档位的个体结论，
- * 只记录不短路。我方超时不算「端点不可达」，慢端点不该被当成断线。
+ * 短路：同一提供方共用同一 url 与同一把 key，**端点不可达 / 凭据无效**这两类一旦出现，
+ * 该组剩余请求必然同样失败，故立即短路——省下的额度就是省下的钱。额度耗尽只压当前模型
+ * （它可能只覆盖其中某个模型）。档位不被支持属逐模型逐档位的个体结论，只记录不短路。
+ * 我方超时不算「端点不可达」，慢端点不该被当成断线。
+ *
+ * 探测 ≠ 被验对象：有档位可验时，每个模型先发一次不带 `reasoningEffort` 的**探测**作对照，
+ * 判「某档位不被支持」全靠它（上游对这类报错的格式千差万别，不比对就归因不到档位本身）。
+ * 探测不进计划、不进明细、不计任何统计、也不发进度帧——故用户看到的每一条都是被验的那一次，
+ * 「还剩几条没验」也与实际待验的条数对得上。是否需要探测由浏览器半在计划里逐模型声明
+ * （`needTest`），Node 半不替它反推：关掉档位开关、或模型没声明任何档位时，那一次不带档位的
+ * 请求本身就是被验对象，再补一条探测纯属白烧额度。
  *
  * 中止与进度：`verifyModels` 接受外部 `signal`（客户端断开或用户点停止）与 `onProgress` 出口。
  * 中止同时断掉在途请求**并**让执行循环早停——只断请求而继续循环，后续探测会带着已中止的信号跑出一串假失败。
@@ -43,7 +51,7 @@ const VERIFY_PROMPT = 'Just say OK'
 const VERIFY_TIMEOUT_MS = 30_000
 /** 同时在跑的**提供方**数（不是单提供方并发数——后者恒为 1，由分组串行保证） */
 const VERIFY_PROVIDER_CONCURRENCY = 5
-/** 单次验证的探测总数上限：逐模型逐档位展开会累积条目，超出即拒绝而非静默截断（前端也据此禁用确认键） */
+/** 单次验证的请求总数上限：逐模型逐档位展开会累积条目（探测也算一次请求），超出即拒绝而非静默截断 */
 const MAX_VERIFY_PROBES = 200
 
 /** 一个提供方的探测组：组内顺序执行即「每 provider 单并发」的结构保证 */
@@ -93,12 +101,12 @@ export function classifyFailure(failure: LlmFailure): Exclude<ProbeOutcome, 'usa
 }
 
 /**
- * 校验并展开 RPC 入参为探测清单：按模型序遍历，每个模型带上它自己声明的那些档位——各模型档位数量不同，是累加而非相乘。
+ * 校验并展开 RPC 入参为验证请求清单：按模型序遍历，每个模型带上它自己声明的那些档位——各模型档位数量不同，
+ * 是累加而非相乘。
  *
- * 每个模型都以一次**不带 reasoningEffort** 的探测开头作基线，后续才逐档位：连不带档位都跑不通的模型，
- * 换任何档位也是同样结果，没必要把每个档位各烧一次；跑得通的模型再逐档位验，此时某档位失败即可归因到
- * 该档位本身——上游对「这一档不被支持」的报错格式千差万别，只能靠这个对照，不能靠 code 或文案。
- * 无档位的模型只有基线那一次。
+ * 清单里只有**被验对象**：每个档位一条请求；模型没有档位可验时，那一条不带 `reasoningEffort` 的请求
+ * 本身就是被验对象。`needTest` 为真的模型另需一次不带档位的**探测**作对照（判「某档位不被支持」全靠它，
+ * 上游对这类报错的格式千差万别），但探测不进清单——它在执行阶段按需现发，不被统计、也不产出记录。
  * 任何非法条目或超出 MAX_VERIFY_PROBES 一律拒绝（返回 undefined）。
  */
 export function planProbes(payload: unknown): VerifyProbe[] | undefined {
@@ -108,17 +116,32 @@ export function planProbes(payload: unknown): VerifyProbe[] | undefined {
     const probes: VerifyProbe[] = []
     for (const entry of models) {
         if (!isPlainObject(entry)) return
-        const { provider, model, efforts } = entry
+        const { provider, model, efforts, needTest } = entry
         if (typeof provider !== 'string' || provider === '' || typeof model !== 'string' || model === '') return
-        if (!Array.isArray(efforts)) return
-        probes.push({ provider, model })
+        if (!Array.isArray(efforts) || typeof needTest !== 'boolean') return
+        if (efforts.length === 0) {
+            // 没有档位要验：这次请求就是被验对象，不存在「对照」一说，故 needTest 必假
+            if (needTest) return
+            probes.push({ provider, model, needTest })
+            continue
+        }
         for (const effort of efforts) {
             // 档位须落在 harness 支持的取值内：入参来自浏览器，而浏览器亦只从配置里取键，仍按不可信输入校验
             if (typeof effort !== 'string' || !LEVELS.has(effort)) return
-            probes.push({ provider, model, effort })
+            probes.push({ provider, model, effort, needTest })
         }
     }
-    return probes.length > MAX_VERIFY_PROBES ? undefined : probes
+    // 上限算的是真正会发出的请求数（含探测）：它约束的是烧掉的额度，清单长度只是它的一部分
+    let requested = probes.length
+    const tested = new Set<string>()
+    for (const probe of probes) {
+        if (!probe.needTest) continue
+        const key = JSON.stringify([probe.provider, probe.model])
+        if (tested.has(key)) continue
+        tested.add(key)
+        requested++
+    }
+    return requested > MAX_VERIFY_PROBES ? undefined : probes
 }
 
 /** 按 provider 分组，组内保持探测原序；组序为提供方首次出现序 */
@@ -138,7 +161,7 @@ export function groupProbesByProvider(probes: readonly VerifyProbe[]): ProviderP
 
 /**
  * 单组结论 -> 汇报：可用模型按「提供方 / 模型」去重；档位不可用单独计数，不与其它失败混计。
- * 可达 / 凭据取自**全程**结果而非首个：探测跑到一半才撞上额度耗尽同样该如实记为凭据不可用。
+ * 可达 / 凭据取自**全程**结果（验证请求与探测一并计入）而非首个：跑到一半才撞上额度耗尽同样该如实记为凭据不可用。
  */
 export function reportProvider(result: ProviderProbeOutcome): VerifyProviderReport {
     const usable = new Set<string>()
@@ -148,8 +171,8 @@ export function reportProvider(result: ProviderProbeOutcome): VerifyProviderRepo
     let keyRejected = false
     for (const item of result.results) {
         if (item.outcome === 'usable') {
-            // 可用模型数含基线（不带档位也跑得通就算这个模型可用）；可用**档位**数只计带档位的探测，
-            // 基线是判据不是被验对象，不进「X / Y 个推理级别」的分子分母
+            // 可用**档位**数只计带档位的验证请求；不带档位的那条要么是对照（探测，不计），
+            // 要么本身就是被验对象（模型无档位可验），后者计模型数、不计档位数
             if (item.effort !== undefined) efforts++
             usable.add(JSON.stringify([item.provider, item.model]))
         } else if (item.outcome === 'unsupported-effort') {
@@ -160,6 +183,11 @@ export function reportProvider(result: ProviderProbeOutcome): VerifyProviderRepo
             keyRejected = true
         }
     }
+    // 探测同样能证伪端点与凭据（它也是真发出去的一次请求），故一并纳入；只是它不产明细、不计任何计数
+    for (const item of result.tests) {
+        if (item.outcome === 'unreachable') unreachable = true
+        else if (item.outcome === 'quota' || item.outcome === 'credential') keyRejected = true
+    }
     return {
         provider: result.provider,
         reachable: !unreachable,
@@ -167,6 +195,7 @@ export function reportProvider(result: ProviderProbeOutcome): VerifyProviderRepo
         keyValid: !unreachable && !keyRejected,
         skipped: result.blockedBy !== undefined,
         blockedBy: result.blockedBy,
+        tested: result.tested,
         models: usable.size,
         efforts,
         unsupported,
@@ -185,21 +214,19 @@ export function summarizeProviders(
     let unsupported = 0
     let planned = 0
     let probed = 0
+    let tested = 0
     for (const report of reports) {
         models += report.models
         efforts += report.efforts
         unsupported += report.unsupported
         planned += report.planned
         probed += report.probed
+        tested += report.tested
     }
     // 不支持档位明细：只认明确判为不支持、且确实带档位的条目（不带档位的探测走不到那个结论）。
     // 与上面的聚合同源，不另算一套口径，免得两处分叉。
-    // 同一趟顺带数「验了多少个模型」：不能用 report.models——那是可用模型数，全档位失败的模型不计入，
-    // 拿它当验证数会在开档位模式下小于用户勾选数
     const unsupportedEfforts: UnsupportedEffort[] = []
-    const testedModels = new Set<string>()
     for (const item of results) {
-        testedModels.add(JSON.stringify([item.provider, item.model]))
         if (item.outcome === 'unsupported-effort' && item.effort !== undefined) {
             unsupportedEfforts.push({ provider: item.provider, model: item.model, effort: item.effort })
         }
@@ -208,7 +235,7 @@ export function summarizeProviders(
         providers: reports,
         results,
         unsupportedEfforts,
-        tested: testedModels.size,
+        tested,
         models,
         efforts,
         unsupported,
@@ -232,7 +259,11 @@ interface ProbeVerdict {
  * 发一次探测并判定：收到首个 `block-start` 即判「受支持」；否则读到终止块、据其失败事实分类。
  * 我方超时引发的 `aborted` 不算「端点不可达」——那会把慢端点误判成断线，进而错误短路整组。
  */
-async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe, signal: AbortSignal): Promise<ProbeVerdict> {
+async function probeOnce(
+    llm: Pick<LlmRuntime, 'stream'>,
+    probe: Pick<VerifyProbe, 'provider' | 'model' | 'effort'>,
+    signal: AbortSignal,
+): Promise<ProbeVerdict> {
     const controller = new AbortController()
     let timedOut = false
     const timer = setTimeout(() => { timedOut = true; controller.abort() }, VERIFY_TIMEOUT_MS)
@@ -298,14 +329,22 @@ function isEffortRejection(failure: VerifyFailureFacts | undefined): boolean {
 }
 
 /**
- * 顺序跑完一组的探测（组内零并发）。两级短路：
+ * 顺序跑完一组的验证请求（组内零并发）。
+ *
+ * 每模型**至多一次探测**：带档位的模型在验它第一条之前，先发一次不带档位的请求作对照——
+ * 判「某档位不被支持」只能靠它（理由见 `isEffortRejection`）。探测不是被验对象：它不进明细、
+ * 不计任何统计、跑通时也不留记录（用户看到的每一条都该是被验的那一次）。
+ * 两种模型没有探测：关掉档位开关时全部请求本就不带参数，以及模型没有声明任何档位时——
+ * 那一次不带档位的请求本身就是被验对象（`needTest` 为假），故探测与它无从分开。
+ *
+ * 两级短路（探测与验证请求一视同仁）：
  * - **provider 级**：同一提供方共用同一 url 与同一把 key，这次过不了后面同样过不了，没必要再花额度。
- * - **模型级**：某档位**报错**且不是「档位不支持」时，同模型的后续档位换过去也是同样结果，同样不必再花额度。
+ * - **模型级**：某次请求**报错**且不是「档位不支持」时，同模型的后续档位换过去也是同样结果，同样不必再花额度。
  *   「档位不支持」恰是唯一值得继续验的结论——换个档位可能就通了，那正是逐档位验的意义。
- *   只对有失败事实的探测生效：正常终止却没有内容块属退化完成，不是报错，换档位仍可能出内容。
+ *   只对有失败事实的请求生效：正常终止却没有内容块属退化完成，不是报错，换档位仍可能出内容。
  *   限流与超时同样不停（`isTransientOutcome`）：它们只否定了这一次，否不了下一次，把它固化成
  *   「后面的档位也别验了」才是真误判——实测限流挡掉的那一档，隔一会儿就通了。
- * 外部中止同样在此早停：只断在途请求而不停循环，后续探测会带着已中止的信号跑出一串假失败。
+ * 外部中止同样在此早停：只断在途请求而不停循环，后续请求会带着已中止的信号跑出一串假失败。
  */
 async function runGroup(
     llm: Pick<LlmRuntime, 'stream'>,
@@ -314,21 +353,45 @@ async function runGroup(
     emitProbe: (probe: VerifyProbe, verdict: ProbeVerdict, skipped: number | undefined) => void,
 ): Promise<ProviderProbeOutcome> {
     const results: VerifyProbeResult[] = []
+    // 探测结论单列：它真发出去过，能证伪端点与凭据；但它不是被验对象，不混进明细与计数
+    const tests: VerifyProbeResult[] = []
     let blockedBy: ProviderBlockReason | undefined
-    // 本组内基线已通过的模型：它们的档位探测失败即判该档位不支持
+    // 本组内已发过探测的模型（每模型至多一次）与探测已通过的模型（它们的档位请求失败即判该档位不支持）
+    const probed = new Set<string>()
     const baselineOk = new Set<string>()
     for (let index = 0; index < group.probes.length; index++) {
         if (signal.aborted) break
         const probe = group.probes[index]
         const tail = sameModelTail(group.probes, index)
-        // 基线 = 不带档位、且同模型后面还有探测（即开档位模式给每个模型补的那一次；无档位模型只有它自己）
-        const isBaseline = probe.effort === undefined && tail > 0
+        // 探测：组内该模型的第一条带 needTest 的请求即它的探测位，成功与否都只记事实、不发记录
+        if (probe.needTest && !probed.has(probe.model)) {
+            probed.add(probe.model)
+            const testVerdict = await probeOnce(llm, { provider: probe.provider, model: probe.model }, signal)
+            tests.push({
+                provider: probe.provider,
+                model: probe.model,
+                effort: undefined,
+                outcome: testVerdict.outcome,
+                failure: testVerdict.failure,
+            })
+            if (testVerdict.outcome === 'usable') {
+                baselineOk.add(probe.model)
+            } else if (isProviderBlocking(testVerdict.outcome)) {
+                // 端点不通 / 凭据无效：同一提供方共用同一 url 与同一把 key，整组都过不去
+                blockedBy = testVerdict.outcome
+                break
+            } else {
+                // 探测都没跑通，换任何档位也是同样结果，不必再逐档位烧额度；
+                // 瞬态失败（限流 / 超时）同理：这次没跑成不代表下次也跑不通，但重试同一模型也只是烧额度
+                index += tail
+                continue
+            }
+        }
         const verdict = await probeOnce(llm, probe, signal)
-        // 基线已通过、且该档位的失败指明了「就是它」时，才判该档位不支持。判据见 isEffortRejection
+        // 探测已通过、且该档位的失败指明了「就是它」时，才判该档位不支持。判据见 isEffortRejection
         const outcome = probe.effort !== undefined && baselineOk.has(probe.model) && isEffortRejection(verdict.failure)
             ? 'unsupported-effort'
             : verdict.outcome
-        if (isBaseline && outcome === 'usable') baselineOk.add(probe.model)
         results.push({
             provider: probe.provider,
             model: probe.model,
@@ -337,14 +400,11 @@ async function runGroup(
             failure: verdict.failure,
         })
         // 两级短路的「剩余未发出的条数」在此一并算出：provider 级断到组尾，模型级只断到该模型自己的档位尾。
-        // 消费方据此交代「还剩几条没验」，被跳过的探测不进 results，故 probed 少于 planned
+        // 消费方据此交代「还剩几条没验」，被跳过的请求不进 results，故 probed 少于 planned
         let skipped: number
         if (isProviderBlocking(outcome)) {
             blockedBy = outcome
             skipped = group.probes.length - index - 1
-        } else if (isBaseline && outcome !== 'usable') {
-            // 基线都跑不通，换任何档位也是同样结果，不必再逐档位烧额度
-            skipped = tail
         } else if (verdict.failure !== undefined && outcome !== 'unsupported-effort' && !isTransientOutcome(outcome)) {
             skipped = tail
         } else {
@@ -354,12 +414,16 @@ async function runGroup(
         emitProbe(probe, { outcome, failure: verdict.failure }, skipped === 0 ? undefined : skipped)
         if (blockedBy !== undefined) break
     }
-    // 计划数只计带档位的探测：基线是判据不是被验对象，不进「X / Y 个推理级别」的分母
+    // 计划数 = 该组的验证请求数（探测不在清单里）：关档位时等于勾选模型数，开档位时等于档位数之和
+    const models = new Set<string>()
+    for (const probe of group.probes) models.add(JSON.stringify([probe.provider, probe.model]))
     return {
         provider: group.provider,
         results,
+        tests,
         blockedBy,
-        planned: group.probes.filter((probe) => probe.effort !== undefined).length,
+        planned: group.probes.length,
+        tested: models.size,
     }
 }
 

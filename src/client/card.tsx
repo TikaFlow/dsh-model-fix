@@ -44,7 +44,7 @@ import {
     verifyKey,
     verifyTargets,
 } from '@/client/model'
-import type { Flags, Group, RowKey, VerifyCandidate } from '@/client/model'
+import type { Flags, Group, RowKey, VerifyCandidate, VerifyTarget } from '@/client/model'
 import type { CardKey } from '@/client/locales'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locales'
 import { PLUGIN_NAME } from '@/shared/constants'
@@ -173,9 +173,9 @@ export interface CardProps {
     resetModels: () => Promise<ConnectionRpcResult<unknown>>
     /** 恢复备份 RPC：回退启动时备份（交集 provider+model）到当前配置；返回被恢复的模型数 */
     restoreModels: () => Promise<ConnectionRpcResult<unknown>>
-    /** 验证模型：走进度流端点，对「模型 × 推理级别」各发一次最小请求，逐条回调实时进度；整轮跑完回汇总，被中止（停止 / 关窗 / 断连）回 undefined */
+    /** 验证模型：走进度流端点，对「模型 × 推理级别」各发一次最小请求（`needTest` 的模型另发一次不计数的探测作对照），逐条回调实时进度；整轮跑完回汇总，被中止（停止 / 关窗 / 断连）回 undefined */
     verifyModels: (
-        models: readonly VerifyCandidate[],
+        models: readonly VerifyTarget[],
         onFrame: (frame: VerifyProgressUpdate) => void,
         signal: AbortSignal,
     ) => Promise<VerifySummary | undefined>

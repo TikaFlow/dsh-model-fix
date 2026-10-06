@@ -309,22 +309,23 @@ export function run(): void {
     // ---------- 选择键：模型 id 含 '/' 也不能与拼接方案撞车 ----------
     check('verifyKey 二元组序列化', verifyKey('a', 'x/y') === '["a","x/y"]')
     check('verifyKey 不同提供方的同名模型互不相同', verifyKey('a', 'm') !== verifyKey('b', 'm'))
-    // ---------- 校验目标：只取勾选项；开档位逐个验全部声明档位，关档位一律不发档位参数 ----------
+    // ---------- 校验目标：只取勾选项；开档位逐个验全部声明档位，关档位一律不发档位参数；
+    // needTest 只在「确实有档位要验」时为真——那时那一次不带档位的请求才是探测对照，否则它自己就是被验对象 ----------
     const candidates = verifyCandidatesOf(verifyUser)
     const keys = new Set([verifyKey('acme-gateway', 'z-ai/glm-5'), verifyKey('acme-gateway', 'no-efforts')])
     check(
-        'verifyTargets 关档位时一律不带档位（不是挑最低档）',
+        'verifyTargets 关档位时一律不带档位（不是挑最低档），且无须探测',
         stable(verifyTargets(candidates, keys, false)) === stable([
-            { provider: 'acme-gateway', model: 'z-ai/glm-5', efforts: [] },
-            { provider: 'acme-gateway', model: 'no-efforts', efforts: [] },
+            { provider: 'acme-gateway', model: 'z-ai/glm-5', efforts: [], needTest: false },
+            { provider: 'acme-gateway', model: 'no-efforts', efforts: [], needTest: false },
         ]),
         verifyTargets(candidates, keys, false),
     )
     check(
-        'verifyTargets 开档位时取全部声明档位；无档位模型与关档位同形',
+        'verifyTargets 开档位时取全部声明档位；无档位模型与关档位同形（那一次请求即被验对象）',
         stable(verifyTargets(candidates, keys, true)) === stable([
-            { provider: 'acme-gateway', model: 'z-ai/glm-5', efforts: ['off', 'low', 'high'] },
-            { provider: 'acme-gateway', model: 'no-efforts', efforts: [] },
+            { provider: 'acme-gateway', model: 'z-ai/glm-5', efforts: ['off', 'low', 'high'], needTest: true },
+            { provider: 'acme-gateway', model: 'no-efforts', efforts: [], needTest: false },
         ]),
         verifyTargets(candidates, keys, true),
     )

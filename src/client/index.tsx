@@ -34,7 +34,7 @@ import { decodeProgressFrame } from '@/shared/verify-progress'
 import type { UnsupportedEffort, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
 import { DEFAULT_CONFIG } from '@/shared/parse'
 import { VERSION_KEY, decodeSection } from '@/client/model'
-import type { Flags, VerifyCandidate } from '@/client/model'
+import type { Flags, VerifyTarget } from '@/client/model'
 import { applyEffort, classifyTransition, sameSelection } from '@/client/effort'
 import { makeScope, type DecodedScope } from '@/client/scope'
 
@@ -82,7 +82,7 @@ function boot(
     const pruneEfforts = (targets: readonly UnsupportedEffort[]) =>
         rpc.call(`/${MODEL_FIX_NS}`, 'pruneEfforts', { targets })
     /**
-     * 验证模型：载荷是卡片按勾选收敛好的「提供方 / 模型 / 各自档位列表」清单，Node 半只做逐模型逐档位展开与探测。
+     * 验证模型：载荷是卡片按勾选收敛好的「提供方 / 模型 / 各自档位列表 / 是否需要探测」计划，Node 半只按它逐档位展开；探测由 Node 半在执行阶段现发。
      *
      * 走独立的进度流端点而非 channel RPC——一次调用要回持续多帧的响应，RPC 的「一次调用 = 一个
      * JSON 结果」装不下。用文档相对路由（去掉前导斜杠）是宿主对浏览器侧的约定，服务端 key 保持绝对，
@@ -91,7 +91,7 @@ function boot(
      * @returns 整轮汇总；被中止（点停止 / 关窗 / 断连）时返回 `undefined`，那不是失败
      */
     const verifyModels = async (
-        models: readonly VerifyCandidate[],
+        models: readonly VerifyTarget[],
         onFrame: (frame: VerifyProgressUpdate) => void,
         signal: AbortSignal,
     ): Promise<VerifySummary | undefined> => {

@@ -8,11 +8,23 @@
 
 import { isPlainObject } from '@/shared/types'
 
-/** 单次探测：一次请求 = 一个「模型 × 推理级别」组合（effort 缺省即不带档位探测） */
+/**
+ * 计划里的一条**验证请求**：一次请求 = 一个「模型 × 推理级别」组合（`effort` 缺省即不带 `reasoningEffort`）。
+ * 计划里只有被验对象——不带档位的**探测**请求不在其中，它由执行阶段按 `needTest` 现发。
+ */
 export interface VerifyProbe {
     provider: string
     model: string
     effort?: string
+    /**
+     * 该模型是否需要一次不带 `reasoningEffort` 的**探测**请求作对照。
+     *
+     * 判定「某档位不被支持」只能靠这个对照：上游对「这一档不被支持」的报错格式千差万别，
+     * 不比对就没法把失败归因到档位本身。两种情形不需要它——关掉档位开关时全部请求本就不带参数，
+     * 以及模型没有声明任何档位时——此时那一次不带档位的请求**本身就是被验对象**，不是对照。
+     * 它是否要发由浏览器半在规划时声明（`needTest`），Node 半不替它反推。
+     */
+    needTest: boolean
 }
 
 /**
@@ -81,13 +93,24 @@ export interface VerifyProbeResult {
     failure: VerifyFailureFacts | undefined
 }
 
-/** 一个提供方的探测结论：逐条明细 + 短路情况（由 Node 半执行器产出，供汇报函数消费） */
+/** 一个提供方的验证结论：逐条明细 + 短路情况（由 Node 半执行器产出，供汇报函数消费） */
 export interface ProviderProbeOutcome {
     provider: string
-    /** 与该组探测清单前缀对齐：短路时长度小于 planned */
+    /** 与该组验证请求清单前缀对齐：短路时长度小于 planned；探测不在其中 */
     results: VerifyProbeResult[]
+    /**
+     * 探测结论（实际发出的那些）。它不是被验对象，故不进 `results`、不计任何计数，
+     * 但真发出去过就能证伪端点与凭据，故单列：漏掉它会把「探测撞上额度 / 不可达」误报成「端点可达、凭据有效」。
+     */
+    tests: VerifyProbeResult[]
     blockedBy: ProviderBlockReason | undefined
+    /**
+     * 计划验证请求数（**不含探测**：探测是判据不是被验对象）。
+     * 故等于「带档位的请求数 + 不带档位且 `needTest` 为假的请求数」。
+     */
     planned: number
+    /** 计划验过的模型数（按「提供方 / 模型」去重）：即该组里用户勾了几个，取自计划而非明细——模型若被短路到一条未发，明细里就没有它 */
+    tested: number
 }
 
 /** 单个提供方的验证结论（逐提供方可见） */
@@ -100,15 +123,17 @@ export interface VerifyProviderReport {
     /** 整组是否因 provider 级失败被短路 */
     skipped: boolean
     blockedBy: ProviderBlockReason | undefined
+    /** 该组计划验过的模型数（按「提供方 / 模型」去重），即用户勾了几个 */
+    tested: number
     /** 该组内可用模型数（按「提供方 / 模型」去重） */
     models: number
     /** 该组内可用档位数 */
     efforts: number
     /** 判定为「档位不支持」的探测数：逐模型逐档位，故与其它失败分开计数 */
     unsupported: number
-    /** 计划探测数 */
+    /** 计划验证请求数（不含探测） */
     planned: number
-    /** 实际发出数（短路时小于 planned） */
+    /** 实际发出的验证请求数（短路时小于 planned；探测恒不计入） */
     probed: number
 }
 
@@ -135,13 +160,19 @@ export interface VerifySummary {
      * 筛选口径一旦与执行器分叉就会漏剔或多剔。
      */
     unsupportedEfforts: readonly UnsupportedEffort[]
-    /** 本次验证的模型数（按「提供方 / 模型」去重），即用户勾了几个 */
+    /** 本次验证的模型数（按「提供方 / 模型」去重），即用户勾了几个；取自计划而非明细，故被短路的模型也在内 */
     tested: number
-    /** 可用模型数：至少有一个档位通过的去重模型数，全档位失败的模型不计入 */
+    /**
+     * 可用模型数：至少有一条**验证请求**（探测不算）通过的去重模型数，全档位失败的模型不计入。
+     * 关掉档位开关时它就是「勾选的模型里跑通几个」。
+     */
     models: number
+    /** 判可用的带档位请求数（探测恒不计入） */
     efforts: number
     unsupported: number
+    /** 计划验证请求数（不含探测）：关档位时等于勾选模型数，开档位时等于计划推理级别总数 */
     planned: number
+    /** 实际发出的验证请求数（探测恒不计入） */
     probed: number
 }
 
