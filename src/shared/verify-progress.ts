@@ -200,7 +200,8 @@ export type VerifyProgressFrame =
     | { type: 'opened'; total: number }
     /**
      * 一条探测出结果。`done`/`total` 是跨提供方并行的累计位置，直接显示为进度。
-     * `skipped` 仅在该结论触发 provider 级短路时出现，值为该组剩余未发出的条数。
+     * `skipped` 在该结论短路了后续请求时出现（provider 级或模型级，含探测不通导致的短路），
+     * 值为未发出的条数。`effort` 缺省即模型级结论：探测不通时那一条档位请求根本没发出去，没有哪一档被验过。
      */
     | {
         type: 'probed'
@@ -257,7 +258,7 @@ function isProgressFrame(value: unknown): value is VerifyProgressFrame {
             && typeof value.outcome === 'string' && typeof value.done === 'number' && typeof value.total === 'number'
             // effort 缺省即「该模型未声明档位」，键缺省是合法形态
             && (value.effort === undefined || typeof value.effort === 'string')
-            // skipped 仅在触发 provider 级短路时出现
+            // skipped 仅在该结论短路了后续请求时出现
             && (value.skipped === undefined || typeof value.skipped === 'number')
     }
     // done 帧只校验消费方会读的四个计数（收尾那行文案要用）；其余字段（逐提供方汇报与明细）此刻还没人用

@@ -338,6 +338,7 @@ function isEffortRejection(failure: VerifyFailureFacts | undefined): boolean {
  * 每模型**至多一次探测**：带档位的模型在验它第一条之前，先发一次不带档位的请求作对照——
  * 判「某档位不被支持」只能靠它（理由见 `isEffortRejection`）。探测不是被验对象：它不进明细、
  * 不计任何统计、跑通时也不留记录（用户看到的每一条都该是被验的那一次）。
+ * 唯一的例外是**探测失败并据此短路**：那一条档位请求根本没发出去，用户无从得知，只能靠这条记录交代。
  * 两种模型没有探测：关掉档位开关时全部请求本就不带参数，以及模型没有声明任何档位时——
  * 那一次不带档位的请求本身就是被验对象（`needTest` 为假），故探测与它无从分开。
  *
@@ -354,7 +355,7 @@ async function runGroup(
     llm: Pick<LlmRuntime, 'stream'>,
     group: ProviderProbeGroup,
     signal: AbortSignal,
-    emitProbe: (probe: VerifyProbe, verdict: ProbeVerdict, skipped: number | undefined) => void,
+    emitProbe: (probe: Pick<VerifyProbe, 'provider' | 'model' | 'effort'>, verdict: ProbeVerdict, skipped: number | undefined) => void,
 ): Promise<ProviderProbeOutcome> {
     const results: VerifyProbeResult[] = []
     // 探测结论单列：它真发出去过，能证伪端点与凭据；但它不是被验对象，不混进明细与计数
@@ -367,7 +368,8 @@ async function runGroup(
         if (signal.aborted) break
         const probe = group.probes[index]
         const tail = sameModelTail(group.probes, index)
-        // 探测：组内该模型的第一条带 needTest 的请求即它的探测位，成功与否都只记事实、不发记录
+        // 探测：组内该模型的第一条带 needTest 的请求即它的探测位。跑通只记事实、不发记录；
+        // 失败则据其短路，并发一条记录交代「这个模型为什么没验成」
         if (probe.needTest && !probed.has(probe.model)) {
             probed.add(probe.model)
             const testVerdict = await probeOnce(llm, { provider: probe.provider, model: probe.model }, signal)
@@ -383,10 +385,15 @@ async function runGroup(
             } else if (isProviderBlocking(testVerdict.outcome)) {
                 // 端点不通 / 凭据无效：同一提供方共用同一 url 与同一把 key，整组都过不去
                 blockedBy = testVerdict.outcome
+                // 未发出的条数含当前这条：它同样因探测不通而没发出去
+                emitProbe({ provider: probe.provider, model: probe.model }, testVerdict, group.probes.length - index)
                 break
             } else {
                 // 探测都没跑通，换任何档位也是同样结果，不必再逐档位烧额度；
                 // 瞬态失败（限流 / 超时）同理：这次没跑成不代表下次也跑不通，但重试同一模型也只是烧额度
+                // 短路必须留一条记录（模型级，不带档位——没有哪一档被验过）：否则该模型在记录区彻底消失，
+                // 用户只看到别的模型的结果，无从知道它为什么没出现
+                emitProbe({ provider: probe.provider, model: probe.model }, testVerdict, tail + 1)
                 index += tail
                 continue
             }
@@ -464,7 +471,7 @@ export async function verifyModels(
     // 稀疏数组：中止时从未开跑的组保持 undefined，汇报时据实排除——把它们报成「全可用」或「全不可用」都是撒谎
     const outcomes = new Array<ProviderProbeOutcome>(groups.length)
     let completed = 0
-    const emitProbe = (probe: VerifyProbe, verdict: ProbeVerdict, skipped: number | undefined): void => {
+    const emitProbe = (probe: Pick<VerifyProbe, 'provider' | 'model' | 'effort'>, verdict: ProbeVerdict, skipped: number | undefined): void => {
         // 跨 worker 的累计位置：本函数只在 await 之后同步调用，单线程下不会交错，自增即可
         completed++
         options.onProgress?.({

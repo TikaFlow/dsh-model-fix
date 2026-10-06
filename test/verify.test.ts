@@ -450,7 +450,7 @@ export async function run(): Promise<void> {
         const { llm, calls } = stub({ 'm1': [finishError('INVALID_REQUEST', 400)] })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
         check(
-            'verifyModels 探测不通则不判档位不支持、直接短该模型（一条记录都不留）',
+            'verifyModels 探测不通则不判档位不支持、直接短该模型（明细里不留探测）',
             calls.length === 1 && summary.probed === 0 && summary.unsupported === 0 && summary.planned === 2 && summary.tested === 1,
             { calls, summary },
         )
@@ -517,19 +517,37 @@ export async function run(): Promise<void> {
         )
     }
     {
-        // 探测撞上端点不通：整组立刻停，但探测既不产明细也不产帧——记录里不留它的痕迹，
-        // 「整组没验成」由汇报里的 blockedBy 如实交代
+        // 探测撞上端点不通：整组立刻停。探测本身不是被验对象（不进明细、不计统计），
+        // 但它不通就意味着这个模型一条都没验成——不发记录的话它在记录区彻底消失，
+        // 用户只看到别的模型的结果，无从知道它为什么没出现。故发一条不带档位的模型级记录
         const frames: VerifyProgressFrame[] = []
         const { llm, calls } = stub({ 'm1': [finishError('TRANSPORT')] })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] }, {
             onProgress: (frame) => { frames.push(frame) },
         })
         check(
-            'verifyModels 探测撞端点不通即短整组，且一条 probed 帧都不发',
+            'verifyModels 探测撞端点不通即短整组，并留一条模型级记录（档位缺省、未发出的三条计入 skipped）',
             calls.length === 1 && summary.probed === 0 && summary.planned === 3 && summary.tested === 1
             && summary.providers[0].blockedBy === 'unreachable' && !summary.providers[0].reachable
-            && frames.every((frame) => frame.type !== 'probed') && frames[0].type === 'opened',
+            && stable(frames[1]) === stable({
+                type: 'probed', provider: 'a', model: 'm1', effort: undefined, outcome: 'unreachable', skipped: 3, done: 1, total: 3,
+            }) && frames[2].type === 'done',
             { calls, summary, frames },
+        )
+    }
+    {
+        // 探测不通（非 provider 级）短该模型时同样要留记录，skipped 含这条探测自身——它也没发出去
+        const frames: VerifyProgressFrame[] = []
+        const { llm, calls } = stub({ 'm1': [finishError('MODEL_NOT_FOUND', 404)] })
+        await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] }, {
+            onProgress: (frame) => { frames.push(frame) },
+        })
+        check(
+            'verifyModels 探测不通短该模型时发一条记录，skipped 含探测自身',
+            calls.length === 1 && stable(frames[1]) === stable({
+                type: 'probed', provider: 'a', model: 'm1', effort: undefined, outcome: 'other', skipped: 2, done: 1, total: 2,
+            }),
+            frames,
         )
     }
     {
