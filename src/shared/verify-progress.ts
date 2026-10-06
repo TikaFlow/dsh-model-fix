@@ -98,11 +98,29 @@ export interface VerifyProviderReport {
     probed: number
 }
 
-/** 验证结果汇总：逐提供方汇报 + 逐条明细 + 全局计数 */
+/**
+ * 一个「提供方 / 模型」下的某个推理级别被判为**不被支持**。
+ *
+ * 只收**明确**判为不支持的：超时、限流、额度耗尽、端点不可达都只是没能验成，不是不支持，
+ * 拿它们去剔除用户填的配置就是误伤。
+ */
+export interface UnsupportedEffort {
+    provider: string
+    model: string
+    effort: string
+}
+
+/** 验证结果汇总：逐提供方汇报 + 逐条明细 + 不支持档位明细 + 全局计数 */
 export interface VerifySummary {
     providers: readonly VerifyProviderReport[]
     /** 逐条探测明细，顺序为「组序 → 组内探测序」，可重复消费 */
     results: readonly VerifyProbeResult[]
+    /**
+     * 明确判为不被支持的档位明细。统计值前端可直接用 `models` / `efforts` / `planned`，
+     * 但剔除要写配置就得逐条定位，故这块不聚合、只给明细——省得前端再从 `results` 里自己筛一遍，
+     * 筛选口径一旦与执行器分叉就会漏剔或多剔。
+     */
+    unsupportedEfforts: readonly UnsupportedEffort[]
     models: number
     efforts: number
     unsupported: number

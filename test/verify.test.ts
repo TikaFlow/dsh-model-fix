@@ -151,13 +151,25 @@ export async function run(): Promise<void> {
     check(
         'summarizeProviders 求和（短路组的计划数计入、实测数只计已发出的）',
         stable(summarizeProviders([ok, blocked], details)) === stable({
-            providers: [ok, blocked], results: details, models: 2, efforts: 3, unsupported: 1, planned: 8, probed: 4,
+            providers: [ok, blocked], results: details, unsupportedEfforts: [], models: 2, efforts: 3, unsupported: 1, planned: 8, probed: 4,
         }),
         summarizeProviders([ok, blocked], details),
     )
     check(
         'summarizeProviders 空输入',
-        stable(summarizeProviders([], [])) === stable({ providers: [], results: [], models: 0, efforts: 0, unsupported: 0, planned: 0, probed: 0 }),
+        stable(summarizeProviders([], [])) === stable({
+            providers: [], results: [], unsupportedEfforts: [], models: 0, efforts: 0, unsupported: 0, planned: 0, probed: 0,
+        }),
+    )
+    // 不支持档位明细由结果派生：剔除要写配置就得逐条定位，聚合与明细同源、不另立口径
+    const unsupportedDetail = [
+        { provider: 'a', model: 'm1', effort: 'high', outcome: 'unsupported-effort', failure: undefined },
+    ] as VerifyProbeResult[]
+    check(
+        'summarizeProviders 不支持档位明细逐条给出',
+        stable(summarizeProviders([], unsupportedDetail).unsupportedEfforts)
+        === stable([{ provider: 'a', model: 'm1', effort: 'high' }]),
+        summarizeProviders([], unsupportedDetail).unsupportedEfforts,
     )
 
     // ---------- verifyModels：带桩跑通整条链，逐组串行且短路 ----------

@@ -105,7 +105,6 @@ export type CardKey =
     | 'pruneGo'
     | 'pruneDone'
     | 'pruneNone'
-    | 'pruneRejected'
     | 'pruneFailed'
     // 宿主 TerminalBlock 的展示文案：键名与 terminalLabels(t) 逐条对齐官方安装页的映射（ui-plugin-manager/…/locales.ts:152-164）
     | 'terminalSignal'
@@ -276,7 +275,6 @@ export const zh: Record<CardKey, string> = {
     pruneGo: '剔除',
     pruneDone: '已剔除 {count} 个不被支持的推理级别。',
     pruneNone: '这些推理级别在配置里已不存在，无需剔除。',
-    pruneRejected: '配置在验证期间被改动，本次未写入。',
     pruneFailed: '剔除失败：{message}',
     terminalSignal: '信号 {signal}',
     terminalExitCode: '退出码 {code}',
@@ -406,7 +404,6 @@ export const en: Record<CardKey, string> = {
     pruneGo: 'Remove',
     pruneDone: 'Removed {count} unsupported reasoning effort(s).',
     pruneNone: 'Those reasoning efforts are no longer in the configuration; nothing to remove.',
-    pruneRejected: 'The configuration changed during verification; nothing was written.',
     pruneFailed: 'Failed to remove: {message}',
     terminalSignal: 'signal {signal}',
     terminalExitCode: 'exit code {code}',

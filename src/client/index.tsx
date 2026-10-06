@@ -31,7 +31,7 @@ import { Card } from '@/client/card'
 import { CARD_NS, en, zh } from '@/client/locales'
 import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS, VERIFY_STREAM_URL } from '@/shared/constants'
 import { decodeProgressFrame } from '@/shared/verify-progress'
-import type { VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
+import type { UnsupportedEffort, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
 import { DEFAULT_CONFIG } from '@/shared/parse'
 import { VERSION_KEY, decodeSection } from '@/client/model'
 import type { Flags, VerifyCandidate } from '@/client/model'
@@ -77,6 +77,10 @@ function boot(
     const forceUpdate = () => rpc.call(`/${MODEL_FIX_NS}`, 'forceUpdate', {})
     const resetModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'resetModels', {})
     const restoreModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'restoreModels', {})
+    // 剔除不被支持的推理级别：走 Node 半而非浏览器半直写，因为这条写回必须经事件流守卫，
+    // 而守卫是 Node 半的模块级标志，浏览器半跨不过半纯度门禁
+    const pruneEfforts = (targets: readonly UnsupportedEffort[]) =>
+        rpc.call(`/${MODEL_FIX_NS}`, 'pruneEfforts', { targets })
     /**
      * 验证模型：载荷是卡片按勾选收敛好的「模型 × 推理级别」清单，Node 半只做笛卡尔积展开与探测。
      *
@@ -140,14 +144,14 @@ function boot(
         id: MODEL_FIX_NS,
         order: -999999,
         locale: CARD_NS,
-    }, (props) => <Card {...props} scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} verifyModels={verifyModels} />))
+    }, (props) => <Card {...props} scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} verifyModels={verifyModels} pruneEfforts={pruneEfforts} />))
     // 插件详情页的配置段：keyed 按 entryKey 分发，key 是 npm 包名（不是 patch 条目 id）
     // defaultOpen：配置段就是该页主体，默认收起等于让用户多点一次
     ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
         name: 'plugins.bundle.config',
         key: name,
         locale: CARD_NS,
-    }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} verifyModels={verifyModels} />))
+    }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} verifyModels={verifyModels} pruneEfforts={pruneEfforts} />))
     // patch 声明的组件实例自己的配置页：key = `<npm 包名>#<patch 条目 id>`（宿主 rowConfigKey 拼接，
     // 条目 id 即运行实例 id = MODEL_FIX_NS）。注册后「包含的组件」里该实例的 title 变为可点按钮，
     // 进入组件详情页（返回按钮为插件名、下方不再有组件列表）；不注册则 title 是纯文本、无任何交互。
@@ -156,7 +160,7 @@ function boot(
         name: 'plugins.row.config',
         key: `${name}#${MODEL_FIX_NS}`,
         locale: CARD_NS,
-    }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} verifyModels={verifyModels} />))
+    }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} verifyModels={verifyModels} pruneEfforts={pruneEfforts} />))
     // 「设置 → 内置插件」的 tablist（list 席位，面板即本卡）：与官方「插件列表」tab 同级并排。
     // tab label 走 thunk，section 每次读账本时求值、切语言即跟随
     const t = ctx.locale.bind(CARD_NS)
@@ -166,7 +170,7 @@ function boot(
         order: 20,
         label: () => t('tabLabel'),
         locale: CARD_NS,
-    }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} verifyModels={verifyModels} />))
+    }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} verifyModels={verifyModels} pruneEfforts={pruneEfforts} />))
 
     // 记忆监听子 fiber（宿主无 sessions/modelDirectories 时静默不启用）：纯监听，只订阅会话投影；
     // 自动设置经宿主公开 directory.select，保存经自有 NS 的 settings scope 直写

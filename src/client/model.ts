@@ -6,8 +6,7 @@
  * 以及验证候选的拍取与目标收敛（卡片「验证模型」弹层消费）。
  */
 
-import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import type { PluginConfig, PruneTarget } from '@/shared/types'
+import type { PluginConfig } from '@/shared/types'
 import { isPlainObject, providersOf } from '@/shared/types'
 import { CONFIG_VERSION, EFFORT_LEVELS } from '@/shared/constants'
 import { DEFAULT_CONFIG, FIELD_KEYS, COMPAT_KEYS, USER_EXPERIENCE_KEYS, parseSnapshot, versionKey } from '@/shared/parse'
@@ -203,68 +202,4 @@ export function toggleGroupPicks(picked: ReadonlySet<string>, models: readonly V
         else next.add(key)
     }
     return next
-}
-
-/** 剔除计划的结果：`ops` 为待写入的路径操作，`pruned` 只计真正从现有档位里剔掉的条数 */
-export interface PrunePlan {
-    ops: SettingsPathOp[]
-    pruned: number
-}
-
-/**
- * 剔除不被支持的推理级别的写回计划（纯函数，零 ctx 依赖可单测）。
- *
- * 入参取**点击时的最新** user 层，而非验证发起时的快照：验证期间用户可能自己改过档位，
- * 拿陈旧快照去覆盖会把人家刚改的设置抹回去。调用方另以读取时的 revision 作围栏写入。
- *
- * 只剔除**当前仍在档位表里**的那些：验证明细里记着的是当时的结论，若之后用户已经手动删过或改过，
- * 该条自然不命中，`pruned` 也不会虚报——幂等。
- *
- * 逐 provider 整段 `set` models（路径 op 不支持数组下标中间段），未命中的模型元素原样保留；
- * 某模型的档位被剔空则整个 `reasoningEfforts` 键不再写出，免得留下空壳反复触发写入判定。
- * 命中的提供方若在 `excluded` 中则整组跳过——排除语义对插件的写入处处生效，不因这次由用户发起而破例。
- */
-export function planPruneEfforts(
-    user: unknown,
-    targets: readonly PruneTarget[],
-    excluded: readonly string[],
-): PrunePlan {
-    const wanted = new Map<string, ReadonlySet<string>>()
-    for (const target of targets) {
-        const key = verifyKey(target.provider, target.model)
-        const seen = wanted.get(key)
-        wanted.set(key, seen === undefined ? new Set([target.effort]) : new Set([...seen, target.effort]))
-    }
-    const skip = new Set(excluded)
-    const ops: SettingsPathOp[] = []
-    let pruned = 0
-    for (const [providerId, provider] of Object.entries(providersOf(user) ?? {})) {
-        if (skip.has(providerId) || !isPlainObject(provider) || !Array.isArray(provider.models)) continue
-        let next: Record<string, unknown>[] | undefined
-        for (let i = 0; i < provider.models.length; i++) {
-            const model = provider.models[i]
-            if (!isPlainObject(model) || typeof model.id !== 'string') continue
-            const hits = wanted.get(verifyKey(providerId, model.id))
-            const declared = isPlainObject(model.reasoningEfforts) ? model.reasoningEfforts : undefined
-            if (hits === undefined || declared === undefined) continue
-            const kept: Record<string, unknown> = {}
-            let hit = 0
-            for (const [effort, value] of Object.entries(declared)) {
-                if (hits.has(effort)) {
-                    hit++
-                    continue
-                }
-                kept[effort] = value
-            }
-            if (hit === 0) continue
-            pruned += hit
-            next ??= provider.models.slice()
-            // 档位被剔空则不再写出该键；其余模型字段原样保留
-            next[i] = Object.keys(kept).length === 0
-                ? Object.fromEntries(Object.entries(model).filter(([key]) => key !== 'reasoningEfforts'))
-                : { ...model, reasoningEfforts: kept }
-        }
-        if (next) ops.push({ op: 'set', path: ['providers', providerId, 'models'], value: next })
-    }
-    return { ops, pruned }
 }

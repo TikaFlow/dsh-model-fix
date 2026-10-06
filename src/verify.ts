@@ -35,7 +35,7 @@ import { LEVELS } from '@/constants'
 import { PLUGIN_NAME } from '@/shared/constants'
 import { isPlainObject } from '@/shared/types'
 import { isProviderBlocking } from '@/shared/verify-progress'
-import type { ProbeOutcome, ProviderBlockReason, ProviderProbeOutcome, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
+import type { ProbeOutcome, ProviderBlockReason, ProviderProbeOutcome, UnsupportedEffort, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
 
 /** 探测提示词：只要一句应答，最省 token */
 const VERIFY_PROMPT = 'Just say OK'
@@ -175,7 +175,15 @@ export function summarizeProviders(
         planned += report.planned
         probed += report.probed
     }
-    return { providers: reports, results, models, efforts, unsupported, planned, probed }
+    // 不支持档位明细：只认明确判为不支持、且确实带档位的条目（不带档位的探测走不到那个结论）。
+    // 与上面的聚合同源，不另算一套口径，免得两处分叉
+    const unsupportedEfforts: UnsupportedEffort[] = []
+    for (const item of results) {
+        if (item.outcome === 'unsupported-effort' && item.effort !== undefined) {
+            unsupportedEfforts.push({ provider: item.provider, model: item.model, effort: item.effort })
+        }
+    }
+    return { providers: reports, results, unsupportedEfforts, models, efforts, unsupported, planned, probed }
 }
 
 /** 取失败事实的可序列化子集（供调用方自行细分，不参与本插件的判定） */

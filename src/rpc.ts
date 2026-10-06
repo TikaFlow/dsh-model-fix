@@ -9,6 +9,9 @@
  *   事件流守卫全程打开，避免写回触发填充。
  * - 「验证模型」不在此列：它要回一个持续多帧的进度流，走独立的 `connection.fetch` 路由（见文末）。
  *   只读、不写 settings，故**不占事件流守卫**，也不与三个写回端点互斥。
+ * - 「剔除推理级别」→ pruneUnsupportedEfforts(ctx, targets) 按验证明细给出的档位清单剔除，
+ *   同样经守卫与 `queueTask` 写回。守卫在这里不可省：浏览器半直写绕不过去，
+ *   守卫一开，写回触发的 settings 事件就不会让事件链的 `fix` 把刚剔掉的档位又填回来。
  * 前三个写回端点共用同一守卫做互斥：入口一律先查，守卫已开（另一写回在途）即拒——后到者的 finally 会
  * 提前解除守卫，令先到者的写回失去保护；填充与写回语义也相互冲突。置位分工：forceUpdate 在本
  * handler 层置位（finally 解除），reset / restore 由各自写回内部置位。守卫互斥只覆盖查守卫的路径：
@@ -34,6 +37,7 @@ import { PLUGIN_NAME, PLUGIN_NS, VERIFY_STREAM_ROUTE } from '@/shared/constants'
 import { encodeProgressFrame } from '@/shared/verify-progress'
 import { fix } from '@/fix'
 import { endIgnoreAll, isIgnoreAll, startIgnoreAll } from '@/guard'
+import { parsePruneTargets, pruneUnsupportedEfforts } from '@/prune'
 import { resetModels } from '@/reset'
 import { restoreModels } from '@/restore'
 import { verifyModels } from '@/verify'
@@ -46,6 +50,8 @@ const ENDPOINT_FORCE_UPDATE = 'forceUpdate'
 const ENDPOINT_RESET_MODELS = 'resetModels'
 /** 卡片「恢复备份」按钮调用的 endpoint 名 */
 const ENDPOINT_RESTORE_MODELS = 'restoreModels'
+/** 剔除不被支持的推理级别时调用的 endpoint 名（由验证结果确认框发起，携带档位明细） */
+const ENDPOINT_PRUNE_EFFORTS = 'pruneEfforts'
 
 /** 守卫已开（另一写回在途）时的统一拒绝结果 */
 const writeInProgress = (): ConnectionRpcResult<unknown> => ({
@@ -62,8 +68,8 @@ export function installRpc(ctx: Context): void {
         const webServer = rpcCtx.get('webServer') as WebServer
         rpcCtx.effect(() => {
             const channel = `/${PLUGIN_NS}`
-            // 三个写回端点都不读 payload（各自按整份配置重算），故只接 endpoint 参数
-            const handler: EndpointHandler = async (endpoint) => {
+            // 强制更新与恢复备份各按整份配置重算、不读载荷；重置也不读，但剔除要按调用方给的档位明细动手
+            const handler: EndpointHandler = async (endpoint, payload) => {
                 if (endpoint === ENDPOINT_FORCE_UPDATE) {
                     // 重置/恢复写回期间拒绝：填充会把刚回退掉的字段重新写回，与写回语义冲突
                     if (isIgnoreAll()) return writeInProgress()
@@ -99,6 +105,29 @@ export function installRpc(ctx: Context): void {
                             ok: false,
                             error: {
                                 code: endpoint === ENDPOINT_RESET_MODELS ? 'model-fix/reset-models-failed' : 'model-fix/restore-models-failed',
+                                message: error instanceof Error ? error.message : String(error),
+                                details: {},
+                            },
+                        }
+                    }
+                }
+                if (endpoint === ENDPOINT_PRUNE_EFFORTS) {
+                    // 剔除也是写回：守卫已开（另一写回在途）即拒，否则两个 finally 抢着解守卫
+                    if (isIgnoreAll()) return writeInProgress()
+                    const targets = parsePruneTargets(payload)
+                    if (targets === undefined) {
+                        return {
+                            ok: false,
+                            error: { code: 'model-fix/prune-efforts-invalid', message: '剔除请求不合法（提供方 / 模型 / 推理级别缺失或越界）', details: {} },
+                        }
+                    }
+                    try {
+                        return { ok: true, value: { pruned: await pruneUnsupportedEfforts(ctx, targets) } }
+                    } catch (error) {
+                        return {
+                            ok: false,
+                            error: {
+                                code: 'model-fix/prune-efforts-failed',
                                 message: error instanceof Error ? error.message : String(error),
                                 details: {},
                             },

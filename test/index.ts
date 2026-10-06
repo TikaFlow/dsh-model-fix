@@ -8,6 +8,7 @@ import { run as runFix } from '@test/fix.test'
 import { run as runGuard } from '@test/guard.test'
 import { run as runLookup } from '@test/lookup.test'
 import { run as runMigrate } from '@test/migrate.test'
+import { run as runPrune } from '@test/prune.test'
 import { run as runReset } from '@test/reset.test'
 import { run as runRestore } from '@test/restore.test'
 import { run as runRpcRoute } from '@test/rpc-route.test'
@@ -30,6 +31,8 @@ section('lookup.test.ts')
 runLookup()
 section('migrate.test.ts')
 runMigrate()
+section('prune.test.ts')
+runPrune()
 section('reset.test.ts')
 runReset()
 section('restore.test.ts')

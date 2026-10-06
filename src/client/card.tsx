@@ -35,7 +35,6 @@ import {
     groupValue,
     isDirty,
     masterValue,
-    planPruneEfforts,
     providerIdsOf,
     removeExclude,
     resolveHits,
@@ -49,9 +48,8 @@ import type { Flags, Group, RowKey, VerifyCandidate } from '@/client/model'
 import type { CardKey } from '@/client/locales'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locales'
 import { PLUGIN_NAME } from '@/shared/constants'
-import type { PruneTarget } from '@/shared/types'
 import { isProviderBlocking } from '@/shared/verify-progress'
-import type { ProbeOutcome, VerifyProbedFrame, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
+import type { UnsupportedEffort, ProbeOutcome, VerifyProbedFrame, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 
 /** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
@@ -179,6 +177,8 @@ export interface CardProps {
         onFrame: (frame: VerifyProgressUpdate) => void,
         signal: AbortSignal,
     ) => Promise<VerifySummary | undefined>
+    /** 剔除不被支持的推理级别：入参是验证明细给出的「提供方 / 模型 / 档位」清单；返回实际剔掉的档位条数 */
+    pruneEfforts: (targets: readonly UnsupportedEffort[]) => Promise<ConnectionRpcResult<unknown>>
     /** 初始折叠态：插件详情页（plugins.bundle.config）、组件实例详情页（plugins.row.config）与「内置插件」选项卡（settings.plugins.tab）默认展开；模型页 footer 席不传即默认收起（与官方插件卡一致）。同时决定保存成功后是否自动收起——只在默认收起的席位上生效 */
     defaultOpen?: boolean
 }
@@ -591,9 +591,10 @@ export function Card(props: CardProps) {
     const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
     // 「记住推理级别」关掉时的确认：是否清空已有记忆（前端直写，不走 RPC）
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
-    // 剔除确认的目标：验证明细里**明确**被判「档位不支持」的条目。中止 / 出错 / 无此类结论时保持空数组，
-    // 空数组即不弹窗（计划要求的触发条件）；写入前另取点击时的最新配置，不拿验证明细里的旧配置去覆盖
-    const [pruneTargets, setPruneTargets] = useState<readonly PruneTarget[]>([])
+    // 剔除确认的目标：验证明细里**明确**被判「档位不支持」的条目，由 Node 半直接给出，
+    // 浏览器半不自己从 results 里筛——两处口径一旦分叉就会漏剔或多剔。
+    // 中止 / 出错 / 无此类结论时保持空数组，空数组即不弹窗
+    const [pruneTargets, setPruneTargets] = useState<readonly UnsupportedEffort[]>([])
     // 「验证模型」弹层：勾选集（键见 verifyKey）、是否逐个档位验证；默认不预选——每次验证都花真实额度
     const [verifyOpen, setVerifyOpen] = useState(false)
     const [verifyPicked, setVerifyPicked] = useState<ReadonlySet<string>>(() => new Set())
@@ -830,13 +831,9 @@ export function Card(props: CardProps) {
                     }),
                     tone: 'success',
                 })
-                // 只认**明确**判为「档位不支持」的条目：超时、限流、额度耗尽只是没验成，不是不支持，
-                // 拿它们去剔除配置就是误伤用户手工填的档位。中止时压根到不了这里，故不会误弹
-                const unsupported = summary.results.flatMap((item) =>
-                    item.outcome === 'unsupported-effort' && item.effort !== undefined
-                        ? [{ provider: item.provider, model: item.model, effort: item.effort }]
-                        : [])
-                setPruneTargets(unsupported)
+                // 明细由 Node 半直接给出（只收明确判为不支持的），前端不自己从 results 里筛——
+                // 两处口径一旦分叉就会漏剔或多剔。中止时压根到不了这里，故不会误弹
+                setPruneTargets(summary.unsupportedEfforts)
                 // 结果到手才关窗；记录区的使命就是这轮的过程，随之消失
                 closeVerify()
             })
@@ -865,33 +862,36 @@ export function Card(props: CardProps) {
     // 剔除确认的关闭即丢弃目标：不写任何配置，清空即自然不再弹出（不另设开关态，避免两个状态不同步）
     const closePrune = () => { setPruneTargets([]) }
     /**
-     * 剔除不被支持的推理级别：前端直读直写，不经 RPC。
+     * 剔除不被支持的推理级别：经 Node 半写回。
      *
-     * 读取的是**点击时**的最新 user 层，而不是验证明细里那份旧快照——验证可能跑了几分钟，
-     * 期间用户自己改过档位，拿旧快照去覆盖会把人家刚改的抹回去。以读取时的 revision 作围栏写入，
-     * 中途被别人改过就整体拒写，宁可不做也不覆盖。
+     * 读取最新配置、revision 围栏与冲突重试、只认目标里当前仍在档位表中的那些、事件流守卫——全在那边，
+     * 浏览器半只负责发请求与展示结果；`pruned` 为 0 表示那些档位在此期间已被用户改掉，没有可写的了。
      */
-    const pruneEfforts = async () => {
+    const pruneEfforts = () => {
+        if (busy) return
         setBusy('prune')
-        try {
-            const snap = providersScope.getSnapshot()
-            const { ops, pruned } = planPruneEfforts(snap.user, pruneTargets, shown.excludes)
-            // pruned 为 0 = 验证明细里的档位在此期间已被改掉（已删或已改名），没有可写的了
-            if (pruned === 0) {
-                setNotice({ text: t('pruneNone'), tone: 'success' })
-                return
-            }
-            if (!(await providersScope.mutate(ops, snap.revision))) throw new Error(t('pruneRejected'))
-            setNotice({ text: t('pruneDone', { count: String(pruned) }), tone: 'success' })
-        } catch (error) {
-            setNotice({
-                text: t('pruneFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) }),
-                tone: 'error',
+        props.pruneEfforts(pruneTargets)
+            .then((result) => {
+                if (result.ok) {
+                    const pruned = (result.value as { pruned?: number } | undefined)?.pruned ?? 0
+                    setNotice({
+                        text: pruned === 0 ? t('pruneNone') : t('pruneDone', { count: String(pruned) }),
+                        tone: 'success',
+                    })
+                } else {
+                    setNotice({ text: t('pruneFailed', { message: truncateMessage(result.error.message) }), tone: 'error' })
+                }
             })
-        } finally {
-            setBusy(null)
-            closePrune()
-        }
+            .catch((error: unknown) => {
+                setNotice({
+                    text: t('pruneFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) }),
+                    tone: 'error',
+                })
+            })
+            .finally(() => {
+                setBusy(null)
+                closePrune()
+            })
     }
     const toggleVerifyPick = (key: string) => {
         setVerifyPicked((current) => {
