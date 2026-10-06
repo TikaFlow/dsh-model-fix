@@ -4,7 +4,7 @@ import { classifyFailure, groupProbesByProvider, planProbes, reportProvider, sum
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm/types'
 import { isProviderBlocking } from '@/shared/verify-progress'
-import type { ProbeOutcome, VerifyProbe, VerifyProbeResult, VerifyProviderReport } from '@/shared/verify-progress'
+import type { ProbeOutcome, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport } from '@/shared/verify-progress'
 import { check, stable } from '@test/helper'
 
 /** 一个模型的载荷；参数收 unknown 以便构造非法入参用例（RPC 入参按不可信输入校验） */
@@ -161,8 +161,8 @@ export async function run(): Promise<void> {
     )
 
     // ---------- verifyModels：带桩跑通整条链，逐组串行且短路 ----------
-    /** 桩：按「模型@档位 -> 分片序列」应答，未登记的组合默认成功；记录调用顺序与提示词 */
-    const stub = (script: Record<string, readonly StreamChunk[]>) => {
+    /** 桩：按「模型@档位 -> 分片序列」应答，未登记的组合默认成功；记录调用顺序与提示词；`onCall` 供用例在中途触发中止 */
+    const stub = (script: Record<string, readonly StreamChunk[]>, onCall?: (callIndex: number) => void) => {
         const calls: string[] = []
         const prompts: string[] = []
         const stream = (options: {
@@ -174,6 +174,7 @@ export async function run(): Promise<void> {
             const tag = `${options.model}${options.reasoningEffort === undefined ? '' : `@${options.reasoningEffort}`}`
             calls.push(`${options.provider}/${tag}`)
             prompts.push(options.messages[0].content[0].text)
+            onCall?.(calls.length)
             const chunks = script[tag] ?? [BLOCK_START as unknown as StreamChunk, FINISH_STOP as unknown as StreamChunk]
             return (async function* () { for (const chunk of chunks) yield chunk })()
         }
@@ -287,5 +288,72 @@ export async function run(): Promise<void> {
             threw = true
         }
         check('verifyModels 入参非法抛错（由 RPC 层转失败结果）', threw)
+    }
+    {
+        // 正常帧序列：opened 起 → 每条 probed → 收于唯一一条 done
+        const frames: VerifyProgressFrame[] = []
+        const { llm } = stub({})
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] }, {
+            onProgress: (frame) => { frames.push(frame) },
+        })
+        const last = frames[frames.length - 1]
+        check(
+            'verifyModels 进度帧：opened 起、逐条 probed、done 收尾',
+            stable(frames.slice(0, 4)) === stable([
+                { type: 'opened', total: 3 },
+                { type: 'probed', provider: 'a', model: 'm1', effort: 'off', outcome: 'usable', done: 1, total: 3 },
+                { type: 'probed', provider: 'a', model: 'm1', effort: 'high', outcome: 'usable', done: 2, total: 3 },
+                { type: 'probed', provider: 'a', model: 'm2', effort: 'low', outcome: 'usable', done: 3, total: 3 },
+            ]) && frames.length === 5 && last.type === 'done' && last.summary === summary,
+            frames,
+        )
+    }
+    {
+        // 短路那条自带 skipped：消费方才好交代「这组还剩几条没验」
+        const frames: VerifyProgressFrame[] = []
+        const { llm, calls } = stub({ 'm1@off': [finishError('QUOTA', 429)] })
+        await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] }, {
+            onProgress: (frame) => { frames.push(frame) },
+        })
+        check(
+            'verifyModels 短路那条 probed 带 skipped',
+            calls.length === 1 && stable(frames[1]) === stable({
+                type: 'probed', provider: 'a', model: 'm1', effort: 'off', outcome: 'quota', skipped: 2, done: 1, total: 3,
+            }),
+            frames,
+        )
+    }
+    {
+        // 中止：桩不理会信号本身，这里要验的是「本组不再发新探测」与「不发 done」
+        const controller = new AbortController()
+        const frames: VerifyProgressFrame[] = []
+        const { llm, calls } = stub({}, (index) => { if (index === 2) controller.abort() })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] }, {
+            signal: controller.signal,
+            onProgress: (frame) => { frames.push(frame) },
+        })
+        check(
+            'verifyModels 中止后早停且不发 done',
+            calls.length === 2 && frames.every((frame) => frame.type !== 'done')
+            && summary.probed === 2 && summary.planned === 3,
+            { calls, frames, summary },
+        )
+    }
+    {
+        // 六个提供方、五个 worker：第 3 次调用时中止，此时前 3 组已开跑、后 3 组从未开始。
+        // 它们不该出现在汇报里——报成「可达且凭据有效」或「全不可用」都是撒谎，它压根没被验证过。
+        const controller = new AbortController()
+        const { llm } = stub({}, (index) => { if (index === 3) controller.abort() })
+        const summary = await verifyModels(
+            llm,
+            { models: ['a', 'b', 'c', 'd', 'e', 'f'].map((provider) => entry(provider, 'm', [])) },
+            { signal: controller.signal },
+        )
+        check(
+            'verifyModels 从未开跑的提供方不进汇报',
+            stable(summary.providers.map((report) => report.provider)) === stable(['a', 'b', 'c'])
+            && summary.planned === 3 && summary.probed === 3,
+            summary.providers.map((report) => report.provider),
+        )
     }
 }

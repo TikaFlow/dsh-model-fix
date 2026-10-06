@@ -18,8 +18,14 @@
  * 该组剩余探测必然同样失败，故立即短路——省下的额度就是省下的钱。档位不被支持属逐模型逐档位的个体结论，
  * 只记录不短路。我方超时不算「端点不可达」，慢端点不该被当成断线。
  *
+ * 中止与进度：`verifyModels` 接受外部 `signal`（客户端断开或用户点停止）与 `onProgress` 出口。
+ * 中止同时断掉在途请求**并**让执行循环早停——只断请求而继续循环，后续探测会带着已中止的信号跑出一串假失败。
+ * 验证是即用即弃的诊断，用户已经不在之后继续跑等于白烧他的额度，故一律干净停在探测边界上。
+ * 进度按 `opened` → 每条 `probed` → 收于 `done` 发出；**中止时不发 `done`**，
+ * 消费方见「流自然结束却没等到 done」即知这轮没跑完，据此保留进度而不是报成功。
+ *
  * 纯计划与汇报（planProbes / groupProbesByProvider / classifyFailure / reportProvider / summarizeProviders）
- * 零 ctx、不触网；执行器 `verifyModels` 只依赖注入的 `llm.stream`，故带桩即可把短路等行为一并单测。
+ * 零 ctx、不触网；执行器 `verifyModels` 只依赖注入的 `llm.stream`，故带桩即可把短路与中止一并单测。
  */
 
 import type { LlmRuntime, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
@@ -29,7 +35,7 @@ import { LEVELS } from '@/constants'
 import { PLUGIN_NAME } from '@/shared/constants'
 import { isPlainObject } from '@/shared/types'
 import { isProviderBlocking } from '@/shared/verify-progress'
-import type { ProbeOutcome, ProviderBlockReason, ProviderProbeOutcome, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
+import type { ProbeOutcome, ProviderBlockReason, ProviderProbeOutcome, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
 
 /** 探测提示词：只要一句应答，最省 token */
 const VERIFY_PROMPT = 'Just say OK'
@@ -187,7 +193,7 @@ interface ProbeVerdict {
  * 发一次探测并判定：收到首个 `block-start` 即判「受支持」；否则读到终止块、据其失败事实分类。
  * 我方超时引发的 `aborted` 不算「端点不可达」——那会把慢端点误判成断线，进而错误短路整组。
  */
-async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe): Promise<ProbeVerdict> {
+async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe, signal: AbortSignal): Promise<ProbeVerdict> {
     const controller = new AbortController()
     let timedOut = false
     const timer = setTimeout(() => { timedOut = true; controller.abort() }, VERIFY_TIMEOUT_MS)
@@ -199,7 +205,9 @@ async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe): P
             // 免为此引入 @deepseek-ai/dsh-llm 的运行期值导入
             ...(probe.effort === undefined ? {} : { reasoningEffort: probe.effort as ReasoningEffortId }),
             messages: [{ role: 'user', content: [{ type: 'text', text: VERIFY_PROMPT }] }],
-            signal: controller.signal,
+            // 我方超时与外部中止合成一路，两者都该停在探测边界上。
+            // 不能改用 AbortSignal.timeout：那会抹掉下面判断「超时的是我」的 timedOut 标志，慢端点又被误判成断线
+            signal: AbortSignal.any([signal, controller.signal]),
         })) {
             // 只认 block-start——它证明适配器已真正开始产出内容块（宿主 isVisibleChunk 同样把 usage / finish 排除在「内容」之外）。
             // 不能沿用「首个非 finish 块即成功」：额度耗尽的 key 也会先来一条 usage，那不是受理信号。
@@ -229,12 +237,20 @@ async function probeOnce(llm: Pick<LlmRuntime, 'stream'>, probe: VerifyProbe): P
 /**
  * 顺序跑完一组的探测（组内零并发）。命中 provider 级失败即短路该组剩余探测——
  * 同一提供方共用同一 url 与同一把 key，这次过不了后面同样过不了，没必要再花额度。
+ * 外部中止同样在此早停：只断在途请求而不停循环，后续探测会带着已中止的信号跑出一串假失败。
  */
-async function runGroup(llm: Pick<LlmRuntime, 'stream'>, group: ProviderProbeGroup): Promise<ProviderProbeOutcome> {
+async function runGroup(
+    llm: Pick<LlmRuntime, 'stream'>,
+    group: ProviderProbeGroup,
+    signal: AbortSignal,
+    emitProbe: (probe: VerifyProbe, verdict: ProbeVerdict, skipped: number | undefined) => void,
+): Promise<ProviderProbeOutcome> {
     const results: VerifyProbeResult[] = []
     let blockedBy: ProviderBlockReason | undefined
-    for (const probe of group.probes) {
-        const verdict = await probeOnce(llm, probe)
+    for (let index = 0; index < group.probes.length; index++) {
+        if (signal.aborted) break
+        const probe = group.probes[index]
+        const verdict = await probeOnce(llm, probe, signal)
         results.push({
             provider: probe.provider,
             model: probe.model,
@@ -242,31 +258,78 @@ async function runGroup(llm: Pick<LlmRuntime, 'stream'>, group: ProviderProbeGro
             outcome: verdict.outcome,
             failure: verdict.failure,
         })
+        // 短路时把该组剩余未发出的条数一并带上，消费方才好交代「这组还剩几条没验」
         if (isProviderBlocking(verdict.outcome)) {
             blockedBy = verdict.outcome
+            emitProbe(probe, verdict, group.probes.length - index - 1)
             break
         }
+        emitProbe(probe, verdict, undefined)
     }
     return { provider: group.provider, results, blockedBy, planned: group.probes.length }
 }
+
+/** 一次验证的可选控制项；不传即静默跑完，行为与引入进度帧之前完全一致 */
+export interface VerifyOptions {
+    /** 外部中止：客户端断开或用户点停止。已中止即不再发新探测 */
+    signal?: AbortSignal
+    /** 进度出口。`done` 帧只在整轮真正跑完时发出，中止时不发 */
+    onProgress?: (frame: VerifyProgressFrame) => void
+}
+
+/** 「永不中止」的占位信号（AbortSignal 没有 null 态，未给 signal 时用它） */
+const NEVER_ABORTED = new AbortController().signal
 
 /**
  * 执行一次验证：入参校验 → 按提供方分组 → 逐组跑探测（组内零并发、组间最多五路）→ 逐组汇报并求和。
  * 返回逐提供方结论（可达 / 凭据 / 可用数 / 是否短路）与全局计数；入参非法即抛出，由调用方转 RPC 失败结果。
  */
-export async function verifyModels(llm: Pick<LlmRuntime, 'stream'>, payload: unknown): Promise<VerifySummary> {
+export async function verifyModels(
+    llm: Pick<LlmRuntime, 'stream'>,
+    payload: unknown,
+    options: VerifyOptions = {},
+): Promise<VerifySummary> {
     const probes = planProbes(payload)
     if (probes === undefined) throw new Error(`${PLUGIN_NAME}: 验证请求不合法（模型条目或推理级别取值越界）`)
+    const signal = options.signal ?? NEVER_ABORTED
     const groups = groupProbesByProvider(probes)
+    // 稀疏数组：中止时从未开跑的组保持 undefined，汇报时据实排除——把它们报成「全可用」或「全不可用」都是撒谎
     const outcomes = new Array<ProviderProbeOutcome>(groups.length)
+    let completed = 0
+    const emitProbe = (probe: VerifyProbe, verdict: ProbeVerdict, skipped: number | undefined): void => {
+        // 跨 worker 的累计位置：本函数只在 await 之后同步调用，单线程下不会交错，自增即可
+        completed++
+        options.onProgress?.({
+            type: 'probed',
+            provider: probe.provider,
+            model: probe.model,
+            effort: probe.effort,
+            outcome: verdict.outcome,
+            ...(skipped === undefined ? {} : { skipped }),
+            done: completed,
+            total: probes.length,
+        })
+    }
+    options.onProgress?.({ type: 'opened', total: probes.length })
     // 第 w 个 worker 只跑下标 ≡ w (mod workers) 的组：一个普通 for 即可切分，无需共享游标，
     // 各 worker 拿到的组数相差至多一个；组内逐条 await 即「同一 provider 零并发」
     const workers = Math.min(VERIFY_PROVIDER_CONCURRENCY, groups.length)
     await Promise.all(Array.from({ length: workers }, (_, worker) => (async () => {
         for (let at = worker; at < groups.length; at += workers) {
-            outcomes[at] = await runGroup(llm, groups[at])
+            if (signal.aborted) break
+            outcomes[at] = await runGroup(llm, groups[at], signal, emitProbe)
         }
     })()))
-    const reports = groups.map((_, at) => reportProvider(outcomes[at]))
-    return summarizeProviders(reports, groups.flatMap((_, at) => outcomes[at].results))
+    const reports: VerifyProviderReport[] = []
+    const details: VerifyProbeResult[] = []
+    for (let at = 0; at < groups.length; at++) {
+        const outcome = outcomes[at]
+        if (outcome === undefined) continue
+        reports.push(reportProvider(outcome))
+        details.push(...outcome.results)
+    }
+    const summary = summarizeProviders(reports, details)
+    // 中止不发 done：消费方见「流自然结束却没等到 done」即知这轮没跑完，据此保留进度而不是报成功
+    if (!signal.aborted) options.onProgress?.({ type: 'done', summary })
+    return summary
 }
