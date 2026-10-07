@@ -89,7 +89,7 @@ export default defineConfig([
             'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
             'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
             'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
-            // 卡片末尾的版本标记（声明见 src/client/card.tsx 的 __PLUGIN_VERSION__）
+            // 卡片末尾的版本标记（声明见 src/client/card-meta.tsx 的 __PLUGIN_VERSION__）
             __PLUGIN_VERSION__: JSON.stringify(PKG.version),
         },
         deps: {
