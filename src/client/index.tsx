@@ -7,14 +7,6 @@
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// ctx.sessions 服务面（ISessions 声明合并）
-import type {} from '@deepseek-ai/dsh-api-session-controller/client'
-// 一次模型选择与会话投影（宿主真类型，type-only）
-import type { ModelSelection, ModelSelectionProjection } from '@deepseek-ai/dsh-api-session-controller/types'
-// ctx.modelDirectories 服务面（ModelDirectoryResolver 声明合并）+ 目录控制器类型
-import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client'
-// SessionId 品牌 id（sessions / modelDirectories 服务的键类型）
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // ctx.slots 服务面（SlotRegistry）
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // ctx.locale 服务面
@@ -30,11 +22,10 @@ import { en } from '@/client/locale-en'
 import { CARD_NS } from '@/client/locale-keys'
 import { zh } from '@/client/locale-zh'
 import { makeRpcCarrier } from '@/client/rpc-carrier'
+import { applyEffortMemoryListener } from '@/client/memory-listener'
 import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS } from '@/shared/constants'
-import { DEFAULT_CONFIG } from '@/shared/parse'
-import { VERSION_KEY, decodeSection } from '@/client/model'
+import { decodeSection } from '@/client/model'
 import type { Flags } from '@/client/model'
-import { applyEffort, classifyTransition, sameSelection } from '@/client/effort'
 import { makeScope, type DecodedScope } from '@/client/scope'
 
 /** 提供方 scope 的解码占位值：本卡只消费 snapshot.user（原始用户层），value 无用途；decode 必须永不返回 undefined */
@@ -73,13 +64,6 @@ function boot(
     // 浏览器半调 Node 半的全部出口（四个写回端点 + 两条诊断链的读流）见 rpc-carrier.ts
     const { forceUpdate, resetModels, restoreModels, verifyModels, pruneEfforts, probeEfforts } =
         makeRpcCarrier(ctx)
-    // 每模型推理级别记忆经自有 NS 的 settings scope 直写（与「保存」同一条写路径）；
-    // 空记忆也写 `{}` 而非删键——字段在文件里恒存在、形态恒定
-    const rememberEffort = (provider: string, model: string, effort: string | null): void => {
-        const next = applyEffort(scope.getSnapshot().value?.efforts ?? {}, provider, model, effort)
-        // 记忆写入失败不影响会话本身（级别已在当前会话生效），故只吞掉 rejection
-        void scope.mutate([{ op: 'set', path: [VERSION_KEY, 'efforts'], value: next }]).catch(() => {})
-    }
     // 四席共用的卡片入参：载体与 scope 逐席相同，逐席展开只会让每行都长到读不动
     const cardProps = {
         scope,
@@ -127,125 +111,6 @@ function boot(
         locale: CARD_NS,
     }, (props) => <Card {...props} defaultOpen {...cardProps} />))
 
-    // 记忆监听子 fiber（宿主无 sessions/modelDirectories 时静默不启用）：纯监听，只订阅会话投影；
-    // 自动设置经宿主公开 directory.select，保存经自有 NS 的 settings scope 直写
-    ctx.inject(['sessions', 'modelDirectories'], (subCtx) => {
-        const sessions = subCtx.sessions
-        const modelDirectories = subCtx.modelDirectories
-
-        subCtx.effect(() => {
-            /** 每会话的追踪状态 */
-            interface Tracked {
-                retainUnsub: (() => void) | null
-                projectionUnsub: (() => void) | null
-                lastNext: ModelSelection | null
-                pendingAutoSet: ModelSelection | null
-            }
-            const tracked = new Map<SessionId, Tracked>()
-
-            /** 处理一次投影变化 */
-            function handleProjection(id: SessionId, entry: Tracked, next: ModelSelection | null): void {
-                // 守卫：跳过本次自动设置反向触发的投影变化（避免重复保存）
-                if (entry.pendingAutoSet !== null) {
-                    if (next !== null && sameSelection(entry.pendingAutoSet, next)) {
-                        entry.pendingAutoSet = null
-                        entry.lastNext = next
-                        return
-                    }
-                    entry.pendingAutoSet = null
-                }
-
-                const prev = entry.lastNext
-                entry.lastNext = next
-                if (next === null) return
-
-                let dir: ModelDirectory
-                try {
-                    dir = modelDirectories.directoryFor(id)
-                } catch {
-                    // 宿主对未知/未保留会话 fail loud（显式抛错），此处跳过本次变化即可
-                    return
-                }
-                const dirState = dir.store.getSnapshot()
-                // 开关仅门控「保存」；恢复用的记忆始终取真实 efforts（是否清空由卡片交互决定）
-                // 兜底取共享层默认（单一来源，段值不可用时与「全新用户」行为一致）
-                const flags = scope.getSnapshot().value
-                const rememberEfforts = flags?.userExperience.rememberEfforts ?? DEFAULT_CONFIG.userExperience.rememberEfforts
-                const defaultHigh = flags?.userExperience.defaultHigh ?? DEFAULT_CONFIG.userExperience.defaultHigh
-                const memory = flags?.efforts ?? {}
-                const transition = classifyTransition(prev, next, memory, dirState.groups, defaultHigh)
-
-                if (transition.kind === 'model-change') {
-                    if (transition.resolved.reasoningEffort !== next.reasoningEffort) {
-                        entry.pendingAutoSet = transition.resolved
-                        // select 拒绝时清掉守卫：残留会让后续恰好同值的投影变化被误吞（跳过记忆保存）；
-                        // 与投影守卫竞态两序皆安全（幂等清空），untracked 的 entry 上清空亦无害
-                        void dir.select(transition.resolved).catch(() => { entry.pendingAutoSet = null })
-                    }
-                } else if (transition.kind === 'effort-change' && rememberEfforts) {
-                    void rememberEffort(next.provider, next.model, next.reasoningEffort ?? null)
-                }
-            }
-
-            /** 对一个会话建立保留态 + 投影订阅 */
-            function trackRetain(id: SessionId): void {
-                let entry = tracked.get(id)
-                if (!entry) {
-                    entry = { retainUnsub: null, projectionUnsub: null, lastNext: null, pendingAutoSet: null }
-                    tracked.set(id, entry)
-                }
-                const retainInfo = sessions.retainInfo(id)
-                const syncRetain = (): void => {
-                    if (retainInfo.getSnapshot().referenceCount <= 0) {
-                        // retain 归零即解除投影订阅：未保留会话不应触发 handleProjection；
-                        // lastNext / pendingAutoSet 保留，重保留时首帧据此正确消化自动设置回声
-                        entry.projectionUnsub?.()
-                        entry.projectionUnsub = null
-                        return
-                    }
-                    if (entry.projectionUnsub) return
-                    const binding = sessions.binding(id)
-                    if (!binding) return
-                    const projection = binding.session.projections.faceOf('modelSelection')
-                    const readNext = (): ModelSelection | null => (projection.getSnapshot() as ModelSelectionProjection | null)?.next ?? null
-                    entry.projectionUnsub = projection.subscribe(() => handleProjection(id, entry, readNext()))
-                    // 订阅时先按当前值跑一次，避免已选模型要等下一次变化才恢复记忆
-                    handleProjection(id, entry, readNext())
-                }
-                entry.retainUnsub = retainInfo.subscribe(syncRetain)
-                // subscribe 只订阅失效通知、不推首值：立即按当前快照补一遍，
-                // 已 retain 的会话（track 前就已保留）即刻挂上投影订阅
-                syncRetain()
-            }
-
-            /** 解绑一个会话的所有订阅 */
-            function untrack(id: SessionId): void {
-                const entry = tracked.get(id)
-                if (!entry) return
-                entry.retainUnsub?.()
-                entry.projectionUnsub?.()
-                tracked.delete(id)
-            }
-
-            const syncList = (): void => {
-                const ids = new Set(sessions.list.getSnapshot().ids)
-                for (const id of [...tracked.keys()]) {
-                    if (!ids.has(id)) untrack(id)
-                }
-                for (const id of ids) {
-                    if (!tracked.has(id)) trackRetain(id)
-                }
-            }
-            const listUnsub = sessions.list.subscribe(syncList)
-            // subscribe 只订阅失效通知、不推首值：立即按当前快照补一遍，
-            // 插件激活时已存在的会话同样进入追踪（否则要等 list 下次变化）
-            syncList()
-
-            return () => {
-                listUnsub()
-                for (const id of [...tracked.keys()]) untrack(id)
-                tracked.clear()
-            }
-        }, `${name}: effort memory listener`)
-    })
+    // 每模型推理级别记忆的运行时监听（订阅会话投影、自动设级别）见 memory-listener.ts
+    applyEffortMemoryListener(ctx, scope)
 }

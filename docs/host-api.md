@@ -171,7 +171,7 @@
 
 | 宿主模块 | 导入符号 | 形式 | 使用处 |
 | --- | --- | --- | --- |
-| `@deepseek-ai/cordis` | `Context` / `Context as ClientContext` | type-only | Node 半各模块；`src/client/index.tsx` |
+| `@deepseek-ai/cordis` | `Context` / `Context as ClientContext` | type-only | Node 半各模块；`src/client/index.tsx`、`src/client/memory-listener.ts`、`src/client/rpc-carrier.ts` |
 | `@deepseek-ai/schemastery` | 默认导出 `z` | **值导入** | `src/index.ts`（`Config`）、`src/upgrade.ts`（冻结升级台阶链的 v3–v6 schema） |
 | `@deepseek-ai/dsh-settings` | `SettingsPathOp`、`SettingsDescriptor` | type-only | `SettingsPathOp`：`src/fix.ts` `src/migrate.ts` `src/reset.ts` `src/restore.ts` `src/prune.ts` `src/fill.ts` `src/writeback.ts` `src/client/scope.ts`；`SettingsDescriptor`：`src/section.ts`（节读取收口，替掉各处 `describe().find`） |
 | `@deepseek-ai/dsh-util-values` | `deepEqualJson` | **值导入** | `src/fix.ts` `src/migrate.ts` `src/compat.ts` `src/restore.ts` |
@@ -185,10 +185,10 @@
 | `@deepseek-ai/dsh-client-connection/client` | `ClientConnectionRpc` | type-only | `src/client/rpc-carrier.ts` |
 | `@deepseek-ai/dsh-client-connection` | `ConnectionRpcResult` | type-only | `src/client/rpc-carrier.ts` |
 | `@deepseek-ai/dsh-client-ui-slots` | `TranslateNS` + 合并（`LocaleNamespaceMap` 纳入 `CARD_NS`） | type-only | `TranslateNS`：`src/client/card.tsx` `src/client/tile.tsx` `src/client/card-meta.tsx` `src/client/verify-dialog.tsx` `src/client/probe-dialog.tsx`；合并：`src/client/locale-keys.ts`（`declare module` 扩充 `LocaleNamespaceMap`） |
-| `@deepseek-ai/dsh-api-session-controller/client` | 合并（`ctx.sessions`） | 合并 | `src/client/index.tsx` |
-| `@deepseek-ai/dsh-api-session-controller/types` | `ModelSelection`、`ModelSelectionProjection`、`ModelProviderGroup` | type-only | `src/client/index.tsx`、`src/client/effort.ts` |
-| `@deepseek-ai/dsh-client-ui-model-selection/client` | `ModelDirectory` | type-only | `src/client/index.tsx` |
-| `@deepseek-ai/dsh-session/types` | `SessionId` | type-only | `src/client/index.tsx` |
+| `@deepseek-ai/dsh-api-session-controller/client` | 合并（`ctx.sessions`） | 合并 | `src/client/memory-listener.ts` |
+| `@deepseek-ai/dsh-api-session-controller/types` | `ModelSelection`、`ModelSelectionProjection`、`ModelProviderGroup` | type-only | `src/client/memory-listener.ts`、`src/client/effort.ts` |
+| `@deepseek-ai/dsh-client-ui-model-selection/client` | `ModelDirectory` | type-only | `src/client/memory-listener.ts` |
+| `@deepseek-ai/dsh-session/types` | `SessionId` | type-only | `src/client/memory-listener.ts` |
 | `@deepseek-ai/dsh-client-ui-renderer/client` | 合并（`ctx.slots`） | 合并 | `src/client/index.tsx` |
 | `@deepseek-ai/dsh-client-locale/client` | 合并（`ctx.locale`） | 合并 | `src/client/index.tsx` |
 | `@deepseek-ai/dsh-client-ui-settings-models/client` | 合并（slot key `settings.models.footer`） | 合并 | `src/client/index.tsx` |
