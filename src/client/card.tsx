@@ -295,10 +295,11 @@ const STYLE_TEXT = [
     '@media (max-width:680px){.dsh-mf-items{grid-template-columns:minmax(0,1fr)}}',
     '@media (prefers-reduced-motion:reduce){.dsh-mf-itemChevron{transition:none}}',
     // 动作键行（强制更新 / 重置推理级别 / 恢复备份 / 验证模型）：独占一行、靠左起排，不设分割线——它承接上方瓦片，
-    // 分隔线留给其下的取消/保存行；键渐多后在本行内换行落位，不相互挤压
-    '.dsh-mf-bar{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:12px 0 0}',
-    // 取消/保存行：分隔线之下靠右收尾。上间距取 8px（原 12px）——上一行动作键已经自带 12px 上间距，
-    // 两段叠加使这条分割线离键过远；8px 是宿主 .section 内部相邻控件的档位
+    // 分隔线留给其下的取消/保存行；键渐多后在本行内换行落位，不相互挤压。
+    // 本行不带自己的上间距：与瓦片的距离已由 .dsh-mf-body 的 gap:12px 给出，再叠一层会算成 24px
+    '.dsh-mf-bar{display:flex;align-items:center;justify-content:flex-start;gap:8px}',
+    // 取消/保存行：分隔线之下靠右收尾。上间距 8px——上一行动作键不再自带 12px，这一段的距离改由
+    // .dsh-mf-body 的 gap:12px 给出，两段之间是 12+8；8px 是宿主 .section 内部相邻控件的档位
     '.dsh-mf-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:8px 0 0;border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1))}',
     '.dsh-mf-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
     // footer 键度量照官方 SettingsForm .save（圆角 radius-md + focus 环同源）；force 红字透明底照
@@ -329,7 +330,14 @@ const STYLE_TEXT = [
     // 「验证模型」弹层：逐条照官方 models 页「获取可用模型」候选框（ModelsSection 的 fetchDialog / candidate* 类）。
     // 宿主滚动条变量无浅色真值可引，按官方原样透传、不自造字面量兜底
     '.dsh-mf-verifyDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}',
-    '.dsh-mf-verifyList{display:flex;flex-direction:column;gap:2px;max-height:240px;margin:0;padding:0;list-style:none;overflow-y:auto}',
+    // 正文纵向节奏：宿主 .body 是 flex column 且**没有 gap**，段间距全靠各自的 margin——而 flex 容器里
+    // margin 不折叠，两段紧挨时各自的 margin 直接相加（探测弹层「范围提示 ↔ 额度提示」实测 24px 正是
+    // 12+12）。故正文自绘一层容器把 12px 收在一处、各段自身 margin 归零：容器内任何两段的净距恒为 12px；
+    // 末段归零又让「正文 ↔ footer」只剩宿主 .dialog 的 gap:20px，与「描述 ↔ 正文」的 20px 相等，不必自造数值
+    '.dsh-mf-verifyBody{display:flex;flex-direction:column;gap:12px}',
+    // 候选列表：项间距用默认（不写 gap，即 0），行内纵向内边距仍逐条取官方 candidateLabel 的 6px 8px，
+    // 相邻两行靠这层内边距自然分开。官方 .candidateList 的 2px 是「同屏尽量多列模型」的紧凑档，这里不取
+    '.dsh-mf-verifyList{display:flex;flex-direction:column;max-height:240px;margin:0;padding:0;list-style:none;overflow-y:auto}',
     // 验证弹层比宿主默认的 380px 宽一档：候选列表里的模型 id 常带斜杠（如 z-ai/glm-5），窄框里会折行、
     // 与右侧开关挤在一起。宿主 .dialog 的 width 同为单类选择器，本插件的 <style> 后于宿主样式表注入，
     // 同优先级下后者胜出，故能覆盖
@@ -342,24 +350,25 @@ const STYLE_TEXT = [
     '.dsh-mf-verifyRow{border-radius:var(--dsw-radius-md,12px)}',
     '.dsh-mf-verifyLabel{display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer}',
     '.dsh-mf-verifyId{flex:auto;min-width:0;overflow:hidden;font-family:var(--ds-font-family-code);font-size:13px;text-overflow:ellipsis;white-space:nowrap}',
-    '.dsh-mf-verifyEmpty{margin:24px 0;color:var(--dsw-alias-label-secondary,#61666b);text-align:center;font-size:13px;line-height:20px}',
-    // 额度提示：逐条同官方插件卡的 .notice——warn 语义、12px/18px，且作为 .section 的直接子元素靠 section 的 gap 定距，
-    // 故上间距取 12px；不可套 candidateToolbar→candidateList 的 6px（那是「控件紧贴列表」的档，用在这里显得挤）
-    '.dsh-mf-verifyQuota{margin:12px 0 0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label,#dd8629)}',
-    // 档位开关：放在 body 内而非 footer——宿主 RiskConfirmation（敏感操作前置确认）正是这个排法，
-    // 确认控件留在正文、footer 只放取消/确认两键；上间距逐条取其 .acknowledgement 的 margin-top:20px
+    // 空态：margin 归零（上下的气口交给容器的 12px 与宿主 .body 的外边距），其余逐条照官方 candidateEmpty
+    '.dsh-mf-verifyEmpty{margin:0;color:var(--dsw-alias-label-secondary,#61666b);text-align:center;font-size:13px;line-height:20px}',
+    // 额度提示：逐条同官方插件卡的 .notice——warn 语义、12px/18px；上间距交给 .dsh-mf-verifyBody 的 gap:12px，
+    // 故 margin 归零（探测弹层里它与上一句提示紧挨，两段各自的 margin 在 flex 里会相加）
+    '.dsh-mf-verifyQuota{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label,#dd8629)}',
+    // 开关行：探测弹层的两个开关在正文内（开关自身不带外边距，段间距只由 .dsh-mf-verifyBody 的 gap 给）；
+    // 验证弹层的「验证所有推理级别」在 footer 里，与那行 .dsh-mf-verifyActions 共用本类
     '.dsh-mf-verifyOption{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-secondary,#61666b)}',
     // 探测弹层的两个开关并排：同属一组操作参数，按「小节内相邻块」的 12px 档定距；
-    // 上间距取 20px——它们与上一段（额度提示）分属两块，逐条同其 .acknowledgement 的 margin-top:20px
-    '.dsh-mf-verifyOptions{display:flex;align-items:center;gap:12px;min-width:0;margin:20px 0 0}',
-    // 验证弹层 footer 的纵向容器与按钮行：宿主 .footer 是单行 flex 且无 wrap，整行块只能自己排。
-    // 间距取宿主 .dialog 的列间距 20px（同层），按钮行三个数值逐条复刻宿主 .footer
-    '.dsh-mf-verifyFoot{display:flex;flex-direction:column;gap:20px;width:100%}',
+    // 上间距同样交给 .dsh-mf-verifyBody 的 gap:12px，margin 归零
+    '.dsh-mf-verifyOptions{display:flex;align-items:center;gap:12px;min-width:0;margin:0}',
+    // 验证弹层 footer 只有一行（档位开关靠左、取消/验证两键靠右）：宿主 .footer 是单行 flex 且无 wrap，
+    // 故自绘一行容器覆盖它的三个数值（width:100% + space-between 覆盖 flex-end）；
+    // 记录区已移入正文，这里不再需要纵向容器
     '.dsh-mf-verifyActions{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%}',
     '.dsh-mf-verifyButtons{display:flex;align-items:center;gap:8px}',
-    // 记录区上下边距：宿主 TerminalBlock 的 .block 自带 margin:16px 0，叠加本层 .dsh-mf-verifyFoot 的
-    // 20px 列间距后达 36px，与按钮行脱节；收窄到 8px（上）与 0（下，末子元素不占位）
-    '.dsh-mf-verifyLog{margin:8px 0 0}',
+    // 记录区上下边距：宿主 TerminalBlock 的 .block 自带 margin:16px 0，与正文容器的 12px 间距相加会算成
+    // 28px；整条归零，段间距只由 .dsh-mf-verifyBody 的 gap 给
+    '.dsh-mf-verifyLog{margin:0}',
     // 注意语义键：卡片 footer 的「验证模型」触发键与弹层内的验证确认键共用，仅把描边/字色换成 warn 令牌；
     // hover 用其 10% 稀释（宿主无 warn 悬停底令牌，与 .dsh-mf-chipVersion 同一 color-mix 手法，不自造色值）。
     // 叠加在 .dsh-mf-discard 之上时靠 :not(:disabled) 的高特异性压过其默认描边/字色
@@ -1347,10 +1356,10 @@ export function Card(props: CardProps) {
                 closeLabel={t('close')}
                 description={t('verifyDesc')}
                 className="dsh-mf-verifyDialog"
-                footer={<div className="dsh-mf-verifyFoot">
-                    {/* 宿主 .footer 是单行 flex、无 wrap、且 justify-content 为 flex-end。弹层加宽后档位开关与两键
-                        并排同一行、开关靠左两键靠右，故在 footer 内自绘容器覆盖宿主那三个数值；
-                        纵向容器留着，因为记录区仍在这一行下方 */}
+                footer={
+                    /* 宿主 .footer 是单行 flex、无 wrap、且 justify-content 为 flex-end。弹层加宽后档位开关与两键
+                        并排同一行、开关靠左两键靠右，故在 footer 内自绘容器覆盖宿主那三个数值。
+                        记录区不在这一行下方——它已移入正文，与探测弹层同序（提示之下、开关之上） */
                     <div className="dsh-mf-verifyActions">
                         <span className="dsh-mf-verifyOption">
                             <Switch
@@ -1382,8 +1391,52 @@ export function Card(props: CardProps) {
                             </Button>
                         </div>
                     </div>
-                    {/* 记录区置于按钮行下方，与官方安装弹层同序（那边是 wizardFoot 在前、detailsBody 在后）。
-                        首次发起才出现：opened 帧一到即有总项数，先于此则没有任何进度可展示 */}
+                }
+            >
+                {/* 正文各段的纵向间距一律 12px，由这层容器给出：宿主 .body 无 gap、段靠自身 margin，
+                    而 flex 容器里 margin 不折叠、紧挨两段会相加，逐处自给必然算错 */}
+                <div className="dsh-mf-verifyBody">
+                    {verifyGroups.length === 0 ? (
+                        <p className="dsh-mf-verifyEmpty" role="status">{t('verifyEmpty')}</p>
+                    ) : (
+                        <ul className="dsh-mf-verifyList">
+                            {verifyGroups.map((group) => [
+                                <li key={`g-${group.provider}`} className="dsh-mf-verifyGroup">
+                                    {group.provider}
+                                    {/* 分组全选键：组件、尺寸与文案语义逐条照官方 candidateToolbar 的 ghost 小键 */}
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="dsh-mf-verifyGroupAll"
+                                        disabled={busy === 'verify'}
+                                        onClick={() => { toggleVerifyGroup(group.models) }}
+                                    >
+                                        {groupAllPicked(verifyPicked, group.models) ? t('verifyDeselectAll') : t('verifySelectAll')}
+                                    </Button>
+                                </li>,
+                                ...group.models.map((candidate) => {
+                                    const key = verifyKey(candidate.provider, candidate.model)
+                                    return (
+                                        <li key={key} className="dsh-mf-verifyRow">
+                                            {/* 官方候选行同构：label 内 checkbox + 等宽模型 id，点整行即切换 */}
+                                            <label className="dsh-mf-verifyLabel">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={verifyPicked.has(key)}
+                                                    disabled={busy === 'verify'}
+                                                    onChange={() => { toggleVerifyPick(key) }}
+                                                />
+                                                <span className="dsh-mf-verifyId" title={candidate.model}>{candidate.model}</span>
+                                            </label>
+                                        </li>
+                                    )
+                                }),
+                            ])}
+                        </ul>
+                    )}
+                    <p className="dsh-mf-verifyQuota">{t('verifyQuota')}</p>
+                    {/* 记录区排在提示之下：它是「正在发生的事」，提示是「这轮会做什么」，
+                        两者挨着放才读得顺。首次发起才出现——opened 帧一到即有总项数，先于此则没有任何进度可展示 */}
                     {verifyTotal > 0 ? (
                         <TerminalBlock
                             command={t('verifyCommand', { total: String(verifyTotal) })}
@@ -1394,47 +1447,7 @@ export function Card(props: CardProps) {
                             className="dsh-mf-verifyLog"
                         />
                     ) : null}
-                </div>}
-            >
-                {verifyGroups.length === 0 ? (
-                    <p className="dsh-mf-verifyEmpty" role="status">{t('verifyEmpty')}</p>
-                ) : (
-                    <ul className="dsh-mf-verifyList">
-                        {verifyGroups.map((group) => [
-                            <li key={`g-${group.provider}`} className="dsh-mf-verifyGroup">
-                                {group.provider}
-                                {/* 分组全选键：组件、尺寸与文案语义逐条照官方 candidateToolbar 的 ghost 小键 */}
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="dsh-mf-verifyGroupAll"
-                                    disabled={busy === 'verify'}
-                                    onClick={() => { toggleVerifyGroup(group.models) }}
-                                >
-                                    {groupAllPicked(verifyPicked, group.models) ? t('verifyDeselectAll') : t('verifySelectAll')}
-                                </Button>
-                            </li>,
-                            ...group.models.map((candidate) => {
-                                const key = verifyKey(candidate.provider, candidate.model)
-                                return (
-                                    <li key={key} className="dsh-mf-verifyRow">
-                                        {/* 官方候选行同构：label 内 checkbox + 等宽模型 id，点整行即切换 */}
-                                        <label className="dsh-mf-verifyLabel">
-                                            <input
-                                                type="checkbox"
-                                                checked={verifyPicked.has(key)}
-                                                disabled={busy === 'verify'}
-                                                onChange={() => { toggleVerifyPick(key) }}
-                                            />
-                                            <span className="dsh-mf-verifyId" title={candidate.model}>{candidate.model}</span>
-                                        </label>
-                                    </li>
-                                )
-                            }),
-                        ])}
-                    </ul>
-                )}
-                <p className="dsh-mf-verifyQuota">{t('verifyQuota')}</p>
+                </div>
             </Modal>
             {/* 「探测式填充」弹层：没有候选列表——范围由两个键与「忽略排除」开关决定，故正文依次是
                 记录区（首次发起才出现，与验证同纪律）→ 额度提示 → 两个开关；
@@ -1457,64 +1470,69 @@ export function Card(props: CardProps) {
                     {probeButton('unfilled', unfilledCount)}
                 </div>}
             >
-                {/* 记录区在上、两行提示在下：记录是「正在发生的事」，提示是「这轮会做什么」，
-                    顺序与阅读时机一致；反过来就成了在两段静态说明中间夹一块滚动区域 */}
-                {probeTotal > 0 ? (
-                    <TerminalBlock
-                        command={t('probeCommand', { total: String(probeTotal) })}
-                        output={probeLines.join('\n')}
-                        running={busy === 'probe'}
-                        maxLines={VERIFY_TERMINAL_LINES}
-                        labels={probeTerminalLabels}
-                        className="dsh-mf-verifyLog"
-                    />
-                ) : null}
-                {/* 探测范围一句说清：两个数分别对应 footer 那两个键（全量 / 未填充），键文本保持短。
-                    两个范围都为空时改说「为何为空」——用户多半是先把提供方排除了 */}
-                {unfilledCount === 0 && allCount === 0 ? (
-                    <p className="dsh-mf-verifyEmpty" role="status">{t('probeEmpty')}</p>
-                ) : (
-                    <p className="dsh-mf-verifyQuota">{t('probePlan', {
-                        models: String(allCount),
-                        unfilled: String(unfilledCount),
-                    })}</p>
-                )}
-                <p className="dsh-mf-verifyQuota">{t('probeQuota')}</p>
+                {/* 正文各段的纵向间距一律 12px，由这层容器给出：宿主 .body 无 gap、段靠自身 margin，
+                    而 flex 容器里 margin 不折叠、紧挨两段会相加（此处「范围提示」与「额度提示」正是紧挨两段） */}
+                <div className="dsh-mf-verifyBody">
+                    {/* 探测范围一句说清：两个数分别对应 footer 那两个键（全量 / 未填充），键文本保持短。
+                        两个范围都为空时改说「为何为空」——用户多半是先把提供方排除了 */}
+                    {unfilledCount === 0 && allCount === 0 ? (
+                        <p className="dsh-mf-verifyEmpty" role="status">{t('probeEmpty')}</p>
+                    ) : (
+                        <p className="dsh-mf-verifyQuota">{t('probePlan', {
+                            models: String(allCount),
+                            unfilled: String(unfilledCount),
+                        })}</p>
+                    )}
+                    <p className="dsh-mf-verifyQuota">{t('probeQuota')}</p>
+                    {/* 记录区排在提示之下、开关之上，与验证弹层同序：它是「正在发生的事」，
+                        提示是「这轮会做什么」，两者挨着放才读得顺；反过来就成了在两段静态说明中间夹一块滚动区域。
+                        首次发起才出现——opened 帧一到即有总项数，先于此则没有任何进度可展示 */}
+                    {probeTotal > 0 ? (
+                        <TerminalBlock
+                            command={t('probeCommand', { total: String(probeTotal) })}
+                            output={probeLines.join('\n')}
+                            running={busy === 'probe'}
+                            maxLines={VERIFY_TERMINAL_LINES}
+                            labels={probeTerminalLabels}
+                            className="dsh-mf-verifyLog"
+                        />
+                    ) : null}
                 {/* 两个开关放正文末尾而非 footer：它们是这一轮的参数（探测范围与收敛口径），
-                    与正文里正在发生的事同处一屏，改动即刻可见；footer 因此只剩「关闭 / 探测」，
-                    与其余弹层「footer 只放取消与确认」的形态一致 */}
-                <div className="dsh-mf-verifyOptions">
-                    <span className="dsh-mf-verifyOption">
-                        <Switch
-                            checked={probeIgnoreExcludes}
-                            disabled={busy === 'probe'}
-                            label={t('probeIgnoreExcludes')}
-                            onChange={toggleIgnoreExcludes}
-                        />
-                        <span>{t('probeIgnoreExcludes')}</span>
-                        {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
-                        <Tooltip label={t('probeIgnoreExcludesTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
-                            <button type="button" className="dsh-mf-help" aria-label={t('probeIgnoreExcludesTip')}>
-                                <IconInfoOutlineRegular size={12} />
-                            </button>
-                        </Tooltip>
-                    </span>
-                    <span className="dsh-mf-verifyOption">
-                        <Switch
-                            checked={probeDropUnsupported}
-                            // 跑「未填充」时一并禁掉：这一轮压根不读它（见 runProbe），让开关显形地失效，
-                            // 好过留一个亮着的开关骗人——用户在途时看得见这一轮是「只增不剔」
-                            disabled={busy === 'probe' || probeScope === 'unfilled'}
-                            label={t('probeDropUnsupported')}
-                            onChange={setProbeDropUnsupported}
-                        />
-                        <span>{t('probeDropUnsupported')}</span>
-                        <Tooltip label={t('probeDropUnsupportedTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
-                            <button type="button" className="dsh-mf-help" aria-label={t('probeDropUnsupportedTip')}>
-                                <IconInfoOutlineRegular size={12} />
-                            </button>
-                        </Tooltip>
-                    </span>
+                        与正文里正在发生的事同处一屏，改动即刻可见；footer 因此只剩「关闭 / 探测」，
+                        与其余弹层「footer 只放取消与确认」的形态一致 */}
+                    <div className="dsh-mf-verifyOptions">
+                        <span className="dsh-mf-verifyOption">
+                            <Switch
+                                checked={probeIgnoreExcludes}
+                                disabled={busy === 'probe'}
+                                label={t('probeIgnoreExcludes')}
+                                onChange={toggleIgnoreExcludes}
+                            />
+                            <span>{t('probeIgnoreExcludes')}</span>
+                            {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
+                            <Tooltip label={t('probeIgnoreExcludesTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                                <button type="button" className="dsh-mf-help" aria-label={t('probeIgnoreExcludesTip')}>
+                                    <IconInfoOutlineRegular size={12} />
+                                </button>
+                            </Tooltip>
+                        </span>
+                        <span className="dsh-mf-verifyOption">
+                            <Switch
+                                checked={probeDropUnsupported}
+                                // 跑「未填充」时一并禁掉：这一轮压根不读它（见 runProbe），让开关显形地失效，
+                                // 好过留一个亮着的开关骗人——用户在途时看得见这一轮是「只增不剔」
+                                disabled={busy === 'probe' || probeScope === 'unfilled'}
+                                label={t('probeDropUnsupported')}
+                                onChange={setProbeDropUnsupported}
+                            />
+                            <span>{t('probeDropUnsupported')}</span>
+                            <Tooltip label={t('probeDropUnsupportedTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                                <button type="button" className="dsh-mf-help" aria-label={t('probeDropUnsupportedTip')}>
+                                    <IconInfoOutlineRegular size={12} />
+                                </button>
+                            </Tooltip>
+                        </span>
+                    </div>
                 </div>
             </Modal>
         </>
