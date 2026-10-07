@@ -9,6 +9,7 @@ import { installRpc } from '@/rpc'
 import { fix } from '@/fix'
 import { isIgnoreAll } from '@/guard'
 import { captureBackup } from '@/restore'
+import { restoreProbeBackup } from '@/probe-backup'
 
 export const name = PLUGIN_NAME
 export const inject = ['settings', 'connection', 'llm']
@@ -43,6 +44,19 @@ function refillAfterApiChange(ctx: Context, disposed: () => boolean): void {
             refreshIfStale(ctx, disposed)
         })
         .catch(swallowFixError)
+}
+
+/** 探测式填充的崩溃兜底：上一轮若崩在「预声明」与「收敛」之间（进程被杀、断电），
+ * 自有段会留下整段兜底备份，配置里留着「声称支持七档」的半截形态。启动链末尾据此回退，
+ * 回退后再补一轮 fill——否则被撤掉预声明的模型会停在未填充态，本插件的主功能就失效了。
+ * 无备份时 restoreProbeBackup 直接返回 0，不做多余的写入与填充。 */
+async function recoverProbeBackup(ctx: Context, isDisposed: () => boolean): Promise<void> {
+    try {
+        const changed = await restoreProbeBackup(ctx)
+        if (changed > 0 && !isDisposed()) await fix(ctx)
+    } catch (error) {
+        ctx.logger.warn(`${PLUGIN_NAME}: 探测式填充的兜底回退失败（配置可能停在半截形态）：${error instanceof Error ? error.message : String(error)}`)
+    }
 }
 
 /** 实时取当前段：根 volatile 下 config 为引用包装，.get() 每次返回最新解析值 */
@@ -85,6 +99,7 @@ export function apply(ctx: Context, config?: unknown): void {
                 if (cached) setCatalog(cached)
                 // 先用缓存填充即刻生效，再异步刷新（与事件路径同构：fix → refreshIfStale → 拉取结算后再 fix）
                 fix(ctx)
+                    .then(() => recoverProbeBackup(ctx, () => disposed))
                     .finally(() => {
                         if (disposed) return
                         refreshIfStale(ctx, () => disposed)

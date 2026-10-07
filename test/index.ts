@@ -11,6 +11,7 @@ import { run as runLookup } from '@test/lookup.test'
 import { run as runMigrate } from '@test/migrate.test'
 import { run as runPrune } from '@test/prune.test'
 import { run as runProbe } from '@test/probe.test'
+import { run as runProbeBackup } from '@test/probe-backup.test'
 import { run as runReset } from '@test/reset.test'
 import { run as runRestore } from '@test/restore.test'
 import { run as runRpcRoute } from '@test/rpc-route.test'
@@ -45,6 +46,8 @@ section('verify.test.ts')
 await runVerify()
 section('probe.test.ts')
 await runProbe()
+section('probe-backup.test.ts')
+await runProbeBackup()
 section('rpc-route.test.ts')
 await runRpcRoute()
 section('fix.test.ts')

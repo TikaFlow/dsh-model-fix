@@ -66,6 +66,10 @@ const modelsOf = (ctx: ReturnType<typeof ctxOf>, provider: string): Record<strin
 /** 只看 reasoningEfforts，避免其余字段（contextWindow 等）干扰断言 */
 const effortsOf = (ctx: ReturnType<typeof ctxOf>, provider: string, model: string): unknown =>
     modelsOf(ctx, provider).find((entry) => entry.id === model)?.reasoningEfforts
+/** 模型配置段（llm-pi-ai）的写回调用；探测还会在自有段存取兜底备份，计数须分开 */
+const apiWrites = (ctx: ReturnType<typeof ctxOf>) => ctx.mutateCalls.filter((c) => c.ns === API_NS)
+/** 兜底备份的存取（自有段顶层键） */
+const backupWrites = (ctx: ReturnType<typeof ctxOf>) => ctx.mutateCalls.filter((c) => c.ops.some((op) => op.path[0] === 'probeBackup'))
 
 /** 执行本文件的全部用例 */
 export async function run(): Promise<void> {
@@ -92,8 +96,20 @@ export async function run(): Promise<void> {
             && summary.plannedEfforts === 7 && summary.unsupported === 0,
             summary.usableEfforts,
         )
-        // 预声明一次写回；七档全可用时算出的表与预声明完全一致 ⇒ 收敛零写入（幂等：反复重跑不该反复写）
-        check('预声明写回一次，收敛零写入', ctx.mutateCalls.length === 1, ctx.mutateCalls.map((c) => c.ops.length))
+        // 预声明一次写回；七档全可用时算出的表与预声明完全一致 ⇒ 收敛零写入（幂等：反复重跑不该反复写）。
+        // 只数 llm-pi-ai 段：兜底备份的存与清走自有段，不算模型配置写入
+        check(
+            '预声明写回一次，收敛零写入（模型配置段）',
+            apiWrites(ctx).length === 1,
+            ctx.mutateCalls.map((c) => `${c.ns}:${c.ops.length}`),
+        )
+        check(
+            '兜底备份开跑前写进自有段、收敛后清掉（顶层键，与版本快照同级）',
+            backupWrites(ctx).length === 2
+            && backupWrites(ctx)[0].ops[0]?.op === 'set'
+            && backupWrites(ctx)[1].ops[0]?.op === 'unset',
+            backupWrites(ctx).map((c) => c.ops),
+        )
         check(
             '未填充模型被补满七档（off 取 null，其余为档位名本身）',
             stable(effortsOf(ctx, 'acme', 'm1')) === stable({ off: null, minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' }),
@@ -202,7 +218,7 @@ export async function run(): Promise<void> {
             && stable(effortsOf(ctx, 'acme', 'm2')) === stable({ off: null, high: 'high' }),
             { m1: effortsOf(ctx, 'acme', 'm1'), m2: effortsOf(ctx, 'acme', 'm2') },
         )
-        check('全组被短路时零写入（还原后与原值相同）', summary.fill?.models === 0 && ctx.mutateCalls.length === 2, summary.fill)
+        check('全组被短路时零写入（还原后与原值相同）', summary.fill?.models === 0 && apiWrites(ctx).length === 2, summary.fill)
     }
     {
         // 中止：整轮还原——已跑完的那个模型也不补（必须完全跑完才谈补全），且中止不发 done 帧
@@ -343,10 +359,20 @@ export async function run(): Promise<void> {
         check('自有段不可读且未忽略排除：显式失败且零写入', message.includes('自有配置段') && ctx.mutateCalls.length === 0, message)
     }
     {
-        // 忽略排除时自有段根本不需要读（它只提供 excludes）
+        // 自有段缺失 ⇒ 连兜底备份都无处可放，整轮中止（预声明一旦写下就可能来不及收回，没有退路就不动用户配置）。
+        // 「忽略排除」豁免不了这一条：它只豁免读 excludes，不豁免「崩了怎么收场」
         const ctx = makeStubCtx({ api: { providers: { acme: { models: [{ id: 'm1' }] } } }, noPlugin: true })
         const { llm } = stub({})
-        const summary = await probeAndFill(ctx as unknown as Context, llm, { models: [target('acme', 'm1')], ignoreExcludes: true })
-        check('忽略排除时自有段不可读也能跑完', summary.fill?.models === 1, summary.fill)
+        let message = ''
+        try {
+            await probeAndFill(ctx as unknown as Context, llm, { models: [target('acme', 'm1')], ignoreExcludes: true })
+        } catch (error) {
+            message = error instanceof Error ? error.message : String(error)
+        }
+        check(
+            '自有段不可读即便忽略排除也中止：显式失败且模型配置一个字节都没动',
+            message.includes('自有配置段') && apiWrites(ctx).length === 0,
+            message,
+        )
     }
 }

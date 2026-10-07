@@ -7,6 +7,8 @@
  * `UNSUPPORTED_REASONING_EFFORT`。想验「这模型到底支持哪几档」，得先让宿主认为它们存在。
  * 预声明的档位在本轮结束时被同一轮代码收回，收敛时以**预声明之前**的档位表为基线，
  * 故临时声明不会出现在增删统计里。
+ * 万一崩在中途（进程被杀、断电、宿主异常退出），预声明就留在用户配置里了：开跑前先把**整段**配置压一份到自有段，
+ * 启动末尾据此回退（见 `@/probe-backup`）。
  *
  * 逐档判定：每个模型按 `EFFORT_LEVELS` 由低到高各发一次（7 档 × 模型数），收到首个 `block-start` 即该档可用。
  * 请求形态、受理判据、失败分类、并发与中止语义全在 `@/probe-engine`（与「验证模型」共用），
@@ -37,6 +39,7 @@ import type { GroupRunner, ProbeEmitter, ProbeRunOptions, ProviderProbeGroup } f
 import { PROBE_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, runProbeGroups } from '@/probe-engine'
 import type { EffortApply } from '@/fill'
 import { convergeProbeEfforts, declareProbeEfforts } from '@/fill'
+import { clearProbeBackup, saveProbeBackup } from '@/probe-backup'
 import { endIgnoreAll, startIgnoreAll } from '@/guard'
 
 /** 探测请求不合法时的报错文案（入参来自浏览器半，一律按不可信输入校验） */
@@ -211,10 +214,18 @@ export async function probeAndFill(
     }
     startIgnoreAll()
     try {
+        // 先落一份整段配置到自有段再动配置：崩了也不至于把预声明留在用户配置里（详见 probe-backup.ts）。
+        // 存不下就整轮中止——没有退路就不动用户配置
+        await saveProbeBackup(ctx)
         const preexisting = await declareProbeEfforts(ctx, targets, flags.ignoreExcludes)
         const summary = await runProbeGroups(llm, groups, runProbeGroup, options)
         const entries = convergeEntries(groups, targets, preexisting, summary, flags.dropUnsupported, options.signal?.aborted === true)
         const { models, added, removed } = await convergeProbeEfforts(ctx, entries, flags.ignoreExcludes, preexisting)
+        // 收敛已落盘即可撤掉兜底备份；撤不掉只告警（下次启动会把这轮补全回退掉，多探一次而已），
+        // 不因清理失败把已经成功的补全报成失败
+        await clearProbeBackup(ctx).catch((error: unknown) => {
+            ctx.logger.warn(`${PLUGIN_NAME}: 探测兜底备份清理失败（下次启动会回退本轮补全）：${error instanceof Error ? error.message : String(error)}`)
+        })
         // 终帧最后发：写回已经落盘，消费方拿到 done 时看到的已是最终配置
         const filled: VerifySummary = { ...summary, fill: { models, added, removed } }
         finishRun(filled, options)
