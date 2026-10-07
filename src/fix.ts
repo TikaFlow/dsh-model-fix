@@ -11,7 +11,8 @@ import { stripEmptyFields } from '@/empty'
 import { queueTask } from '@/host'
 import { versionKey } from '@/shared/parse'
 import { isCapacity } from '@/types'
-import { isPlainObject, type EffortMemory } from '@/shared/types'
+import { isPlainObject, providersOf, type EffortMemory } from '@/shared/types'
+import { descriptorOf } from '@/section'
 
 /** 缓存图片信息转换为写回的 input 模态数组：仅支持图片时填 ['text','image']，无数据或纯文本不填（未声明即按纯文本处理） */
 function toInputValue(image: boolean | undefined): string[] | undefined {
@@ -50,13 +51,12 @@ function isSettingsConflict(error: unknown): boolean {
 export async function fix(ctx: Context, force = false): Promise<number> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         // 冲突重试时重读，获取最新 revision
-        const descriptors = ctx.settings.describe()
-        const descriptor = descriptors.find((d) => d.ns === API_NS)
+        const descriptor = descriptorOf(ctx, API_NS)
         if (!descriptor) return 0
         // 自有 NS 描述：记忆清理写回的 revision 围栏（与 llm-pi-ai 各自独立；描述缺失即跳过清理）
-        const own = descriptors.find((d) => d.ns === PLUGIN_NS)
-        const providers = (descriptor.user as { providers?: Record<string, unknown> } | undefined)?.providers
-        if (!isPlainObject(providers)) return 0
+        const own = descriptorOf(ctx, PLUGIN_NS)
+        const providers = providersOf(descriptor.user)
+        if (!providers) return 0
         const cfg = getConfig()
         const allowRules = cfg.allowUpdate
         const autoRules = cfg.autoFill

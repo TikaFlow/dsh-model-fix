@@ -25,6 +25,7 @@ import { isPlainObject, providersOf } from '@/shared/types'
 import { planRestore } from '@/restore'
 import { endIgnoreAll, startIgnoreAll } from '@/guard'
 import { queueTask } from '@/host'
+import { descriptorOf, ownSection } from '@/section'
 
 /** 自有段里存这份备份的键（顶层，与 `version-N` 同级） */
 const PROBE_BACKUP_KEY = 'probeBackup'
@@ -45,16 +46,10 @@ export function decodeProbeBackup(text: unknown): Record<string, unknown> | unde
     }
 }
 
-/** 读自有段当前值（非对象即 undefined，与 migrate.ts 的收窄口径一致） */
-function ownSection(ctx: Context): Record<string, unknown> | undefined {
-    const user = ctx.settings.describe().find((d) => d.ns === PLUGIN_NS)?.user
-    return isPlainObject(user) ? user : undefined
-}
-
 /** 写自有段（冲突重试，读回最新 revision 后重发同一组 op——备份与清除都是幂等的） */
 async function mutateOwn(ctx: Context, ops: readonly SettingsPathOp[]): Promise<void> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        const descriptor = ctx.settings.describe().find((d) => d.ns === PLUGIN_NS)
+        const descriptor = descriptorOf(ctx, PLUGIN_NS)
         if (!descriptor) throw new Error(`${PLUGIN_NAME}: 自有配置段 ${PLUGIN_NS} 不可读`)
         try {
             await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, [...ops], descriptor.revision))
@@ -72,7 +67,7 @@ async function mutateOwn(ctx: Context, ops: readonly SettingsPathOp[]): Promise<
  * 调用方（`probeAndFill`）已持有事件流守卫，本函数不碰守卫。
  */
 export async function saveProbeBackup(ctx: Context): Promise<void> {
-    const providers = providersOf(ctx.settings.describe().find((d) => d.ns === API_NS)?.user)
+    const providers = providersOf(descriptorOf(ctx, API_NS)?.user)
     if (!providers) throw new Error(`${PLUGIN_NAME}: 当前 ${API_NS} 无 providers 段，无法生成探测前的兜底备份`)
     const text = encodeProbeBackup(providers)
     await mutateOwn(ctx, [{ op: 'set', path: [PROBE_BACKUP_KEY], value: text }])
@@ -87,7 +82,7 @@ export function clearProbeBackup(ctx: Context): Promise<void> {
 /** 按备份回退模型（交集语义，与「恢复备份」同一口径：只回退共有 provider 里的共有 model，不复活被删项、不覆盖新增） */
 async function restoreProviders(ctx: Context, backup: Record<string, unknown>): Promise<number> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        const descriptor = ctx.settings.describe().find((d) => d.ns === API_NS)
+        const descriptor = descriptorOf(ctx, API_NS)
         const providers = providersOf(descriptor?.user)
         // 与 restoreModels 同理：读不到段时显式失败，返回 0 会被当成「本就一致」而静默吞掉真故障
         if (!providers) throw new Error(`${PLUGIN_NAME}: 当前 ${API_NS} 无 providers 段，无法回退`)

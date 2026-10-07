@@ -7,6 +7,7 @@ import { isPlainObject, providersOf } from '@/shared/types'
 import { stripEmptyFields } from '@/empty'
 import { startIgnoreAll, endIgnoreAll } from '@/guard'
 import { queueTask } from '@/host'
+import { descriptorOf } from '@/section'
 
 /**
  * 插件启动时捕获的 `llm-pi-ai` 备份：该 NS user 层 `providers` 段的深拷贝（只读缓存，不写盘）。
@@ -24,7 +25,7 @@ let backup: Record<string, unknown> | undefined
 export function captureBackup(ctx: Context): void {
     if (backup !== undefined) return
     try {
-        const apiDescriptor = ctx.settings.describe().find((d) => d.ns === API_NS)
+        const apiDescriptor = descriptorOf(ctx, API_NS)
         const providers = providersOf(apiDescriptor?.user)
         if (!providers) {
             ctx.logger.warn(`${PLUGIN_NAME}: 未能捕获启动时备份（${API_NS} 不可读或无 providers 段），本次运行「恢复备份」不可用`)
@@ -98,7 +99,7 @@ export async function restoreModels(ctx: Context): Promise<number> {
     startIgnoreAll()
     try {
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            const apiDescriptor = ctx.settings.describe().find((d) => d.ns === API_NS)
+            const apiDescriptor = descriptorOf(ctx, API_NS)
             const providers = providersOf(apiDescriptor?.user)
             // 当前 NS 不可读时同样显式失败：返回 0 会被显示成「已恢复 0 个模型」，掩盖真实故障
             if (!providers) throw new Error(`${PLUGIN_NAME}: 当前 ${API_NS} 无 providers 段，无法恢复`)

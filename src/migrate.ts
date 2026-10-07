@@ -10,6 +10,7 @@ import { DEFAULT_CONFIG, parseEfforts, parseSnapshot, parseVersion, toStored, ve
 import type { PluginConfigSnapshot, VersionedSection } from '@/shared/types'
 import type { V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot, V5CompatRules, V5FieldRules, V5PluginConfigSnapshot, V5UserExperienceRules, V6CompatRules, V6FieldRules, V6PluginConfigSnapshot, V6UserExperienceRules } from '@/types'
 import { isPlainObject } from '@/shared/types'
+import { descriptorOf, sectionOf } from '@/section'
 
 // ---------- 历史版本（v3）迁移源代码：版本快照体系内 v3 快照的冻结形态（见 types.ts 历史版本(v3) 段说明），不引用当前版本的可演进定义。 ----------
 
@@ -383,7 +384,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  */
 export async function migrateConfig(ctx: Context, disposed: () => boolean = () => false): Promise<void> {
     // 轮询等待 describe() 含本 NS；超时/卸载即放弃，按当前生效配置继续
-    let descriptor = ctx.settings.describe().find((d) => d.ns === PLUGIN_NS)
+    let descriptor = descriptorOf(ctx, PLUGIN_NS)
     let waited = 0
     while (!descriptor) {
         if (disposed()) return
@@ -393,9 +394,9 @@ export async function migrateConfig(ctx: Context, disposed: () => boolean = () =
         }
         await sleep(MIGRATE_POLL_MS)
         waited += MIGRATE_POLL_MS
-        descriptor = ctx.settings.describe().find((d) => d.ns === PLUGIN_NS)
+        descriptor = descriptorOf(ctx, PLUGIN_NS)
     }
-    const section = isPlainObject(descriptor.user) ? descriptor.user as VersionedSection : undefined
+    const section = sectionOf(descriptor)
     const versions = collectVersions(section)
     if (versions.includes(CONFIG_VERSION)) {
         const ops: SettingsPathOp[] = [...canonicalizeCurrentOp(section)]
@@ -456,9 +457,9 @@ export function dedupeExcludesOp(snapshot: unknown): SettingsPathOp[] {
  * 有 op 才写入（各规则的零写入条件即反馈循环的终止条件）。当前唯一规则：excludes 去重（手改兜底）。
  */
 export async function selfHealConfig(ctx: Context): Promise<void> {
-    const descriptor = ctx.settings.describe().find((d) => d.ns === PLUGIN_NS)
+    const descriptor = descriptorOf(ctx, PLUGIN_NS)
     if (!descriptor) return
-    const section = isPlainObject(descriptor.user) ? descriptor.user as VersionedSection : undefined
+    const section = sectionOf(descriptor)
     const ops = dedupeExcludesOp(section?.[versionKey(CONFIG_VERSION)])
     if (ops.length === 0) return
     await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))

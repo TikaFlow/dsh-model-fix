@@ -25,9 +25,10 @@ import { MAX_ATTEMPTS } from '@/constants'
 import { API_NS, EFFORT_LEVELS, PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
 import { resolveConfig } from '@/config'
 import type { PluginConfig } from '@/shared/types'
-import { isPlainObject } from '@/shared/types'
+import { isPlainObject, providersOf } from '@/shared/types'
 import { stripEmptyFields } from '@/empty'
 import { queueTask } from '@/host'
+import { descriptorOf } from '@/section'
 
 /** 写回只动这一个模型字段：最大上下文 / 输出上限 / 图片模态与自定义字段一概保留 */
 const FILL_FIELD = 'reasoningEfforts'
@@ -165,15 +166,12 @@ async function applyEfforts(
     label: string,
 ): Promise<EffortApplyPlan> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        const descriptors = ctx.settings.describe()
-        const apiDescriptor = descriptors.find((d) => d.ns === API_NS)
-        const providers = apiDescriptor
-            ? (apiDescriptor.user as { providers?: Record<string, unknown> } | undefined)?.providers
-            : undefined
-        if (!isPlainObject(providers)) return { modelOps: [], models: 0, added: 0, removed: 0 }
+        const apiDescriptor = descriptorOf(ctx, API_NS)
+        const providers = providersOf(apiDescriptor?.user)
+        if (!providers) return { modelOps: [], models: 0, added: 0, removed: 0 }
         // 忽略排除时不必读自有段（它只提供 excludes）；否则读不到就必须显式失败：
         // 回退默认配置会使 excludes 变空，写回会作用到用户实际已排除的提供方
-        const configDescriptor = descriptors.find((d) => d.ns === PLUGIN_NS)
+        const configDescriptor = descriptorOf(ctx, PLUGIN_NS)
         if (!ignoreExcludes && !configDescriptor) {
             throw new Error(`${PLUGIN_NAME}: 自有配置段 ${PLUGIN_NS} 不可读，无法${label}`)
         }

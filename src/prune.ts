@@ -18,11 +18,12 @@ import { resolveConfig } from '@/config'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import type { PluginConfig } from '@/shared/types'
-import { isPlainObject } from '@/shared/types'
+import { isPlainObject, providersOf } from '@/shared/types'
 import type { UnsupportedEffort } from '@/shared/verify-progress'
 import { stripEmptyFields } from '@/empty'
 import { startIgnoreAll, endIgnoreAll } from '@/guard'
 import { queueTask } from '@/host'
+import { descriptorOf } from '@/section'
 
 /** 剔除只动这一个模型字段：最大上下文 / 输出上限 / 图片模态一概保留 */
 const PRUNE_FIELD = 'reasoningEfforts'
@@ -126,14 +127,11 @@ export async function pruneUnsupportedEfforts(ctx: Context, targets: readonly Un
     startIgnoreAll()
     try {
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            const descriptors = ctx.settings.describe()
-            const apiDescriptor = descriptors.find((d) => d.ns === API_NS)
-            const providers = apiDescriptor
-                ? (apiDescriptor.user as { providers?: Record<string, unknown> } | undefined)?.providers
-                : undefined
-            if (!isPlainObject(providers)) return 0
+            const apiDescriptor = descriptorOf(ctx, API_NS)
+            const providers = providersOf(apiDescriptor?.user)
+            if (!providers) return 0
             // 当前生效配置（损坏快照回退最高可解析版本/默认，excludes 一并生效）
-            const configDescriptor = descriptors.find((d) => d.ns === PLUGIN_NS)
+            const configDescriptor = descriptorOf(ctx, PLUGIN_NS)
             // 自有段不可读时显式失败：回退 DEFAULT_CONFIG 会使 excludes 变空，
             // 剔除会作用到用户实际已排除的提供方
             if (!configDescriptor) throw new Error(`${PLUGIN_NAME}: 自有配置段 ${PLUGIN_NS} 不可读，无法剔除推理级别`)
