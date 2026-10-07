@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { API_URL, CACHE_FILE, FETCH_MS, LEVELS, MAX_ATTEMPTS, RETRY_DELAY_MS } from '@/constants'
 import { PLUGIN_NAME } from '@/shared/constants'
+import { errorText } from '@/shared/errors'
 import type { CacheRecord, Catalog, IndexedCatalog, ModelEntry, ProviderGroup, IndexEntry } from '@/types'
 import { isCapacity } from '@/types'
 import { isPlainObject } from '@/shared/types'
@@ -193,7 +194,7 @@ export async function fetchLatest(ctx: Context): Promise<IndexedCatalog> {
             } catch (error) {
                 // 每次失败都记录，便于判断是一次成功还是重试后才成功
                 ctx.logger.warn(
-                    `${PLUGIN_NAME}: 写入缓存失败（第 ${attempt}/${MAX_ATTEMPTS} 次）：${error instanceof Error ? error.message : String(error)}`,
+                    `${PLUGIN_NAME}: 写入缓存失败（第 ${attempt}/${MAX_ATTEMPTS} 次）：${errorText(error)}`,
                 )
                 if (attempt < MAX_ATTEMPTS) {
                     await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS))

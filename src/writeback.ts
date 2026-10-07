@@ -6,14 +6,15 @@
  *
  * 为什么只收这四条路径（其余两处写回刻意留在原处，套进来会变样）：
  * - `src/fix.ts` 的 `fix` 是另一副骨架——它先写自有段的记忆清理再写 `llm-pi-ai`，且它不由守卫托管，
- *   硬套会多出「写前钩子 / 可选日志」这类开关；它只复用本模块底部的两个判定函数。
+ *   硬套会多出「写前钩子 / 可选日志」这类开关；它只复用本模块的 `isSettingsConflict`。
  * - `src/probe-backup.ts` 的崩溃回退**刻意不打逐次日志**（成败由启动链末尾统一汇报一条），
- *   套壳会凭空多出一条告警；它同样只复用那两个判定函数。
+ *   套壳会凭空多出一条告警；它同样只复用 `isSettingsConflict`。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { MAX_ATTEMPTS } from '@/constants'
 import { API_NS, PLUGIN_NAME } from '@/shared/constants'
+import { errorText } from '@/shared/errors'
 import { providersOf } from '@/shared/types'
 import { endIgnoreAll, startIgnoreAll } from '@/guard'
 import { queueTask } from '@/host'
@@ -22,11 +23,6 @@ import { descriptorOf } from '@/section'
 /** 冲突判定：命名空间在读写之间被改动，宿主以 `code` 拒写（码面见 `docs/host-api.md`） */
 export function isSettingsConflict(error: unknown): boolean {
     return (error as { code?: unknown })?.code === 'SETTINGS_CONFLICT'
-}
-
-/** 错误取文案：非 `Error` 的抛值（RPC 信封失败常是普通对象）也得能进日志 */
-export function errorText(error: unknown): string {
-    return error instanceof Error ? error.message : String(error)
 }
 
 /** 写回计划的共同形状：整段 `models` 的 op（各端点自带统计字段，形状不动以免波及纯函数的单测） */

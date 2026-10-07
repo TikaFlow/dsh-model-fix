@@ -13,7 +13,8 @@ import { versionKey } from '@/shared/parse'
 import { isCapacity, type IndexedCatalog } from '@/types'
 import { isPlainObject, providersOf, type EffortMemory, type PluginConfig } from '@/shared/types'
 import { descriptorOf } from '@/section'
-import { errorText, isSettingsConflict } from '@/writeback'
+import { errorText } from '@/shared/errors'
+import { isSettingsConflict } from '@/writeback'
 
 /** 缓存图片信息转换为写回的 input 模态数组：仅支持图片时填 ['text','image']，无数据或纯文本不填（未声明即按纯文本处理） */
 function toInputValue(image: boolean | undefined): string[] | undefined {

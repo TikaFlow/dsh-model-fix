@@ -5,7 +5,8 @@ import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { isPlainObject, providersOf } from '@/shared/types'
 import { stripEmptyFields } from '@/empty'
 import { descriptorOf } from '@/section'
-import { errorText, guardedWritebackApi } from '@/writeback'
+import { errorText } from '@/shared/errors'
+import { guardedWritebackApi } from '@/writeback'
 
 /**
  * 插件启动时捕获的 `llm-pi-ai` 备份：该 NS user 层 `providers` 段的深拷贝（只读缓存，不写盘）。

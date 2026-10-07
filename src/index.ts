@@ -2,6 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { readCache, setCatalog } from '@/catalog'
 import { PLUGIN_NS, API_NS, PLUGIN_NAME } from '@/shared/constants'
+import { errorText } from '@/shared/errors'
 import { resolveConfig, setConfigSource } from '@/config'
 import { migrateConfig, selfHealConfig } from '@/migrate'
 import { cancelRefreshRetry, refreshIfStale } from '@/refresh'
@@ -29,7 +30,7 @@ function refillAfterOwnChange(ctx: Context): void {
     if (isIgnoreAll()) return
     void selfHealConfig(ctx)
         .catch((error: unknown) => {
-            ctx.logger.warn(`${PLUGIN_NAME}: 排除列表自愈失败（不影响后续填充）：${error instanceof Error ? error.message : String(error)}`)
+            ctx.logger.warn(`${PLUGIN_NAME}: 排除列表自愈失败（不影响后续填充）：${errorText(error)}`)
         })
         .then(() => fix(ctx))
         .catch(swallowFixError)
@@ -55,7 +56,7 @@ async function recoverProbeBackup(ctx: Context, isDisposed: () => boolean): Prom
         const changed = await restoreProbeBackup(ctx)
         if (changed > 0 && !isDisposed()) await fix(ctx)
     } catch (error) {
-        ctx.logger.warn(`${PLUGIN_NAME}: 探测式填充的兜底回退失败（配置可能停在半截形态）：${error instanceof Error ? error.message : String(error)}`)
+        ctx.logger.warn(`${PLUGIN_NAME}: 探测式填充的兜底回退失败（配置可能停在半截形态）：${errorText(error)}`)
     }
 }
 
@@ -77,7 +78,7 @@ function runStartupChain(ctx: Context, isDisposed: () => boolean): void {
     void migrateConfig(ctx, isDisposed)
         .catch((error: unknown) => {
             if (isDisposed()) return
-            ctx.logger.warn(`${PLUGIN_NAME}: 配置迁移失败，使用当前生效配置继续：${error instanceof Error ? error.message : String(error)}`)
+            ctx.logger.warn(`${PLUGIN_NAME}: 配置迁移失败，使用当前生效配置继续：${errorText(error)}`)
         })
         .then(() => {
             // 卸载后不再读缓存
@@ -95,7 +96,7 @@ function runStartupChain(ctx: Context, isDisposed: () => boolean): void {
                 })
                 .catch((error: unknown) => {
                     if (isDisposed()) return
-                    ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${error instanceof Error ? error.message : String(error)}`)
+                    ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${errorText(error)}`)
                 })
         })
 }

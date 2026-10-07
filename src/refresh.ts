@@ -2,6 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { fetchLatest, setCatalog } from '@/catalog'
 import { MAX_ATTEMPTS, REFRESH_INTERVAL_MS, RETRY_DELAY_MS } from '@/constants'
 import { PLUGIN_NAME } from '@/shared/constants'
+import { errorText } from '@/shared/errors'
 import { fix } from '@/fix'
 import { isIgnoreAll } from '@/guard'
 
@@ -48,7 +49,7 @@ function refresh(ctx: Context, isDisposed: () => boolean, retryCount = MAX_ATTEM
             }
             fix(ctx).catch((error) => {
                 if (isDisposed()) return
-                ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${error instanceof Error ? error.message : String(error)}`)
+                ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${errorText(error)}`)
             })
             refreshing = false
         })
@@ -60,7 +61,7 @@ function refresh(ctx: Context, isDisposed: () => boolean, retryCount = MAX_ATTEM
             // 每次失败都记录，便于判断是一次成功还是重试后才成功
             const attempt = MAX_ATTEMPTS - retryCount + 1
             ctx.logger.warn(
-                `${PLUGIN_NAME}: 拉取 models.dev 最新数据失败（第 ${attempt}/${MAX_ATTEMPTS} 次）：${error instanceof Error ? error.message : String(error)}`,
+                `${PLUGIN_NAME}: 拉取 models.dev 最新数据失败（第 ${attempt}/${MAX_ATTEMPTS} 次）：${errorText(error)}`,
             )
             // 剩余重试次数不足则放弃，交由后续事件或重启再触发
             if (--retryCount <= 0) {

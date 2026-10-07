@@ -44,6 +44,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { EFFORT_LEVELS, PLUGIN_NAME } from '@/shared/constants'
+import { errorText } from '@/shared/errors'
 import { isPlainObject } from '@/shared/types'
 import type { ProviderBlockReason, ProviderProbeOutcome, VerifyProbeResult, VerifySummary } from '@/shared/verify-progress'
 import type { GroupRunner, ProbeEmitter, ProbeRunOptions } from '@/probe-engine'
@@ -248,7 +249,7 @@ export async function probeAndFill(
         // 收敛已落盘即可撤掉兜底备份；撤不掉只告警（下次启动会把这轮补全回退掉，多探一次而已），
         // 不因清理失败把已经成功的补全报成失败
         await clearProbeBackup(ctx).catch((error: unknown) => {
-            ctx.logger.warn(`${PLUGIN_NAME}: 探测兜底备份清理失败（下次启动会回退本轮补全）：${error instanceof Error ? error.message : String(error)}`)
+            ctx.logger.warn(`${PLUGIN_NAME}: 探测兜底备份清理失败（下次启动会回退本轮补全）：${errorText(error)}`)
         })
         // 终帧最后发：写回已经落盘，消费方拿到 done 时看到的已是最终配置
         const filled: VerifySummary = { ...summary, fill: { models, added, removed } }

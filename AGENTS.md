@@ -11,7 +11,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | 路径 | 职责（只写非显而易见的部分） |
 | --- | --- |
 | `src/index.ts` | Node 半入口：`Config`（宿主经 `entry.fiber.runtime.Config` 取用）+ 单一 `apply` 编排体（备份 → 配置源与段变更接线 → installRpc → 启动链） |
-| `src/shared/` | 跨半共享层（零 Node 依赖 / 零 schemastery / 零非基线 `@deepseek-ai/*`）：常量、`isPlainObject`/`providersOf`、当前版本配置的解析与物化与各组行键表、**验证与探测式填充共用**的探测契约（明细 / 汇报 / 进度帧 / 可用与不支持档位明细 / 写回统计，浏览器半须据此解析回传，禁反向 import Node 半） |
+| `src/shared/` | 跨半共享层（零 Node 依赖 / 零 schemastery / 零非基线 `@deepseek-ai/*`）：常量、异常文案取法 `errorText`（两个半都要）、`isPlainObject`/`providersOf`、当前版本配置的解析与物化与各组行键表、**验证与探测式填充共用**的探测契约（明细 / 汇报 / 进度帧 / 可用与不支持档位明细 / 写回统计，浏览器半须据此解析回传，禁反向 import Node 半） |
 | `src/config.ts` `src/migrate.ts` `src/upgrade.ts` `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 配置解析与配置源 / 当前版本侧的启动迁移、旧快照清理与自愈（`migrateConfig`；选迁移源时才调 `upgradeConfig`）/ **冻结的升级台阶链** `upgradeTo4..7`（历史形态的堆栈，**刻意不引用 `CONFIG_VERSION` 或当前版本默认值**，新增台阶只改这里）/ 缓存读写与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
 | `src/fix.ts` | 填充与写回：两层遍历是**纯计划函数 `planFill`**（零 ctx，出 `FillPlan`：模型参数 op、路由 compat op、重建后的 `efforts`），`fix` 只做编排（`force` 供强制更新单次绕过；读最新段 → 出计划 → 记忆清理与模型写回两次提交 → 冲突重试时重读）；模型参数与路由 compat 同批提交；`excludes` 命中者在 provider 循环入口整条跳过；重建记忆与填充共用同一两层循环 |
 | `src/empty.ts` | 空壳字段的唯一判据 `stripEmptyFields`：`reasoningEfforts` / `input` / `compat` 的空形态一律等同「未声明」，**五条写回路径（`fix` 填充、`reset`、`restore`、`prune` 剔除、`fill` 探测式填充的预声明与收敛）统一过它**，不在各模块另写一份；无空壳时返回原引用，调用方以引用相等判「无需重建」。注意它只清**空形态**：把某个键整个删掉得由调用方显式 `delete` |

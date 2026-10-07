@@ -55,6 +55,7 @@ import type { Flags, Group, RowKey, VerifyCandidate, VerifyTarget } from '@/clie
 import type { CardKey } from '@/client/locales'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locales'
 import { PLUGIN_NAME } from '@/shared/constants'
+import { errorText } from '@/shared/errors'
 import { isProviderBlocking } from '@/shared/verify-progress'
 import type { UnsupportedEffort, ProbeOutcome, VerifyProbedFrame, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
@@ -829,7 +830,7 @@ export function Card(props: CardProps) {
             .catch((error: unknown) => {
                 // 传输层失败（HTTP 非 2xx 等）call 直接 reject，与 ok:false 同一路径展示
                 setNotice({
-                    text: t('forceFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) }),
+                    text: t('forceFailed', { message: truncateMessage(errorText(error)) }),
                     tone: 'error',
                 })
             })
@@ -857,7 +858,7 @@ export function Card(props: CardProps) {
             })
             .catch((error: unknown) => {
                 setNotice({
-                    text: t('resetFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) }),
+                    text: t('resetFailed', { message: truncateMessage(errorText(error)) }),
                     tone: 'error',
                 })
             })
@@ -885,7 +886,7 @@ export function Card(props: CardProps) {
             })
             .catch((error: unknown) => {
                 setNotice({
-                    text: t('restoreFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) }),
+                    text: t('restoreFailed', { message: truncateMessage(errorText(error)) }),
                     tone: 'error',
                 })
             })
@@ -941,7 +942,7 @@ export function Card(props: CardProps) {
                 setVerifyLines((current) => [...current, t('verifyFinished', { result: stats })])
             })
             .catch((error: unknown) => {
-                const stats = t('verifyFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) })
+                const stats = t('verifyFailed', { message: truncateMessage(errorText(error)) })
                 setVerifyLines((current) => [...current, t('verifyFinished', { result: stats })])
             })
             .finally(() => {
@@ -1044,7 +1045,7 @@ export function Card(props: CardProps) {
                 }, PROBE_CLOSE_DELAY_MS)
             })
             .catch((error: unknown) => {
-                const failed = t('probeFillFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) })
+                const failed = t('probeFillFailed', { message: truncateMessage(errorText(error)) })
                 setNotice({ text: failed, tone: 'error' })
                 setProbeLines((current) => [...current, failed])
                 probeClosing.current = setTimeout(() => {
@@ -1123,7 +1124,7 @@ export function Card(props: CardProps) {
             })
             .catch((error: unknown) => {
                 setNotice({
-                    text: t('pruneFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) }),
+                    text: t('pruneFailed', { message: truncateMessage(errorText(error)) }),
                     tone: 'error',
                 })
             })

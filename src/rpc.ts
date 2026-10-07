@@ -39,6 +39,7 @@ import type { ConnectionRpcResult, HostConnectionService } from '@deepseek-ai/ds
 import type {} from '@deepseek-ai/dsh-llm'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { PLUGIN_NAME, PLUGIN_NS, PROBE_STREAM_ROUTE, VERIFY_STREAM_ROUTE } from '@/shared/constants'
+import { errorText } from '@/shared/errors'
 import { encodeProgressFrame } from '@/shared/verify-progress'
 import type { VerifySummary } from '@/shared/verify-progress'
 import type { ProbeRunOptions } from '@/probe-engine'
@@ -97,7 +98,7 @@ export function installRpc(ctx: Context): void {
                             ok: false,
                             error: {
                                 code: 'model-fix/force-update-failed',
-                                message: error instanceof Error ? error.message : String(error),
+                                message: errorText(error),
                                 details: {},
                             },
                         }
@@ -116,7 +117,7 @@ export function installRpc(ctx: Context): void {
                             ok: false,
                             error: {
                                 code: endpoint === ENDPOINT_RESET_MODELS ? 'model-fix/reset-models-failed' : 'model-fix/restore-models-failed',
-                                message: error instanceof Error ? error.message : String(error),
+                                message: errorText(error),
                                 details: {},
                             },
                         }
@@ -139,7 +140,7 @@ export function installRpc(ctx: Context): void {
                             ok: false,
                             error: {
                                 code: 'model-fix/prune-efforts-failed',
-                                message: error instanceof Error ? error.message : String(error),
+                                message: errorText(error),
                                 details: {},
                             },
                         }
