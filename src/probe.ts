@@ -11,14 +11,24 @@
  * 启动末尾据此回退（见 `@/probe-backup`）。
  *
  * 逐档判定：每个模型按 `EFFORT_LEVELS` 由低到高各发一次（7 档 × 模型数），收到首个 `block-start` 即该档可用。
- * 请求形态、受理判据、失败分类、并发与中止语义全在 `@/probe-engine`（与「验证模型」共用），
- * 本模块只留两处验证没有的东西：**模型级短路的取舍**与**收敛口径**。
+ * 请求形态、受理判据、失败分类、两级短路判据、并发与中止语义全在 `@/probe-engine`（与「验证模型」共用），
+ * 本模块只留两处验证没有的东西：**「只否定这一档」的对照怎么取**与**收敛口径**。
  *
- * 模型级短路：本功能**不做**。验证那边「某档报错且非档位不支持、非瞬态即短该模型剩余档位」的前提是
- * 已有一次不带档位的基线作对照；本功能没有基线，而「最低档 `off` 被拒」并不等于「模型整体不可用」——
- * 自定义提供方里把 `off` 当非法参数、只接受 low/medium/high 的并不罕见。一旦因此否掉整个模型，
- * 用户就永远补不上它真能用的那几档，代价远大于多花 6 次请求。故 7 档逐档试到底，
- * 哪一档通哪一档可用，全都如实进记录区。只有 provider 级失败（端点不通 / 凭据无效）才短路整组。
+ * 两级短路（判据在 `@/probe-engine` 的 `shouldSkipModelTail` 与 `isProviderBlocking`，两功能逐字共用）：
+ * - **provider 级**：端点不通 / 凭据无效即短整组——同一提供方共用同一 url 与同一把 key，后面同样过不去。
+ * - **模型级**：某档的失败**与档位无关**时短该模型剩余档位，**额度耗尽是其中最要紧的一种**：
+ *   同一把 key 的额度已经见底，换多少档、换哪个模型都是同样结果，继续逐档试纯属烧额度和时间，
+ *   用户要的「这一档行不行」在第一次就没了答案。
+ *   但**「参数不正确」不参与模型级短路**（除非它已被判成「这一档不支持」）：最低档 `off` 被拒不等于
+ *   模型整体不可用——自定义提供方里把 `off` 当非法参数、只接受 low/medium/high 的并不罕见。一旦因此否掉
+ *   整个模型，用户就永远补不上它真能用的那几档，代价远大于多花 6 次请求。故 7 档逐档试到底，
+ *   哪一档通哪一档可用，全都如实进记录区。
+ *   限流与超时同样不停：它们只否定了这一次，隔一会儿可能就通了。
+ *   「是否只否定这一档」的对照两功能取法不同——验证拿不带档位的基线探测，本功能拿同模型已跑通的更低档
+ *   （更低档跑通 ⇒ 端点、凭据、额度、网络、模型名都无碍，唯一的变量就是这一档，比基线更紧），代价为零。
+ *   **故本功能不额外发那次基线探测**：它换来的只是「`off` 自己也能被判不支持」这一条，而 `off` 被拒不判
+ *   不支持并不影响补全（其余六档照补、照记），却要让每个模型多烧一次请求——本功能是额度开销最大的那个。
+ * 被短路的模型一律按「没跑完」处理：原样还原预声明之前的档位表（见下）。
  *
  * 收敛口径（每个「提供方 / 模型」各按一条）：
  * - 档位表 = `可用 ∪ 原有`，开「剔除不支持」时改为 `可用 ∪ (原有 − 明确判不支持)`。
@@ -36,7 +46,7 @@ import { isPlainObject } from '@/shared/types'
 import { isProviderBlocking } from '@/shared/verify-progress'
 import type { ProviderBlockReason, ProviderProbeOutcome, VerifyProbeResult, VerifySummary } from '@/shared/verify-progress'
 import type { GroupRunner, ProbeEmitter, ProbeRunOptions, ProviderProbeGroup } from '@/probe-engine'
-import { PROBE_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, runProbeGroups } from '@/probe-engine'
+import { PROBE_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, runProbeGroups, sameModelTail, shouldSkipModelTail } from '@/probe-engine'
 import type { EffortApply } from '@/fill'
 import { convergeProbeEfforts, declareProbeEfforts } from '@/fill'
 import { clearProbeBackup, saveProbeBackup } from '@/probe-backup'
@@ -50,7 +60,7 @@ function targetKey(provider: string, model: string): string {
     return JSON.stringify([provider, model])
 }
 
-/** 顺序跑完一组的探测请求（组内零并发）：逐档各发一次，只有 provider 级失败才短路整组 */
+/** 顺序跑完一组的探测请求（组内零并发）：逐档各发一次，provider 级失败短整组、其余按共用判据短到模型尾 */
 const runProbeGroup: GroupRunner = async (
     llm: Pick<LlmRuntime, 'stream'>,
     group: ProviderProbeGroup,
@@ -80,13 +90,20 @@ const runProbeGroup: GroupRunner = async (
             outcome,
             failure: verdict.failure,
         })
-        // 「还剩几条没验」只由 provider 级短路给出：本功能不做模型级短路，理由见模块注释
+        // 两级短路的「剩余未发出的条数」在此一并算出：provider 级断到组尾，模型级只断到该模型自己的档位尾。
+        // 消费方据此交代「还剩几条没探」，被跳过的请求不进 results，故该模型的 probed 少于 planned
+        let skipped = 0
         if (isProviderBlocking(outcome)) {
             blockedBy = outcome
-            emitProbe(probe, { outcome, failure: verdict.failure }, group.probes.length - index - 1)
-            break
+            skipped = group.probes.length - index - 1
+        } else if (shouldSkipModelTail(outcome, verdict.failure, outcome === 'unsupported-effort' || isEffortRejection(verdict.failure))) {
+            // 参数不正确但还没有对照（更低档还没探到）时**不**短：那一档仍可能是唯一能用的档位，
+            // 逐档试到底正是本功能存在的意义。其余与档位无关的失败（额度耗尽等）照短，见模块注释
+            skipped = sameModelTail(group.probes, index)
         }
-        emitProbe(probe, { outcome, failure: verdict.failure }, undefined)
+        if (skipped > 0) index += skipped
+        emitProbe(probe, { outcome, failure: verdict.failure }, skipped === 0 ? undefined : skipped)
+        if (blockedBy !== undefined) break
     }
     const models = new Set<string>()
     let plannedEfforts = 0
@@ -124,7 +141,7 @@ function flagsOf(payload: unknown): { ignoreExcludes: boolean; dropUnsupported: 
  * 「跑完没跑完」有两道闸，任一不过即原样还原预声明之前的档位表——半截结论不足以动用户配置：
  * 1. 本轮被中止（`aborted`）：**整轮**还原，不按模型逐个判。用户按「停止」要的就是原样停下，
  *    不是「探到一半、填一半」；与「探到多少补多少」相比，全丢更可预期，也更不会把半截结论写成定论。
- * 2. 该模型自己的请求没拿满（被 provider 级短路连带）：只还原它，其余模型照常收敛。
+ * 2. 该模型自己的请求没拿满（被 provider 级或模型级短路连带）：只还原它，其余模型照常收敛。
  */
 function convergeEntries(
     groups: readonly ProviderProbeGroup[],

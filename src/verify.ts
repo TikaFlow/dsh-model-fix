@@ -24,10 +24,10 @@
 
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { PLUGIN_NAME } from '@/shared/constants'
-import { isProviderBlocking, isTransientOutcome } from '@/shared/verify-progress'
+import { isProviderBlocking } from '@/shared/verify-progress'
 import type { ProviderBlockReason, ProviderProbeOutcome, VerifyProbeResult, VerifySummary } from '@/shared/verify-progress'
 import type { GroupRunner, ProbeEmitter, ProbeRunOptions, ProviderProbeGroup } from '@/probe-engine'
-import { VERIFY_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, runProbeGroups, sameModelTail } from '@/probe-engine'
+import { VERIFY_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, runProbeGroups, sameModelTail, shouldSkipModelTail } from '@/probe-engine'
 
 /** 验证请求不合法时的报错文案（入参来自浏览器半，一律按不可信输入校验） */
 const VERIFY_REJECT_MESSAGE = `${PLUGIN_NAME}: 验证请求不合法（模型条目或推理级别取值越界）`
@@ -44,11 +44,12 @@ const VERIFY_REJECT_MESSAGE = `${PLUGIN_NAME}: 验证请求不合法（模型条
  *
  * 两级短路（基线与验证请求一视同仁）：
  * - **provider 级**：同一提供方共用同一 url 与同一把 key，这次过不了后面同样过不了，没必要再花额度。
- * - **模型级**：某次请求**报错**且不是「档位不支持」时，同模型的后续档位换过去也是同样结果，同样不必再花额度。
- *   「档位不支持」恰是唯一值得继续验的结论——换个档位可能就通了，那正是逐档位验的意义。
- *   只对有失败事实的请求生效：正常终止却没有内容块属退化完成，不是报错，换档位仍可能出内容。
- *   限流与超时同样不停（`isTransientOutcome`）：它们只否定了这一次，否不了下一次，把它固化成
- *   「后面的档位也别验了」才是真误判——实测限流挡掉的那一档，隔一会儿就通了。
+ * - **模型级**：某次请求**报错**且不是「只否定这一档」时，同模型的后续档位换过去也是同样结果，同样不必再花额度。
+ *   「只否定这一档」恰是唯一值得继续验的结论——换个档位可能就通了，那正是逐档位验的意义。
+ *   判据是 `@/probe-engine` 的 `shouldSkipModelTail`（与「探测式填充」共用），本模块只给它的对照：
+ *   这里的对照是那条基线探测跑通没有。只对有失败事实的请求生效：正常终止却没有内容块属退化完成，
+ *   不是报错，换档位仍可能出内容。限流与超时同样不停（`isTransientOutcome`）：它们只否定了这一次，
+ *   否不了下一次，把它固化成「后面的档位也别验了」才是真误判——实测限流挡掉的那一档，隔一会儿就通了。
  * 外部中止同样在此早停：只断在途请求而不停循环，后续请求会带着已中止的信号跑出一串假失败。
  */
 const runGroup: GroupRunner = async (
@@ -116,7 +117,7 @@ const runGroup: GroupRunner = async (
         if (isProviderBlocking(outcome)) {
             blockedBy = outcome
             skipped = group.probes.length - index - 1
-        } else if (verdict.failure !== undefined && outcome !== 'unsupported-effort' && !isTransientOutcome(outcome)) {
+        } else if (shouldSkipModelTail(outcome, verdict.failure, outcome === 'unsupported-effort')) {
             skipped = tail
         } else {
             skipped = 0

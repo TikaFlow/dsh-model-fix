@@ -4,8 +4,11 @@
  * 两个功能要发的是同一形态的请求（同一把提示词、同一个受理判据、同一种失败分类、同样的
  * provider 间并发 / provider 内串行 / 中止早停 / 进度帧），把它们各写一份必然随演进漂移，
  * 故本模块只留**共用的那一半**：入参校验与计划、分组、单次请求与判定、汇总与汇报、并发编排与进度帧。
+ * 两级短路的判据也共用：provider 级是 `isProviderBlocking`（端点不通 / 凭据无效即短整组），
+ * 模型级是 `shouldSkipModelTail`（失败与档位无关即短到该模型自己的档位尾，额度耗尽是其中最要紧的一种）。
  * 真正不同的只有「一组里怎么逐条跑」——验证按 `needTest` 先发一次不带档位的基线探测，
- * 探测式填充逐档各发一次——故该部分由调用方以 `runGroup` 注入。
+ * 探测式填充逐档各发一次——故该部分由调用方以 `runGroup` 注入，而「这次失败是否只否定这一档」
+ * （`effortScoped`）由各功能用自己的对照给出：验证用基线探测，探测式填充用同模型已跑通的更低档。
  *
  * 判定口径（与本文件同生共死，两功能一致）：
  * - 收到首个 `block-start` 即判该「模型 × 档位」可用，随即中断、不再消耗生成额度；
@@ -26,6 +29,7 @@ import type { LlmFailure } from '@deepseek-ai/dsh-llm/types'
 import { LEVELS } from '@/constants'
 import type { ProbeOutcome, ProviderProbeOutcome, UnsupportedEffort, UsableEffort, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
 import { isPlainObject } from '@/shared/types'
+import { isTransientOutcome } from '@/shared/verify-progress'
 
 /** 探测提示词：只要一句应答，最省 token */
 const PROBE_PROMPT = 'Just say OK'
@@ -240,6 +244,26 @@ export function sameModelTail(probes: readonly VerifyProbe[], from: number): num
     let count = 0
     for (let index = from + 1; index < probes.length && probes[index]?.model === probes[from]?.model; index++) count++
     return count
+}
+
+/**
+ * 该失败是否足以否定**该模型的其余档位**（模型级短路的唯一判据，验证与探测式填充共用）。
+ *
+ * 三条同时满足才短：
+ * - **有失败事实**：正常终止却没有内容块属退化完成，不是报错，换档位仍可能出内容；
+ * - **不是「只否定这一档」**（`effortScoped`）：`INVALID_REQUEST` 有可能是这一档自己的问题，
+ *   而逐档试出来正是为此——换一档可能就通了。各功能用自己的对照给出这条（验证拿不带档位的基线
+ *   探测，探测式填充拿同模型已跑通的更低档；对照还没到手时一律当作「可能只否定这一档」），
+ *   判据本身共用，判据的**依据**各功能不同。
+ * - **不是瞬态**：限流与超时只否定了这一次，重试同一模型只是烧额度，实测限流挡掉的那一档
+ *   隔一会儿就通了。
+ *
+ * 其余都短：额度耗尽（同一把 key 的额度已经用完，换多少档都是同样结果）、以及各类与档位无关的
+ * 报错（同名模型不存在、内容策略拒绝…）。这类逐条再试纯属烧额度，用户要的「这一档行不行」在
+ * 第一次就没了答案。
+ */
+export function shouldSkipModelTail(outcome: ProbeOutcome, failure: VerifyFailureFacts | undefined, effortScoped: boolean): boolean {
+    return failure !== undefined && !effortScoped && !isTransientOutcome(outcome)
 }
 
 /**

@@ -1,5 +1,5 @@
 // src/probe.ts 与 src/fill.ts 用例：预声明 → 逐档探测 → 收敛写回的整条链（档位不支持的两条件判据、
-// 不做模型级短路、provider 级短路、未跑完即还原、剔除不支持、忽略排除、帧序列与终帧里的写回统计）
+// 与档位无关的失败短到模型尾而「参数不正确」不短、provider 级短路、未跑完即还原、剔除不支持、忽略排除、帧序列与终帧里的写回统计）
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm/types'
@@ -164,7 +164,7 @@ export async function run(): Promise<void> {
         const { llm, calls } = stub({ 'm1@off': [finishError('INVALID_REQUEST', 400)] })
         const summary = await probeAndFill(ctx as unknown as Context, llm, { models: [target('acme', 'm1')] })
         check(
-            '第一档被参数错误拒绝时不判档位不支持（无更低档作对照），且不做模型级短路：七档照发',
+            '第一档被参数错误拒绝时不判档位不支持（无更低档作对照），且参数不正确不参与模型级短路：七档照发',
             calls.length === 7 && summary.unsupported === 0 && summary.unsupportedEfforts.length === 0
             && summary.results[0].outcome === 'other',
             { calls, first: summary.results[0] },
@@ -198,6 +198,33 @@ export async function run(): Promise<void> {
             calls.length === 7 && summary.results[2].outcome === 'rate-limit' && summary.unsupported === 0
             && stable(summary.usableEfforts.map((item) => item.effort)) === stable(['off', 'minimal', 'medium', 'high', 'xhigh', 'max']),
             { calls, usable: summary.usableEfforts },
+        )
+    }
+    {
+        // 额度耗尽与档位无关：短到该模型自己的档位尾，别的模型照探
+        const ctx = ctxOf()
+        const frames: VerifyProgressFrame[] = []
+        const { llm, calls } = stub({ 'm1@off': [finishError('QUOTA', 429)] })
+        const summary = await probeAndFill(ctx as unknown as Context, llm, { models: [target('acme', 'm1'), target('acme', 'm2')] }, {
+            onProgress: (f) => { frames.push(f) },
+        })
+        check(
+            '额度耗尽短到模型尾：m1 只发第一档（skipped 为该模型剩余六档），m2 照发满七档',
+            calls.length === 8 && calls.filter((c) => c.startsWith('acme/m1')).length === 1
+            && summary.probed === 8 && summary.planned === 14 && summary.providers[0].blockedBy === undefined,
+            { calls, report: summary.providers[0] },
+        )
+        check(
+            '被短的模型在记录区留下一条并交代还剩几条，别的提供方结论不受影响',
+            frames.filter((f) => f.type === 'probed' && f.model === 'm1' && f.skipped === 6).length === 1
+            && frames.filter((f) => f.type === 'probed' && f.model === 'm2').length === 7,
+            frames.filter((f) => f.type === 'probed').map((f) => `${f.model}:${f.outcome}:${f.skipped ?? 0}`),
+        )
+        check(
+            '额度耗尽的模型算「没跑完」：原样还原（m1 无字段），m2 照补满七档',
+            effortsOf(ctx, 'acme', 'm1') === undefined
+            && stable(Object.keys(effortsOf(ctx, 'acme', 'm2') as Record<string, unknown>)) === stable([...EFFORT_LEVELS]),
+            { m1: effortsOf(ctx, 'acme', 'm1'), m2: effortsOf(ctx, 'acme', 'm2') },
         )
     }
     {
