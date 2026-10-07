@@ -114,6 +114,7 @@ export type CardKey =
     | 'probeTitle'
     | 'probeDesc'
     | 'probeQuota'
+    | 'probePlan'
     | 'probeEmpty'
     | 'probeIgnoreExcludes'
     | 'probeIgnoreExcludesTip'
@@ -313,13 +314,14 @@ export const zh: Record<CardKey, string> = {
     probeDesc: '对每个模型的全部推理级别各发一次最小请求，能用的补进模型配置；所耗时间随模型数量增加。',
     probeEmpty: '没有可探测的模型：请先在「模型」设置中添加模型，或关闭「忽略排除」后重试。',
     probeQuota: '探测会发起真实请求，可能消耗少量额度；并会把结论写回模型配置。',
+    // 两个数分别对应下面那两个键：{models} 是「探测所有」的范围，{unfilled} 是「探测未填充」的范围
+    probePlan: '共 {models} 个模型，其中 {unfilled} 个未填充推理级别。',
     probeIgnoreExcludes: '忽略排除',
     probeIgnoreExcludesTip: '开启后，被「排除提供方」列出的提供方也照常探测并写入。',
     probeDropUnsupported: '剔除不支持',
     probeDropUnsupportedTip: '开启后，明确判为不支持的推理级别会从模型配置里去掉；关闭时只增不减。',
-    // 探测范围直接写在键上：两个键各带自己的模型数，不再单起一行复述一遍
-    probeUnfilled: '探测未填充（{count} 个）',
-    probeAll: '探测所有（{count} 个）',
+    probeUnfilled: '探测未填充',
+    probeAll: '探测所有',
     probeStop: '停止',
     probeCommand: '探测 {total} 项',
     probeDone: '共探测 {models} 个模型、{levels} 个推理级别：可用 {usable} 个、不支持 {unsupported} 个。',
@@ -473,14 +475,15 @@ export const en: Record<CardKey, string> = {
     probeDesc: 'Each model gets one minimal request per reasoning level; the usable ones are written back to the model config. Takes longer with more models.',
     probeEmpty: 'No models to probe. Add models on the Models settings page, or turn off "Ignore exclusions" and retry.',
     probeQuota: 'Probing sends real requests and may use a small amount of your quota; the result is written back to the model config.',
+    // The two counts map onto the two keys below: {models} is the "Probe all" scope,
+    // {unfilled} is the "Probe unfilled" scope
+    probePlan: '{models} model(s) in total, {unfilled} of them with no reasoning level filled in yet.',
     probeIgnoreExcludes: 'Ignore exclusions',
     probeIgnoreExcludesTip: 'When on, providers listed under "Excluded providers" are probed and written to as well.',
     probeDropUnsupported: 'Drop unsupported',
     probeDropUnsupportedTip: 'When on, levels judged unsupported are removed from the model config; when off, nothing is removed.',
-    // The scope lives on the keys themselves: each button carries its own model count,
-    // so there is no need for a separate line restating it
-    probeUnfilled: 'Probe unfilled ({count})',
-    probeAll: 'Probe all ({count})',
+    probeUnfilled: 'Probe unfilled',
+    probeAll: 'Probe all',
     probeStop: 'Stop',
     probeCommand: 'Probe {total} item(s)',
     probeDone: 'Probed {models} model(s), {levels} reasoning effort(s): {usable} usable, {unsupported} unsupported.',

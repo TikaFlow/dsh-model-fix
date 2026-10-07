@@ -13,8 +13,8 @@
  * 按提供方分组多选模型，配「验证推理级别」开关，对每个勾选模型声明的每个推理级别发起真实探测；
  * 结论只留在该弹层内（实时记录区的末行），不写卡片状态行——验证即用即弃，不留任何配置痕迹。
  * 「探测式填充」是它的写回版：没有候选框（范围由「探测所有 / 探测未填充」两键与「忽略排除」开关决定，
- * 模型列表取**点按钮那一刻**的最新值并当场冻结），正文依次是「实时记录区 → 额度提示 → 两个开关」，
- * 探测范围与花费由两个键各带出的模型数交代（不另起一行复述一遍）；
+ * 模型列表取**点按钮那一刻**的最新值并当场冻结），正文依次是「探测范围一句 → 实时记录区 → 额度提示 → 两个开关」，
+ * 两个范围的大小由那句提示交代（分别对应「探测所有 / 探测未填充」两键，键文本保持短）；
  * footer 只留 关闭 / 探测所有 / 探测未填充 三键（由宽到窄）；
  * 跑完把汇总与补全结果留在记录区并**延迟 PROBE_CLOSE_DELAY_MS 再关窗**，同一份结果另落卡片状态行。
  * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
@@ -701,9 +701,9 @@ export function Card(props: CardProps) {
                 onClick={running ? stopProbe : () => { runProbe(scope === 'unfilled') }}
             >
                 {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点。
-                    非在途态把模型数挂在键上：范围与花费一眼可见，不必另起一行复述 */}
+                    键文本保持短——两个范围的大小由正文那句提示交代，不往键上堆 */}
                 {running ? <StateDot state="ongoing" /> : null}
-                {running ? t('probeStop') : t(scope === 'unfilled' ? 'probeUnfilled' : 'probeAll', { count: String(count) })}
+                {t(running ? 'probeStop' : scope === 'unfilled' ? 'probeUnfilled' : 'probeAll')}
             </Button>
         )
     }
@@ -1442,10 +1442,16 @@ export function Card(props: CardProps) {
                     {probeButton('unfilled', unfilledCount)}
                 </div>}
             >
-                {/* 只在无可探模型时占位说明；范围与花费由两个键各自带出的模型数交代 */}
+                {/* 探测范围一句说清：两个数分别对应下面那两个键（全量 / 未填充），键文本保持短。
+                    两个范围都为空时改说「为何为空」——用户多半是先把提供方排除了 */}
                 {unfilledCount === 0 && allCount === 0 ? (
                     <p className="dsh-mf-verifyEmpty" role="status">{t('probeEmpty')}</p>
-                ) : null}
+                ) : (
+                    <p className="dsh-mf-verifyQuota">{t('probePlan', {
+                        models: String(allCount),
+                        unfilled: String(unfilledCount),
+                    })}</p>
+                )}
                 {probeTotal > 0 ? (
                     <TerminalBlock
                         command={t('probeCommand', { total: String(probeTotal) })}
