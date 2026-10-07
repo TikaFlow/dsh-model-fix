@@ -23,15 +23,17 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/client/model.ts` / `effort.ts` / `scope.ts` / `locales.ts` | 快照↔配置纯映射（验证候选拍取与目标收敛）/ 记忆纯逻辑 / ConfigForm 的 decode 包装 / 中英词典 |
 | `public/models-cache.json` | 构建期平铺复制到 `lib/` 根：models.dev 拍平缓存（首启离线可用） |
 | `docs/decisions.md` | 「设计裁决」全文（AGENTS.md 同节只留提纲）；仅供开发查阅，不进 `files` |
+| `docs/host-api.md` | 「宿主 API 与类型契约」全文：本插件实际在用的宿主服务调用、宿主类型导入面、依赖宿主字面量的键与码、宿主运行时行为假设（全文见同节「宿主契约文档纪律」）；仅供开发查阅，不进 `files` |
 | `icon.svg` / `cordis.patch.yml` / `locale/*.json` | 包根静态资源，不经 tsdown，`files` 单列；补丁行的 `id` 即 settings 命名空间键 |
 
 ## 硬约束（违反即坏）
 
 ### 跨半与宿主契约
 
+- **宿主契约文档纪律**：本插件对宿主的一切依赖——服务调用与事件订阅（含签名与参数位序假设）、宿主类型导入面、依赖宿主字面量的键/码/路由/slot 名、宿主运行时行为假设——一律登记在 [`docs/host-api.md`](docs/host-api.md)。**改动只要落在上述任一类，同一轮必须更新该文档**，本节只留纪律与索引、不复制正文。修宿主 bug、升宿主版本、发现新的宿主行为假设时同样适用；宿主升到新大版本还要过一遍该文档末尾的「升级宿主时的检查清单」。
 - **导入别名纪律**：`src`/`test` 的源码导入一律以 `@/`（→`src/`）或 `@test/`（→`test/`）开头，禁相对路径；映射须同时声明在 tsconfig `paths` 与 tsdown 各配置 `alias`（tsdown 不读 paths）。别名键锚定 `@`，不吞 `@deepseek-ai/*`。
 - `tsdown.config.ts` 内置**双向纯度门禁**：浏览器半 `@/` 值导入只放行 `@/shared/*` 与 `@/client/*`，node 半禁 `@/client*`，两侧禁相对导入（防 `node:path`/schemastery 进浏览器包）。新增跨半依赖前先判断该进 `src/shared` 还是走字面量/契约复制。
-- 浏览器半 externals 只允许宿主模块表基线那几项（权威列表在宿主 `packages/client/web/src/platform.ts`，本仓副本在 `PLATFORM_MODULES`），其余一律打进包。
+- 浏览器半 externals 只允许宿主模块表基线那几项（权威列表在宿主 `@deepseek-ai/dsh-client-web` 的 `src/platform.ts`，本仓副本在 `PLATFORM_MODULES`），其余一律打进包。
 - `package.json` 的 `dsh.client.inject` 是**依赖包图边**（槽位所有者包），不是 cordis 服务名；服务名只写在 `src/client/index.tsx` 的 `export const inject`。client 模块须 `export const name` 且等于包名，并复刻 `window.__ModuleLoader__.load` 闭包工厂契约（banner/intro/footer 三段）——声明 `dsh.client` 后缺 `lib/client.js` 会让宿主激活期聚合抛错，故 **build 必须先于安装**。
 - settings 命名空间键 = `cordis.patch.yml` 的 `id`，须与浏览器半 `configForms.get(NS)`、Node 半写回 NS **同一字面量**（`PLUGIN_NS`）；换包即换 id，升级传播无需用户操作。
 - `Config` 导出 = `z.any().volatile()`：**不能用 dict**（宿主对 `type === 'object'` 的 schema 逐字段投影会把整段抹成 `{}`）；根 volatile 使宿主把整段作为实时引用注入 `apply` 第二参，`.get()` 必须留在工厂内。
