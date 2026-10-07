@@ -24,7 +24,8 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/probe.ts` `src/fill.ts` `src/probe-backup.ts` | 「探测式填充」执行器、两次写回与崩溃兜底：`probeAndFill(ctx, llm, payload, options)` = 校验两个开关 → 展开七档计划 → **兜底备份**（`probe-backup` 把整段 providers deflate+base64 存进自有段顶层键 `probeBackup`，与 `version-N` 同级、故不进快照也**不动 `CONFIG_VERSION`**；存不下即整轮中止，没有退路就不动用户配置）→ **预声明**（`fill.ts` 按 `EFFORT_LEVELS` 排序写进配置并返回预声明之前的原有档位表）→ 逐档探测 → **收敛**（口径见「设计裁决」）→ 清备份 → 统计随终帧回传（`VerifySummary.fill`）。守卫**持有整轮**；两次写回共用 `planEffortApply`，`modelOps` 按当前值比对、增删统计按传入基线（预声明之前那份）比对 |
 | `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个 channel RPC 写回端点（以守卫互斥、验证只读不参与）+ **两条进度流**（`connection.fetch` 的 exact 路由，SSE 分帧，客户端断开即中止执行）：两者共用 `progressStreamFetch`，探测那条因一轮之内要写两次配置而**入口先查守卫**（已开回 409 + 中文文案）/ 保鲜刷新 |
 | `src/client/index.tsx` | 浏览器半入口：四个卡片刻位注册（共用一份 `cardProps` 展开）、词典、RPC 载体、**两条进度流的读流**（共用 `streamSummary`，非 2xx 取响应体文案作报错）、记忆监听子 fiber |
-| `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片、验证弹层（候选列表 + 实时记录区 + 停止）、**探测式填充弹层**（无候选列表：正文依次是「探测范围一句 → 额度提示 → 记录区 → 忽略排除 / 剔除不支持 两个开关」，**记录区一律排在提示之下、开关之上**，两个弹层同序；两个弹层的正文都套一层 `.dsh-mf-verifyBody`，把纵向间距收成 12px 一档，列表项用默认无 gap，正文到 footer 的间距交给宿主 `.dialog` 的 gap）、**键文本保持短**不挂计数；footer 只留 关闭 / 探测所有 / 探测未填充（由宽到窄），在途键就地变「停止」，跑完延迟 `PROBE_CLOSE_DELAY_MS` 再关窗）、验证跑完后的剔除确认层、footer 与末尾联系行；**全部样式数值在 `STYLE_TEXT`** |
+| `src/client/card-styles.ts` | 卡片的样式层（**全部样式数值的唯一出处**）：`STYLE_TEXT` 内嵌样式表（类名 `dsh-mf-` 前缀防撞、取值逐条照官方同类组件）、`ensureStyles` 幂等注入（带 `data-plugin` 标记供宿主 HMR 认领）、说明气泡宽度上限 `TIP_MAX_WIDTH` |
+| `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片、验证弹层（候选列表 + 实时记录区 + 停止）、**探测式填充弹层**（无候选列表：正文依次是「探测范围一句 → 额度提示 → 记录区 → 忽略排除 / 剔除不支持 两个开关」，**记录区一律排在提示之下、开关之上**，两个弹层同序；两个弹层的正文都套一层 `.dsh-mf-verifyBody`，把纵向间距收成 12px 一档，列表项用默认无 gap，正文到 footer 的间距交给宿主 `.dialog` 的 gap）、**键文本保持短**不挂计数；footer 只留 关闭 / 探测所有 / 探测未填充（由宽到窄），在途键就地变「停止」，跑完延迟 `PROBE_CLOSE_DELAY_MS` 再关窗）、验证跑完后的剔除确认层、footer 与末尾联系行；**样式数值全在 `card-styles.ts`，组件里不写死** |
 | `src/client/model.ts` / `effort.ts` / `scope.ts` / `locales.ts` | 快照↔配置纯映射（验证与探测候选拍取、两种目标收敛、探测的「未填充 = 无档位或只有 off」判据）/ 记忆纯逻辑 / ConfigForm 的 decode 包装 / 中英词典 |
 | `public/models-cache.json` | 构建期平铺复制到 `lib/` 根：models.dev 拍平缓存（首启离线可用） |
 | `docs/decisions.md` | 「设计裁决」全文（AGENTS.md 同节只留提纲）；仅供开发查阅，不进 `files` |
@@ -45,7 +46,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 - 浏览器半：`configForms.get(ns)` 只收 entryId、不转发 decode spec，解码责任全在 `makeScope`，且 decode **永不返回 undefined**。`get` 查无 NS ⇒ 卡片显「配置不可用」（NS 不匹配的判定特征）；decode 失败则永停「加载中」，两者可区分。`ctx.inject(['configForms'])` 只是标记服务（**不进父级 `inject`**），共享编排体一律走父 ctx。
 - 宿主类型面一律 type-only 导入 devDep 的 `/client`、`/types` 与 `node:http`，构建期擦除、不落运行期依赖；升宿主时 typecheck 即暴露不兼容。**`ctx.llm` 同样只做 type-only 引用**：凭据只在宿主凭据缝内可读，验证请求必须经宿主 `LlmRuntime.stream` 发出，故 `dependencies` 不长新条目；档位 id 用 `as ReasoningEffortId` 断言而不引运行期构造器。`llm` 是 `src/index.ts` 的 `inject` 依赖（非可选子 fiber）：插件以模型配置为业，无它即无从工作，不做缺席降级分支。
 - **对外纪律**：`@deepseek-ai/cordis`/`schemastery` 取宿主本体自己声明的线，`peerDependencies` 同版作下限（pnpm 会把 `>=` 归一成成品版本号，加完须手工改回）；**官方包一律 optional peer + devDep 同版兜底，`dependencies` 目前为空**。两处 `engines.dsh` 同值、range 一律 `>=` 不用 caret；**不写 `@deepseek-ai/dsh` peer**（pnpm 默认 `autoInstallPeers: true`，缺失 peer 会被真装进来并拖入整棵 CLI 树，兼容性谓词改由 `dsh-*` 子包 peer 承担）。
-- 词典 `ctx.locale.register` 重复注册会抛错，须经 `ctx.effect` 挂 disposer 保 HMR；卡片样式经模块级幂等 `<style>` 注入并带 `data-plugin` 标记供宿主 HMR 认领。
+- 词典 `ctx.locale.register` 重复注册会抛错，须经 `ctx.effect` 挂 disposer 保 HMR；卡片样式经 `src/client/card-styles.ts` 的模块级幂等 `<style>` 注入并带 `data-plugin` 标记供宿主 HMR 认领。
 
 ### 宿主 settings 的脾气
 
@@ -73,7 +74,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 总纲：**官方用导出组件就用同一组件；官方自绘且无同款导出原语（或不导出）就在本地逐字复刻其源码——数值零自造**，只有数据、文本与业务逻辑属于我们。**运行时值导入宿主原语是有意选择**（符号漂移由 typecheck 在构建期拦下）；风险是宿主改名后运行期拿到 `undefined` ⇒ React #130 打空该 slot 条目，缓释是 devDep 类型面 + 升宿主时复核全部宿主值导入的符号面。
 
 - 颜色只用宿主 `--dsw-alias-*` 令牌，字面量仅作令牌缺失时的浅色守卫且须取宿主主题真值；无主题真值的令牌（如官方引用的 `label-error`、`bg-layer-4`）不加字面兜底。
-- 取值基准是"同一类组件"而非"同一页面"：外层卡照「内置插件」的插件卡，内层配置组瓦片照「插件列表」的插件行卡。**具体数值一律以 `card.tsx` 的 `STYLE_TEXT` 为准。**
+- 取值基准是"同一类组件"而非"同一页面"：外层卡照「内置插件」的插件卡，内层配置组瓦片照「插件列表」的插件行卡。**具体数值一律以 `card-styles.ts` 的 `STYLE_TEXT` 为准。**
 - 瓦片 summary 行要同时容纳整组开关与整行可点：透明空 `<button>` 绝对覆盖整行 + `aria-labelledby` 指向可见标题，开关所在尾区抬层分配点击权；**禁止把 `role="switch"` 嵌进 `<button>`**（非法 HTML）。
 - 设置项释义走宿主 `Tooltip`，锚点复刻官方 settings-form `.helpButton`（信息图标键，`aria-label` 取释义全文）；**必须 `portal`**（瓦片 `overflow:hidden` + `box-shadow` 层叠上下文会裁掉定位于锚点的气泡），并用 `maxWidth` 收窄，否则气泡盖住同行开关。
 - 宿主 Modal 的初始焦点控件标 `data-modal-autofocus`，不用 React `autoFocus`（模态层先存触发控件再移焦点，`autoFocus` 抢在前面会毁掉关闭后的回焦）。
