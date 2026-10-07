@@ -993,7 +993,9 @@ export function Card(props: CardProps) {
         const controller = new AbortController()
         probeAbort.current = controller
         setProbeScope(unfilledOnly ? 'unfilled' : 'all')
-        props.probeEfforts(models, { ignoreExcludes: probeIgnoreExcludes, dropUnsupported: probeDropUnsupported }, (frame) => {
+        // 「剔除不支持」只对「探测所有」有意义：未填充的模型本来就没声明过档位，判不支持的那些
+        // 压根不会写进去，没什么可剔。故这一档在这里被强制按关处理，不把用户的选择悄悄带进下一轮
+        props.probeEfforts(models, { ignoreExcludes: probeIgnoreExcludes, dropUnsupported: unfilledOnly ? false : probeDropUnsupported }, (frame) => {
             if (frame.type === 'opened') {
                 setProbeTotal(frame.total)
                 return
@@ -1491,7 +1493,9 @@ export function Card(props: CardProps) {
                     <span className="dsh-mf-verifyOption">
                         <Switch
                             checked={probeDropUnsupported}
-                            disabled={busy === 'probe'}
+                            // 跑「未填充」时一并禁掉：这一轮压根不读它（见 runProbe），让开关显形地失效，
+                            // 好过留一个亮着的开关骗人——用户在途时看得见这一轮是「只增不剔」
+                            disabled={busy === 'probe' || probeScope === 'unfilled'}
                             label={t('probeDropUnsupported')}
                             onChange={setProbeDropUnsupported}
                         />
