@@ -19,7 +19,7 @@
  * 消费方见「流自然结束却没等到 done」即知这轮没跑完，据此保留进度而不是报成功。
  *
  * 纯计划与汇报分层落在别处：`@/probe-plan`（入参校验与清单展开）、`@/probe-verdict`（失败分类与短路判据）、
- * `@/probe-engine` 的汇报与汇总（`reportProvider` / `summarizeProviders`），均零 ctx、不触网；
+ * `@/probe-report`（逐组汇报与全局汇总），均零 ctx、不触网；
  * 执行器 `verifyModels` 只依赖注入的 `llm.stream`，故带桩即可把短路与中止一并单测。
  */
 
