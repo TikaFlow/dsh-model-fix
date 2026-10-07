@@ -13,9 +13,9 @@
  * 按提供方分组多选模型，配「验证推理级别」开关，对每个勾选模型声明的每个推理级别发起真实探测；
  * 结论只留在该弹层内（实时记录区的末行），不写卡片状态行——验证即用即弃，不留任何配置痕迹。
  * 「探测式填充」是它的写回版：没有候选框（范围由「探测所有 / 探测未填充」两键与「忽略排除」开关决定，
- * 模型列表取**点按钮那一刻**的最新值并当场冻结），正文只有「实时记录区 → 额度提示」，
- * 探测范围与花费由两个键各带出的模型数交代（不另起一行复述一遍）；footer 内并排
- * 「忽略排除 / 剔除不支持」两个开关与 关闭 / 探测所有 / 探测未填充 三键（由宽到窄）；
+ * 模型列表取**点按钮那一刻**的最新值并当场冻结），正文依次是「实时记录区 → 额度提示 → 两个开关」，
+ * 探测范围与花费由两个键各带出的模型数交代（不另起一行复述一遍）；
+ * footer 只留 关闭 / 探测所有 / 探测未填充 三键（由宽到窄）；
  * 跑完把汇总与补全结果留在记录区并**延迟 PROBE_CLOSE_DELAY_MS 再关窗**，同一份结果另落卡片状态行。
  * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
@@ -349,8 +349,9 @@ const STYLE_TEXT = [
     // 档位开关：放在 body 内而非 footer——宿主 RiskConfirmation（敏感操作前置确认）正是这个排法，
     // 确认控件留在正文、footer 只放取消/确认两键；上间距逐条取其 .acknowledgement 的 margin-top:20px
     '.dsh-mf-verifyOption{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-secondary,#61666b)}',
-    // 探测弹层的两个开关并排：同属一组操作参数，按「小节内相邻块」的 12px 档定距（不另造数值）
-    '.dsh-mf-verifyOptions{display:flex;align-items:center;gap:12px;min-width:0}',
+    // 探测弹层的两个开关并排：同属一组操作参数，按「小节内相邻块」的 12px 档定距；
+    // 上间距取 20px——它们与上一段（额度提示）分属两块，逐条同其 .acknowledgement 的 margin-top:20px
+    '.dsh-mf-verifyOptions{display:flex;align-items:center;gap:12px;min-width:0;margin:20px 0 0}',
     // 验证弹层 footer 的纵向容器与按钮行：宿主 .footer 是单行 flex 且无 wrap，整行块只能自己排。
     // 间距取宿主 .dialog 的列间距 20px（同层），按钮行三个数值逐条复刻宿主 .footer
     '.dsh-mf-verifyFoot{display:flex;flex-direction:column;gap:20px;width:100%}',
@@ -1420,10 +1421,9 @@ export function Card(props: CardProps) {
                 )}
                 <p className="dsh-mf-verifyQuota">{t('verifyQuota')}</p>
             </Modal>
-            {/* 「探测式填充」弹层：没有候选列表——范围由两个键与「忽略排除」开关决定，故正文只留三段：
-                本次要探多少（花费预期的唯一线索）→ 记录区（首次发起才出现，与验证同纪律）→ 额度提示。
-                两个开关与三键同排 footer：宿主 .footer 是单行 flex，用 .dsh-mf-verifyActions 覆盖其
-                justify-content:flex-end（开关左、三键右），与验证弹层同一排法，只把记录区挪进正文。
+            {/* 「探测式填充」弹层：没有候选列表——范围由两个键与「忽略排除」开关决定，故正文依次是
+                记录区（首次发起才出现，与验证同纪律）→ 额度提示 → 两个开关；
+                footer 只留三键，直接吃宿主 .footer 的 flex-end 右对齐，不必自绘行容器。
                 关窗（遮罩 / Escape / × / 关闭键）即中止在途探测，Node 半随即早停并把未跑完的模型还原 */}
             <Modal
                 open={probeOpen}
@@ -1432,47 +1432,14 @@ export function Card(props: CardProps) {
                 closeLabel={t('close')}
                 description={t('probeDesc')}
                 className="dsh-mf-verifyDialog"
-                footer={<div className="dsh-mf-verifyActions">
-                    <div className="dsh-mf-verifyOptions">
-                        <span className="dsh-mf-verifyOption">
-                            <Switch
-                                checked={probeIgnoreExcludes}
-                                disabled={busy === 'probe'}
-                                label={t('probeIgnoreExcludes')}
-                                onChange={toggleIgnoreExcludes}
-                            />
-                            <span>{t('probeIgnoreExcludes')}</span>
-                            {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
-                            <Tooltip label={t('probeIgnoreExcludesTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
-                                <button type="button" className="dsh-mf-help" aria-label={t('probeIgnoreExcludesTip')}>
-                                    <IconInfoOutlineRegular size={12} />
-                                </button>
-                            </Tooltip>
-                        </span>
-                        <span className="dsh-mf-verifyOption">
-                            <Switch
-                                checked={probeDropUnsupported}
-                                disabled={busy === 'probe'}
-                                label={t('probeDropUnsupported')}
-                                onChange={setProbeDropUnsupported}
-                            />
-                            <span>{t('probeDropUnsupported')}</span>
-                            <Tooltip label={t('probeDropUnsupportedTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
-                                <button type="button" className="dsh-mf-help" aria-label={t('probeDropUnsupportedTip')}>
-                                    <IconInfoOutlineRegular size={12} />
-                                </button>
-                            </Tooltip>
-                        </span>
-                    </div>
-                    <div className="dsh-mf-verifyButtons">
-                        {/* 关闭键在途不禁用：它是本弹层唯一的常驻出口，遮罩 / Escape / × 也都中止，
-                            键却禁着就只剩「干等」一条路（验证那边有「停止」键顶替，故那边禁） */}
-                        <Button variant="outline" data-modal-autofocus onClick={closeProbe}>{t('close')}</Button>
-                        {/* 由宽到窄：先「全部」后「未填充」，两个键各带自己的模型数，
-                            从大到小读下来就是这一轮的范围由大到小的收窄 */}
-                        {probeButton('all', allCount)}
-                        {probeButton('unfilled', unfilledCount)}
-                    </div>
+                footer={<div className="dsh-mf-verifyButtons">
+                    {/* 关闭键在途不禁用：它是本弹层唯一的常驻出口，遮罩 / Escape / × 也都中止，
+                        键却禁着就只剩「干等」一条路（验证那边有「停止」键顶替，故那边禁） */}
+                    <Button variant="outline" data-modal-autofocus onClick={closeProbe}>{t('close')}</Button>
+                    {/* 由宽到窄：先「全部」后「未填充」，两个键各带自己的模型数，
+                        从大到小读下来就是这一轮的范围由大到小的收窄 */}
+                    {probeButton('all', allCount)}
+                    {probeButton('unfilled', unfilledCount)}
                 </div>}
             >
                 {/* 只在无可探模型时占位说明；范围与花费由两个键各自带出的模型数交代 */}
@@ -1490,6 +1457,40 @@ export function Card(props: CardProps) {
                     />
                 ) : null}
                 <p className="dsh-mf-verifyQuota">{t('probeQuota')}</p>
+                {/* 两个开关放正文末尾而非 footer：它们是这一轮的参数（探测范围与收敛口径），
+                    与正文里正在发生的事同处一屏，改动即刻可见；footer 因此只剩「关闭 / 探测」，
+                    与其余弹层「footer 只放取消与确认」的形态一致 */}
+                <div className="dsh-mf-verifyOptions">
+                    <span className="dsh-mf-verifyOption">
+                        <Switch
+                            checked={probeIgnoreExcludes}
+                            disabled={busy === 'probe'}
+                            label={t('probeIgnoreExcludes')}
+                            onChange={toggleIgnoreExcludes}
+                        />
+                        <span>{t('probeIgnoreExcludes')}</span>
+                        {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
+                        <Tooltip label={t('probeIgnoreExcludesTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                            <button type="button" className="dsh-mf-help" aria-label={t('probeIgnoreExcludesTip')}>
+                                <IconInfoOutlineRegular size={12} />
+                            </button>
+                        </Tooltip>
+                    </span>
+                    <span className="dsh-mf-verifyOption">
+                        <Switch
+                            checked={probeDropUnsupported}
+                            disabled={busy === 'probe'}
+                            label={t('probeDropUnsupported')}
+                            onChange={setProbeDropUnsupported}
+                        />
+                        <span>{t('probeDropUnsupported')}</span>
+                        <Tooltip label={t('probeDropUnsupportedTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                            <button type="button" className="dsh-mf-help" aria-label={t('probeDropUnsupportedTip')}>
+                                <IconInfoOutlineRegular size={12} />
+                            </button>
+                        </Tooltip>
+                    </span>
+                </div>
             </Modal>
         </>
     )
