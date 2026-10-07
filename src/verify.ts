@@ -26,7 +26,8 @@ import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { PLUGIN_NAME } from '@/shared/constants'
 import type { ProviderBlockReason, ProviderProbeOutcome, VerifyProbeResult, VerifySummary } from '@/shared/verify-progress'
 import type { GroupRunner, ProbeEmitter, ProbeRunOptions, ProviderProbeGroup } from '@/probe-engine'
-import { VERIFY_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, providerBlockReason, runProbeGroups, sameModelTail, shouldSkipModelTail, shouldSkipModelTailAfterBaseline } from '@/probe-engine'
+import { VERIFY_LIMITS, finishRun, planProbeGroups, probeOnce, runProbeGroups } from '@/probe-engine'
+import { isEffortRejection, providerBlockReason, sameModelTail, shouldSkipModelTail, shouldSkipModelTailAfterBaseline } from '@/probe-verdict'
 
 /** 验证请求不合法时的报错文案（入参来自浏览器半，一律按不可信输入校验） */
 const VERIFY_REJECT_MESSAGE = `${PLUGIN_NAME}: 验证请求不合法（模型条目或推理级别取值越界）`

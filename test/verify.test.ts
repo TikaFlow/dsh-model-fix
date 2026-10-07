@@ -1,7 +1,9 @@
-// src/verify.ts 与 src/probe-engine.ts 用例：请求计划展开（逐模型逐档位 / needTest 声明 / 入参校验与配额）、按提供方分组、失败分类、两级短路判据、逐组汇报、
-// 汇总求和，以及带桩跑通的整条执行链（基线探测现发 + 分组串行 + 两级短路，含「本组首个请求超时即短整组」）
+// 用例覆盖：src/probe-verdict.ts 的失败分类与两级短路判据、src/probe-engine.ts 的请求计划展开（逐模型逐档位 / needTest 声明 /
+// 入参校验与配额）、按提供方分组、逐组汇报与汇总求和，以及 src/verify.ts 带桩跑通的整条执行链（基线探测现发 + 分组串行 + 两级短路，
+// 含「本组首个请求超时即短整组」）
 import { verifyModels } from '@/verify'
-import { classifyFailure, groupProbesByProvider, planProbes, providerBlockReason, reportProvider, shouldSkipModelTail, shouldSkipModelTailAfterBaseline, summarizeProviders } from '@/probe-engine'
+import { groupProbesByProvider, planProbes, reportProvider, summarizeProviders } from '@/probe-engine'
+import { classifyFailure, providerBlockReason, shouldSkipModelTail, shouldSkipModelTailAfterBaseline } from '@/probe-verdict'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm/types'
 import { decodeProgressFrame, encodeProgressFrame, isProviderBlocking, isTransientOutcome } from '@/shared/verify-progress'
