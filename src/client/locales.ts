@@ -266,11 +266,11 @@ export const zh: Record<CardKey, string> = {
     restoreFailed: '恢复失败：{message}。',
     verify: '验证模型',
     verifyTitle: '选择要验证的模型',
-    verifyDesc: '勾选后将逐个发起请求，确认提供方是否真的受理；验证所耗时间随模型数量增加。',
+    verifyDesc: '对选中的模型发起请求，确认模型/推理级别是否可用；验证所耗时间随模型数量增加。',
     verifyQuota: '验证会发起真实请求，可能消耗少量额度。',
     verifyEfforts: '验证推理级别',
     // 关档位不等于端点不推理——它可能有自己的默认级别，故措辞要说清「不发参数」而非「不验证」
-    verifyEffortsTip: '开启后逐个验证模型声明的全部推理级别，请求数成倍增加；关闭时不携带推理级别，但这不代表端点不会推理——它可能有自己的默认级别。',
+    verifyEffortsTip: '开启后逐个验证模型声明的全部推理级别，请求数成倍增加；关闭时不携带推理级别，但这不代表端点不会推理。',
     verifyGo: '验证',
     verifyStop: '停止',
     // 分组全选文案照官方「获取可用模型」的 fetchSelectAll / fetchDeselectAll
@@ -312,7 +312,7 @@ export const zh: Record<CardKey, string> = {
     // 探测式填充：跑完立即把档位按结论补进模型配置（不询问），故 notice 除额度外还要说清「会写配置」
     probe: '探测式填充',
     probeTitle: '探测推理级别并补全',
-    probeDesc: '对每个模型的全部推理级别各发一次最小请求，能用的补进模型配置；所耗时间随模型数量增加。',
+    probeDesc: '用真实请求来确定推理级别是否可用，最真实可靠；所耗时间随模型数量增加。',
     probeEmpty: '没有可探测的模型：请先在「模型」设置中添加模型，或关闭「忽略排除」后重试。',
     probeQuota: '探测会发起真实请求，可能消耗少量额度；并会把结论写回模型配置。',
     // 两个数分别对应下面那两个键：{models} 是「探测所有」的范围，{unfilled} 是「探测未填充」的范围
@@ -320,7 +320,7 @@ export const zh: Record<CardKey, string> = {
     probeIgnoreExcludes: '忽略排除',
     probeIgnoreExcludesTip: '开启后，被「排除提供方」列出的提供方也照常探测并写入。',
     probeDropUnsupported: '剔除不支持',
-    probeDropUnsupportedTip: '开启后（仅对「探测所有」有效），明确判为不支持的推理级别会从模型配置里去掉；关闭时只增不减。未填充的模型本来就没声明过推理级别，无从剔除。',
+    probeDropUnsupportedTip: '开启后（仅对「探测所有」有效），明确判为不支持的推理级别会从模型配置里去掉；关闭时只增不减。',
     probeUnfilled: '探测未填充',
     probeAll: '探测所有',
     probeStop: '停止',
@@ -424,11 +424,11 @@ export const en: Record<CardKey, string> = {
     restoreFailed: 'Restore failed: {message}.',
     verify: 'Verify models',
     verifyTitle: 'Choose models to verify',
-    verifyDesc: 'Each chosen model gets a request to confirm the provider really accepts it; verification takes longer with more models.',
+    verifyDesc: 'Each selected model gets a request to confirm the model / reasoning level is usable; verification takes longer with more models.',
     verifyQuota: 'Verification sends real requests and may use a small amount of your quota.',
     verifyEfforts: 'Verify reasoning efforts',
     // Turning the switch off means "send no parameter", not "the endpoint will not reason"
-    verifyEffortsTip: 'Verifies every reasoning effort the model declares, multiplying the request count; when off, no reasoning effort is sent — which does not mean the endpoint will not reason, as it may have its own default.',
+    verifyEffortsTip: 'Verifies every reasoning effort the model declares, multiplying the request count; when off, no reasoning effort is sent — which does not mean the endpoint will not reason.',
     verifyGo: 'Verify',
     verifyStop: 'Stop',
     // Group select-all wording mirrors the official "Fetch available models" fetchSelectAll / fetchDeselectAll
@@ -474,7 +474,7 @@ export const en: Record<CardKey, string> = {
     // notice says both things it does — spends quota and writes config
     probe: 'Probe & fill',
     probeTitle: 'Probe reasoning levels and fill',
-    probeDesc: 'Each model gets one minimal request per reasoning level; the usable ones are written back to the model config. Takes longer with more models.',
+    probeDesc: 'Checks which reasoning levels are usable with real requests — the most reliable way; takes longer with more models.',
     probeEmpty: 'No models to probe. Add models on the Models settings page, or turn off "Ignore exclusions" and retry.',
     probeQuota: 'Probing sends real requests and may use a small amount of your quota; the result is written back to the model config.',
     // The two counts map onto the two keys below: {models} is the "Probe all" scope,
@@ -483,7 +483,7 @@ export const en: Record<CardKey, string> = {
     probeIgnoreExcludes: 'Ignore exclusions',
     probeIgnoreExcludesTip: 'When on, providers listed under "Excluded providers" are probed and written to as well.',
     probeDropUnsupported: 'Drop unsupported',
-    probeDropUnsupportedTip: 'When on, levels judged unsupported are removed from the model config; when off, nothing is removed. Only applies to "Probe all" — unfilled models declare no levels to remove.',
+    probeDropUnsupportedTip: 'When on, levels judged unsupported are removed from the model config; when off, nothing is removed. Only applies to "Probe all".',
     probeUnfilled: 'Probe unfilled',
     probeAll: 'Probe all',
     probeStop: 'Stop',
