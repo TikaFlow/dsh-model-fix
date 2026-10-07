@@ -52,7 +52,7 @@ import {
     verifyTargets,
 } from '@/client/model'
 import type { Flags, Group, RowKey, VerifyCandidate, VerifyTarget } from '@/client/model'
-import type { CardKey } from '@/client/locales'
+import type { CardKey } from '@/client/locale-keys'
 import { ExcludesTile, GroupTile, TILE_ORDER } from '@/client/tile'
 import { CardMeta } from '@/client/card-meta'
 import { ConfirmModal } from '@/client/confirm'

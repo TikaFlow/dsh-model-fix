@@ -31,7 +31,8 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/client/probe-dialog.tsx` | 「探测式填充」弹层的自足外壳 `ProbeDialog`（宿主 Modal 原语 + `TerminalBlock` 记录区）：无候选列表，正文依次是「范围一句 → 额度提示 → 记录区 → 忽略排除 / 剔除不支持 两个开关」，**记录区一律排在提示之下、开关之上**，与验证弹层同序；footer 只留 关闭 / 探测所有 / 探测未填充（由宽到窄），在途那个范围键就地变「停止」（弹层内自算，不回卡片）。**状态与动作全由卡片经 props 递进来**，自己不碰 Connection 也不发起探测；**关窗即中止在途探测**这条纪律记在 `onClose` 上。关闭键在途不禁用（唯一常驻出口，遮罩 / Escape / × 也都中止） |
 | `src/client/card-meta.tsx` | 卡片末尾的联系行（自成一体：三个常量 + 四个 Octicons 图标 + 一次 issue 正文合成，除翻译函数外不外泄）：`REPO_URL`/`ISSUES_URL`/`REPO_LABEL` 与 README「安装 / 问题反馈」同源、`__PLUGIN_VERSION__`（构建期 define 内联，声明随本文件搬过来，配置见 `tsdown.config.ts`）、仓库 / 版本 / star / 反馈四个小片（版本标记只读不做成链接） |
 | `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片的编排（瓦片本体见 `tile.tsx`）、验证弹层的编排（弹层本体见 `verify-dialog.tsx`：候选列表 + 实时记录区 + 停止）、**探测式填充弹层的编排**（弹层本体见 `probe-dialog.tsx`：两个范围键 + 记录区 + 两个开关，**键文本保持短**不挂计数，跑完延迟 `PROBE_CLOSE_DELAY_MS` 再关窗，本文件只递范围 / 开关 / 记录区内容与发跑回调）、验证跑完后的剔除确认层、footer（末尾联系行见 `card-meta.tsx`，样式数值全在 `card-styles.ts`，组件里不写死） |
-| `src/client/model.ts` / `effort.ts` / `scope.ts` / `locales.ts` | 快照↔配置纯映射（验证与探测候选拍取、两种目标收敛、探测的「未填充 = 无档位或只有 off」判据）/ 记忆纯逻辑 / ConfigForm 的 decode 包装 / 中英词典 |
+| `src/client/model.ts` / `effort.ts` / `scope.ts` | 快照↔配置纯映射（验证与探测候选拍取、两种目标收敛、探测的「未填充 = 无档位或只有 off」判据）/ 记忆纯逻辑 / ConfigForm 的 decode 包装 |
+| `src/client/locale-keys.ts` / `locale-zh.ts` / `locale-en.ts` | 卡片文案的键与词典分居三处：`locale-keys.ts` 只管键契约（`CARD_NS` 并入宿主 `LocaleNamespaceMap`、`CardKey` 联合、四张「配置项 → 文案键」映射——按用途分表，同轴上标题与释义本是两句话），两种语言各一文件 `locale-zh.ts` / `locale-en.ts`（都标注 `Record<CardKey, string>`，漏改一侧 typecheck 即报） |
 | `public/models-cache.json` | 构建期平铺复制到 `lib/` 根：models.dev 拍平缓存（首启离线可用） |
 | `docs/decisions.md` | 「设计裁决」全文（AGENTS.md 同节只留提纲）；仅供开发查阅，不进 `files` |
 | `docs/host-api.md` | 「宿主 API 与类型契约」全文：本插件实际在用的宿主服务调用、宿主类型导入面、依赖宿主字面量的键与码、宿主运行时行为假设（全文见同节「宿主契约文档纪律」）；仅供开发查阅，不进 `files` |

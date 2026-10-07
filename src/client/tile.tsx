@@ -4,8 +4,8 @@ import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { EXCLUDE_ID_PATTERN, GROUP_KEYS, groupValue, masterValue } from '@/client/model'
 import type { Flags, Group, RowKey } from '@/client/model'
-import type { CardKey } from '@/client/locales'
-import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locales'
+import type { CardKey } from '@/client/locale-keys'
+import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locale-keys'
 import { TIP_MAX_WIDTH } from '@/client/card-styles'
 
 /**

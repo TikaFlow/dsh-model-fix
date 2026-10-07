@@ -141,7 +141,7 @@
 - **服务面**：`ctx.locale`，`@deepseek-ai/dsh-client-locale` 的 `src/client/index.ts`：声明合并处挂了服务 `LocaleRuntime` 与事件 `'locale/change'(snapshot: LocaleSnapshot)`，JSDoc 明确**字典注册不发该事件**；类声明也在该文件。
 - **`register`**：typed 重载 `register<N extends Extract<keyof LocaleNamespaceMap, string>>(ns: N, dicts: Record<BuiltInLocaleId, LocaleDictOf<N>>): () => void`；另有一个三参旧式重载。实现返回**幂等 disposer**；**重复注册抛错** `throw new Error(\`locale namespace "${ns}" already has locale "${locale}"\`)` ⇒ 本仓一律经 `ctx.effect` 挂 disposer（`src/client/index.tsx`）。
 - **`bind`**：同一文件，typed `bind<N>(ns: N): TranslateNS<N>` 与 `bind(ns: string): Translate`；每个 ns 缓存**同一函数引用**（身份稳定，可安全放进 `label` thunk 的依赖数组）。
-- **类型面**（`@deepseek-ai/dsh-client-ui-slots` 的 `src/index.ts`）：`LocaleNamespaceMap` 声明合并点（本仓在 `src/client/locales.ts` 扩展）、`Translate<K> = (key, params?) => string`、`LocaleKeysOf<N>`、`TranslateNS<N>`、`LocaleDictOf<N>`。⇒ **调用形态就是 `t(key, params?)`**。
+- **类型面**（`@deepseek-ai/dsh-client-ui-slots` 的 `src/index.ts`）：`LocaleNamespaceMap` 声明合并点（本仓在 `src/client/locale-keys.ts` 扩展）、`Translate<K> = (key, params?) => string`、`LocaleKeysOf<N>`、`TranslateNS<N>`、`LocaleDictOf<N>`。⇒ **调用形态就是 `t(key, params?)`**。
 - **locale face 接口**（`@deepseek-ai/dsh-client-ui-slots` 的 `src/renderer.ts`）：`LocaleFace extends HostObservable<{ revision: number }> { bind(ns): Translate }`，`HostObservable<T> = ObservableSnapshot<T>`；安装点是 `@deepseek-ai/dsh-client-ui-renderer` 的 `src/client/registry.ts` 里的 `installLocale(face)`。
 - **官方范本**（`@deepseek-ai/dsh-client-ui-settings-plugin-inventory` 的 `src/client/index.ts`）—— `const t = ctx.locale.bind(NS)`，`slots.register({ …, label: () => t('tab'), locale: NS, … })`，字典 `ctx.effect(() => ctx.locale.register(NS, { zh, en }), …)`。本仓 `settings.plugins.tab` 席位的 `label: () => t('tabLabel')` + `locale: CARD_NS` 即照此。
 
@@ -180,11 +180,11 @@
 | `@deepseek-ai/dsh-client-connection` | `ConnectionRpcResult`、`HostConnectionService` | type-only | `src/rpc.ts`、`src/rpc-route.ts` |
 | `@deepseek-ai/dsh-host-webserver` | `WebServer` | type-only | `src/rpc.ts` |
 | `node:http` | `IncomingMessage`、`ServerResponse` | type-only | `src/rpc-route.ts` |
-| `@deepseek-ai/dsh-client-ui-primitives` | `import * as primitives`、`TerminalBlockLabels` | **值导入** + type-only | `src/client/card.tsx`（唯一运行期宿主 UI 依赖） |
+| `@deepseek-ai/dsh-client-ui-primitives` | `import * as primitives`、`TerminalBlockLabels` | **值导入** + type-only | `src/client/card.tsx`、`src/client/tile.tsx`、`src/client/confirm.tsx`、`src/client/verify-dialog.tsx`、`src/client/probe-dialog.tsx`（浏览器半唯一的运行期宿主 UI 依赖） |
 | `@deepseek-ai/dsh-client-ui-settings/client` | `ConfigForm`、`ConfigFormSnapshot` | type-only | `src/client/index.tsx`、`src/client/scope.ts` |
 | `@deepseek-ai/dsh-client-connection/client` | `ClientConnectionRpc` | type-only | `src/client/index.tsx` |
 | `@deepseek-ai/dsh-client-connection` | `ConnectionRpcResult` | type-only | `src/client/card.tsx` |
-| `@deepseek-ai/dsh-client-ui-slots` | `TranslateNS` + 合并（`LocaleNamespaceMap` 纳入 `CARD_NS`） | type-only | `src/client/card.tsx`、`src/client/locales.ts` |
+| `@deepseek-ai/dsh-client-ui-slots` | `TranslateNS` + 合并（`LocaleNamespaceMap` 纳入 `CARD_NS`） | type-only | `TranslateNS`：`src/client/card.tsx` `src/client/tile.tsx` `src/client/card-meta.tsx` `src/client/verify-dialog.tsx` `src/client/probe-dialog.tsx`；合并：`src/client/locale-keys.ts`（`declare module` 扩充 `LocaleNamespaceMap`） |
 | `@deepseek-ai/dsh-api-session-controller/client` | 合并（`ctx.sessions`） | 合并 | `src/client/index.tsx` |
 | `@deepseek-ai/dsh-api-session-controller/types` | `ModelSelection`、`ModelSelectionProjection`、`ModelProviderGroup` | type-only | `src/client/index.tsx`、`src/client/effort.ts` |
 | `@deepseek-ai/dsh-client-ui-model-selection/client` | `ModelDirectory` | type-only | `src/client/index.tsx` |
