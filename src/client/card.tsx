@@ -96,7 +96,7 @@ const OUTCOME_KEYS: Record<ProbeOutcome, CardKey> = {
 /**
  * 一条探测结论的记录行。
  *
- * provider 级失败（不可达 / 额度耗尽 / 凭据无效）不带模型与档位——那不是某个模型的问题，是整组都不成立；
+ * provider 级失败（不可达 / 凭据无效）不带模型与档位——那不是某个模型的问题，是整组都不成立；
  * 带 `skipped` 时补一句「还剩几条没验」，免得用户把那一行当成全部结论。
  */
 function verifyLineOf(frame: VerifyProbedFrame, t: TranslateNS<'settings.modelFix'>): string {
@@ -841,8 +841,8 @@ export function Card(props: CardProps) {
                 }
                 // 两档口径各取各的数：关档位时只有模型数可言，开档位时级别分母取 plannedEfforts——
                 // 没声明档位的模型验的是模型本身、不占级别，用 planned（含它那条）会让分母虚高。
-                // 而档位开关开着却一个级别都没计划时（勾选的模型都没声明档位），级别那行只会显示「0 / 0」，故退回模型口径
-                const stats = t(allEfforts && summary.plannedEfforts > 0 ? 'verifyDoneAll' : 'verifyDoneLowest', {
+                // 而档位开关开着却一个级别都没计划时（勾选的模型都没声明档位），级别那行只会显示「[0/0]」，故退回模型口径
+                const stats = t(allEfforts && summary.plannedEfforts > 0 ? 'verifyDoneLevels' : 'verifyDoneModels', {
                     models: summary.models,
                     tested: summary.tested,
                     efforts: summary.efforts,

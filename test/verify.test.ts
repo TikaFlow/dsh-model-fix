@@ -595,7 +595,7 @@ export async function run(): Promise<void> {
             'verifyModels 从未开跑的提供方不进汇报',
             stable(summary.providers.map((report) => report.provider)) === stable(['a', 'b', 'c'])
             // 这些模型都没声明档位，那一次不带档位的请求本身就是被验对象，故每组各计 1；
-            // 但它们验的是模型不是级别，故计划推理级别数为 0（开档位模式的分母会是 0，此时改用 verifyDoneLowest 那行）
+            // 但它们验的是模型不是级别，故计划推理级别数为 0（开档位模式的分母会是 0，此时改用 verifyDoneModels 那行）
             && summary.planned === 3 && summary.probed === 3 && summary.tested === 3 && summary.plannedEfforts === 0,
             summary.providers.map((report) => report.provider),
         )
