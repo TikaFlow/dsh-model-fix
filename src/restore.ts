@@ -1,13 +1,11 @@
-import { MAX_ATTEMPTS } from '@/constants'
 import { API_NS, PLUGIN_NAME } from '@/shared/constants'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { isPlainObject, providersOf } from '@/shared/types'
 import { stripEmptyFields } from '@/empty'
-import { startIgnoreAll, endIgnoreAll } from '@/guard'
-import { queueTask } from '@/host'
 import { descriptorOf } from '@/section'
+import { errorText, guardedWritebackApi } from '@/writeback'
 
 /**
  * 插件启动时捕获的 `llm-pi-ai` 备份：该 NS user 层 `providers` 段的深拷贝（只读缓存，不写盘）。
@@ -34,7 +32,7 @@ export function captureBackup(ctx: Context): void {
         backup = structuredClone(providers)
         ctx.logger.info(`${PLUGIN_NAME}: 已捕获启动时备份（${Object.keys(backup).length} 个提供方）`)
     } catch (error) {
-        ctx.logger.warn(`${PLUGIN_NAME}: 捕获启动时配置备份失败（恢复功能不可用）：${error instanceof Error ? error.message : String(error)}`)
+        ctx.logger.warn(`${PLUGIN_NAME}: 捕获启动时配置备份失败（恢复功能不可用）：${errorText(error)}`)
         backup = undefined
     }
 }
@@ -96,31 +94,15 @@ export async function restoreModels(ctx: Context): Promise<number> {
     // 备份缺失（启动时捕获失败）必须显式失败：返回 0 会被前端显示成「已恢复 0 个模型」，
     // 与「确实无可恢复」无法区分，用户会误以为按钮坏了或数据本就一致。
     if (backup === undefined) throw new Error(`${PLUGIN_NAME}: 启动时未捕获到备份，本次运行无法恢复`)
-    startIgnoreAll()
-    try {
-        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            const apiDescriptor = descriptorOf(ctx, API_NS)
-            const providers = providersOf(apiDescriptor?.user)
-            // 当前 NS 不可读时同样显式失败：返回 0 会被显示成「已恢复 0 个模型」，掩盖真实故障
-            if (!providers) throw new Error(`${PLUGIN_NAME}: 当前 ${API_NS} 无 providers 段，无法恢复`)
-            const { modelOps, changed } = planRestore(backup, providers)
-            if (modelOps.length === 0) {
-                ctx.logger.info(`${PLUGIN_NAME}: 恢复备份：无可恢复的模型`)
-                return 0
-            }
-            try {
-                await queueTask(ctx, () => ctx.settings.mutate(API_NS, modelOps, apiDescriptor?.revision || 0))
-                ctx.logger.info(`${PLUGIN_NAME}: 已恢复备份中的 ${changed} 个模型`)
-                return changed
-            } catch (error) {
-                // 冲突重试：重读最新 revision 后重算计划（幂等——已恢复的 model 不再计入 changed）
-                if ((error as { code?: unknown })?.code === 'SETTINGS_CONFLICT' && attempt < MAX_ATTEMPTS) continue
-                ctx.logger.warn(`${PLUGIN_NAME}: 恢复备份失败（第 ${attempt}/${MAX_ATTEMPTS} 次）：${error instanceof Error ? error.message : String(error)}`)
-                throw error
-            }
-        }
-        throw new Error(`${PLUGIN_NAME}: 恢复备份冲突重试耗尽`)
-    } finally {
-        endIgnoreAll()
-    }
+    const { changed } = await guardedWritebackApi(ctx, {
+        label: '恢复备份',
+        // 当前段不可读时同样显式失败：返回 0 会被显示成「已恢复 0 个模型」，掩盖真实故障
+        unreadableProviders: () => {
+            throw new Error(`${PLUGIN_NAME}: 当前 ${API_NS} 无 providers 段，无法恢复`)
+        },
+        plan: ({ providers }) => planRestore(backup, providers),
+        noChange: '恢复备份：无可恢复的模型',
+        done: ({ changed }) => `已恢复备份中的 ${changed} 个模型`,
+    })
+    return changed
 }

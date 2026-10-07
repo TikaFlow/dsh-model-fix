@@ -21,14 +21,13 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import { MAX_ATTEMPTS } from '@/constants'
-import { API_NS, EFFORT_LEVELS, PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
+import { EFFORT_LEVELS, PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
 import { resolveConfig } from '@/config'
 import type { PluginConfig } from '@/shared/types'
-import { isPlainObject, providersOf } from '@/shared/types'
+import { isPlainObject } from '@/shared/types'
 import { stripEmptyFields } from '@/empty'
-import { queueTask } from '@/host'
 import { descriptorOf } from '@/section'
+import { writebackApi } from '@/writeback'
 
 /** 写回只动这一个模型字段：最大上下文 / 输出上限 / 图片模态与自定义字段一概保留 */
 const FILL_FIELD = 'reasoningEfforts'
@@ -155,44 +154,33 @@ function sameLevels(left: readonly string[], right: readonly string[]): boolean 
 }
 
 /**
- * 读最新两段配置 → 出计划 → 经 `queueTask` 写回 `llm-pi-ai` 段；`SETTINGS_CONFLICT` 时重读重算（限次）。
+ * 读最新两段配置 → 出计划 → 写回 `llm-pi-ai` 段（骨架见 `src/writeback.ts`，`SETTINGS_CONFLICT` 时重读重算、限次）。
  *
- * 调用方须已置位事件流守卫。`plan` 在每次重试里重算，故它必须是纯函数、可对任意一次快照求值。
+ * **本函数不碰事件流守卫**：探测式填充的守卫持有整轮（预声明 → 探测 → 收敛），故走不带守卫的 `writebackApi`。
+ * `compute` 在每次重试里重算，故它必须是纯函数、可对任意一次快照求值。
  */
 async function applyEfforts(
     ctx: Context,
-    plan: (providers: Record<string, unknown>, config: PluginConfig) => EffortApplyPlan,
+    compute: (providers: Record<string, unknown>, config: PluginConfig) => EffortApplyPlan,
     ignoreExcludes: boolean,
     label: string,
 ): Promise<EffortApplyPlan> {
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        const apiDescriptor = descriptorOf(ctx, API_NS)
-        const providers = providersOf(apiDescriptor?.user)
-        if (!providers) return { modelOps: [], models: 0, added: 0, removed: 0 }
-        // 忽略排除时不必读自有段（它只提供 excludes）；否则读不到就必须显式失败：
-        // 回退默认配置会使 excludes 变空，写回会作用到用户实际已排除的提供方
-        const configDescriptor = descriptorOf(ctx, PLUGIN_NS)
-        if (!ignoreExcludes && !configDescriptor) {
-            throw new Error(`${PLUGIN_NAME}: 自有配置段 ${PLUGIN_NS} 不可读，无法${label}`)
-        }
-        const config = resolveConfig(configDescriptor?.user)
-        const result = plan(providers, config)
-        if (result.modelOps.length === 0) {
-            ctx.logger.info(`${PLUGIN_NAME}: ${label}：没有需要改写的推理级别`)
-            return result
-        }
-        try {
-            await queueTask(ctx, () => ctx.settings.mutate(API_NS, result.modelOps, apiDescriptor?.revision || 0))
-            ctx.logger.info(`${PLUGIN_NAME}: ${label}完成：${result.models} 个模型、新增 ${result.added} 个、删除 ${result.removed} 个推理级别`)
-            return result
-        } catch (error) {
-            // 冲突重试：重读最新 revision 后重算计划（幂等——算出的档位表与当前相同则零 op）
-            if ((error as { code?: unknown })?.code === 'SETTINGS_CONFLICT' && attempt < MAX_ATTEMPTS) continue
-            ctx.logger.warn(`${PLUGIN_NAME}: ${label}失败（第 ${attempt}/${MAX_ATTEMPTS} 次）：${error instanceof Error ? error.message : String(error)}`)
-            throw error
-        }
-    }
-    throw new Error(`${PLUGIN_NAME}: ${label}冲突重试耗尽`)
+    return writebackApi(ctx, {
+        label,
+        // 段不可读即当「本就无可改写」静默早退（返回零计划，不打日志）
+        unreadableProviders: () => ({ modelOps: [], models: 0, added: 0, removed: 0 }),
+        plan: ({ providers }) => {
+            // 忽略排除时不必读自有段（它只提供 excludes）；否则读不到就必须显式失败：
+            // 回退默认配置会使 excludes 变空，写回会作用到用户实际已排除的提供方
+            const configDescriptor = descriptorOf(ctx, PLUGIN_NS)
+            if (!ignoreExcludes && !configDescriptor) {
+                throw new Error(`${PLUGIN_NAME}: 自有配置段 ${PLUGIN_NS} 不可读，无法${label}`)
+            }
+            return compute(providers, resolveConfig(configDescriptor?.user))
+        },
+        noChange: `${label}：没有需要改写的推理级别`,
+        done: ({ models, added, removed }) => `${label}完成：${models} 个模型、新增 ${added} 个、删除 ${removed} 个推理级别`,
+    })
 }
 
 /**

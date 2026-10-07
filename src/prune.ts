@@ -12,18 +12,17 @@
  * 而模型页上已有推理级别的模型本就跳过填充。真被剔空到零的情况只可能来自全手填的模型，
  * 剔空后该字段整个消失，模型回到「未声明档位」态，此后也不会被填充。
  */
-import { LEVELS, MAX_ATTEMPTS } from '@/constants'
-import { API_NS, PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
+import { LEVELS } from '@/constants'
+import { PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
 import { resolveConfig } from '@/config'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import type { PluginConfig } from '@/shared/types'
-import { isPlainObject, providersOf } from '@/shared/types'
+import { isPlainObject } from '@/shared/types'
 import type { UnsupportedEffort } from '@/shared/verify-progress'
 import { stripEmptyFields } from '@/empty'
-import { startIgnoreAll, endIgnoreAll } from '@/guard'
-import { queueTask } from '@/host'
 import { descriptorOf } from '@/section'
+import { guardedWritebackApi } from '@/writeback'
 
 /** 剔除只动这一个模型字段：最大上下文 / 输出上限 / 图片模态一概保留 */
 const PRUNE_FIELD = 'reasoningEfforts'
@@ -124,36 +123,20 @@ export function parsePruneTargets(payload: unknown): UnsupportedEffort[] | undef
  * 写失败先告警再抛出，由调用方转 RPC 失败结果。
  */
 export async function pruneUnsupportedEfforts(ctx: Context, targets: readonly UnsupportedEffort[]): Promise<number> {
-    startIgnoreAll()
-    try {
-        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            const apiDescriptor = descriptorOf(ctx, API_NS)
-            const providers = providersOf(apiDescriptor?.user)
-            if (!providers) return 0
+    const { pruned } = await guardedWritebackApi(ctx, {
+        label: '剔除',
+        // 段不可读即当「本就无可剔除」静默早退
+        unreadableProviders: () => ({ modelOps: [], pruned: 0 }),
+        plan: ({ providers }) => {
             // 当前生效配置（损坏快照回退最高可解析版本/默认，excludes 一并生效）
             const configDescriptor = descriptorOf(ctx, PLUGIN_NS)
             // 自有段不可读时显式失败：回退 DEFAULT_CONFIG 会使 excludes 变空，
             // 剔除会作用到用户实际已排除的提供方
             if (!configDescriptor) throw new Error(`${PLUGIN_NAME}: 自有配置段 ${PLUGIN_NS} 不可读，无法剔除推理级别`)
-            const config = resolveConfig(configDescriptor.user)
-            const { modelOps, pruned } = planPruneEfforts(config, providers, targets)
-            if (modelOps.length === 0) {
-                ctx.logger.info(`${PLUGIN_NAME}: 剔除：没有可剔除的推理级别`)
-                return 0
-            }
-            try {
-                await queueTask(ctx, () => ctx.settings.mutate(API_NS, modelOps, apiDescriptor?.revision || 0))
-                ctx.logger.info(`${PLUGIN_NAME}: 已剔除 ${pruned} 个不被支持的推理级别`)
-                return pruned
-            } catch (error) {
-                // 冲突重试：重读最新 revision 后重算计划（幂等——已剔掉的不再命中，pruned 归零时即无 op）
-                if ((error as { code?: unknown })?.code === 'SETTINGS_CONFLICT' && attempt < MAX_ATTEMPTS) continue
-                ctx.logger.warn(`${PLUGIN_NAME}: 剔除失败（第 ${attempt}/${MAX_ATTEMPTS} 次）：${error instanceof Error ? error.message : String(error)}`)
-                throw error
-            }
-        }
-        throw new Error(`${PLUGIN_NAME}: 剔除冲突重试耗尽`)
-    } finally {
-        endIgnoreAll()
-    }
+            return planPruneEfforts(resolveConfig(configDescriptor.user), providers, targets)
+        },
+        noChange: '剔除：没有可剔除的推理级别',
+        done: ({ pruned }) => `已剔除 ${pruned} 个不被支持的推理级别`,
+    })
+    return pruned
 }

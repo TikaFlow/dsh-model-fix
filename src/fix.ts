@@ -13,15 +13,11 @@ import { versionKey } from '@/shared/parse'
 import { isCapacity } from '@/types'
 import { isPlainObject, providersOf, type EffortMemory } from '@/shared/types'
 import { descriptorOf } from '@/section'
+import { errorText, isSettingsConflict } from '@/writeback'
 
 /** 缓存图片信息转换为写回的 input 模态数组：仅支持图片时填 ['text','image']，无数据或纯文本不填（未声明即按纯文本处理） */
 function toInputValue(image: boolean | undefined): string[] | undefined {
     return image ? ['text', 'image'] : undefined
-}
-
-/** 判断错误是否为并发写入冲突（settings 命名空间在读写之间被改动） */
-function isSettingsConflict(error: unknown): boolean {
-    return (error as { code?: unknown })?.code === 'SETTINGS_CONFLICT'
 }
 
 /**
@@ -47,6 +43,10 @@ function isSettingsConflict(error: unknown): boolean {
  *   已删除模型的记忆条目原样保留（见 AGENTS.md 设计裁决）。
  * 返回变更模型数（不含路由 compat 计数与记忆清理，保持 RPC 契约）；写回失败（冲突重试用尽等）
  * 先告警再抛出，由调用方决定后续处理（RPC 转失败结果回传，事件侧吞掉 rejection）。
+ *
+ * 本函数**不走** `src/writeback.ts` 的写回外壳：它是「先写自有段的记忆清理、再写 llm-pi-ai」的两段式，
+ * 且守卫不由它托管，与四个写回端点的单段骨架不同形（理由见该文件的文件头注释）；只复用其中的
+ * `isSettingsConflict` 与 `errorText` 两个判定函数。
  */
 export async function fix(ctx: Context, force = false): Promise<number> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -173,7 +173,7 @@ export async function fix(ctx: Context, force = false): Promise<number> {
                 ctx.logger.info(`${PLUGIN_NAME}: 已重建推理级别记忆`)
             }
         } catch (error) {
-            ctx.logger.error(`${PLUGIN_NAME}: ${error instanceof Error ? error.message : String(error)}`)
+            ctx.logger.error(`${PLUGIN_NAME}: ${errorText(error)}`)
         }
 
         if (ops.length === 0) return 0
@@ -183,7 +183,7 @@ export async function fix(ctx: Context, force = false): Promise<number> {
             return changes
         } catch (error) {
             if (isSettingsConflict(error) && attempt < MAX_ATTEMPTS) continue
-            ctx.logger.warn(`${PLUGIN_NAME}: ${error instanceof Error ? error.message : String(error)}`)
+            ctx.logger.warn(`${PLUGIN_NAME}: ${errorText(error)}`)
             // 已告警仍抛出：调用方按需处理（RPC 回传错误 / 事件侧吞掉），不静默吞错
             throw error
         }

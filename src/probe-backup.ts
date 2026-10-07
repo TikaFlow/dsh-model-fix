@@ -26,6 +26,7 @@ import { planRestore } from '@/restore'
 import { endIgnoreAll, startIgnoreAll } from '@/guard'
 import { queueTask } from '@/host'
 import { descriptorOf, ownSection } from '@/section'
+import { isSettingsConflict } from '@/writeback'
 
 /** 自有段里存这份备份的键（顶层，与 `version-N` 同级） */
 const PROBE_BACKUP_KEY = 'probeBackup'
@@ -55,7 +56,7 @@ async function mutateOwn(ctx: Context, ops: readonly SettingsPathOp[]): Promise<
             await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, [...ops], descriptor.revision))
             return
         } catch (error) {
-            if ((error as { code?: unknown })?.code === 'SETTINGS_CONFLICT' && attempt < MAX_ATTEMPTS) continue
+            if (isSettingsConflict(error) && attempt < MAX_ATTEMPTS) continue
             throw error
         }
     }
@@ -79,7 +80,12 @@ export function clearProbeBackup(ctx: Context): Promise<void> {
     return mutateOwn(ctx, [{ op: 'unset', path: [PROBE_BACKUP_KEY] }])
 }
 
-/** 按备份回退模型（交集语义，与「恢复备份」同一口径：只回退共有 provider 里的共有 model，不复活被删项、不覆盖新增） */
+/**
+ * 按备份回退模型（交集语义，与「恢复备份」同一口径：只回退共有 provider 里的共有 model，不复活被删项、不覆盖新增）。
+ *
+ * 刻意**不走** `src/writeback.ts` 的写回外壳：本回退不打任何逐次日志（成败由启动链末尾统一汇报一条），
+ * 套壳会凭空多出「零变更」与「失败第 n 次」两条告警。
+ */
 async function restoreProviders(ctx: Context, backup: Record<string, unknown>): Promise<number> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         const descriptor = descriptorOf(ctx, API_NS)
@@ -92,7 +98,7 @@ async function restoreProviders(ctx: Context, backup: Record<string, unknown>): 
             await queueTask(ctx, () => ctx.settings.mutate(API_NS, modelOps, descriptor?.revision || 0))
             return changed
         } catch (error) {
-            if ((error as { code?: unknown })?.code === 'SETTINGS_CONFLICT' && attempt < MAX_ATTEMPTS) continue
+            if (isSettingsConflict(error) && attempt < MAX_ATTEMPTS) continue
             throw error
         }
     }

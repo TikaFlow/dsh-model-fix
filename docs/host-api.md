@@ -18,7 +18,7 @@
 - **`describe()`**：`describe(options?: { redactSecrets?: boolean }): SettingsDescriptor[]`。descriptor 字段为 `ns / autoGenerate / schema / value / revision / base? / user? / applies:'live' / secrets?`（同文件顶部的类型与 `describe` 返回字面量）——**没有** `namespace` / `userSettings` 之类别名。本插件只用 `{ ns, user, revision }`，且刻意不传 `redactSecrets`（要拿明文 user 层做比对）。**读取一律经 `src/section.ts` 的 `descriptorOf` / `sectionOf` / `ownSection`**（读 choke point，与写侧的 `src/host.ts` 的 `queueTask` 对称）：`descriptorOf(ctx, ns)` 取整张描述，`sectionOf(descriptor)` 把 `user` 收窄成整段（非常规对象即 `undefined`），`ownSection(ctx)` 是只读自有段的快捷方式。三者读不到都返回 `undefined` 而不抛错——「段不可读」该由调用方显式失败还是静默早退，由端点自己决定。
 - **`mutate()`**：`async mutate(ns: string, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>`，**返回 `void`**（同族 `update` / `replace` 亦然）。所以「变更数」只能自己数，不能指望返回值。
 - **`SettingsPathOp`**：`{ op:'set'; path: readonly string[]; value: unknown } | { op:'unset'; path: readonly string[] }`（同文件）。客户端面另有 `SettingsPathOpView`（`@deepseek-ai/dsh-settings` 的 `src/types.ts`，`path: string[]`、`value: JsonValue`）——`src/client/scope.ts` 的 mutate 因此要 `as Parameters<ConfigForm<unknown>['mutate']>[0]` 桥一次。
-- **冲突**：revision 不符时 `mutate` **抛** `SettingsConflictError`（同文件，`readonly code = 'SETTINGS_CONFLICT'`，带 `expected` / `actual`），抛出点在 `mutate` 内的 revision 围栏检查处（抛 Error 而非返回失败值）。本插件在 `src/reset.ts` / `src/restore.ts` / `src/prune.ts` / `src/fix.ts` 按 `err.code === 'SETTINGS_CONFLICT'` 捕获重试；**宿主换码或改成返回失败值都会让重试退化为一次失败**。
+- **冲突**：revision 不符时 `mutate` **抛** `SettingsConflictError`（同文件，`readonly code = 'SETTINGS_CONFLICT'`，带 `expected` / `actual`），抛出点在 `mutate` 内的 revision 围栏检查处（抛 Error 而非返回失败值）。本插件一律按 `err.code === 'SETTINGS_CONFLICT'` 捕获重试，判定收口在 `src/writeback.ts` 的 `isSettingsConflict`（`reset` / `restore` / `prune` / `fill` 由该文件的写回外壳代劳，`fix` 与探测兜底回退直接调它）；**宿主换码或改成返回失败值都会让重试退化为一次失败**。
 - **写入语义（`applyPathOp`，同文件）**：
   - 根必须是纯对象：`if (!isPlainObject(result)) throw new TypeError('Config root must be a plain object')`，而 `isPlainObject`（同文件）显式排除数组 ⇒ 自有配置只能用 `version-N -> 快照` 的**映射**，不能用列表（这正是本仓形态的原因之一）。
   - `unset` 只删本键、**不折叠空父对象**：`if (child === undefined) Reflect.deleteProperty(result, head)`。⇒ 删空壳必须整段 `unset`，否则留下 `{}` 反复触发写入判定（`src/compat.ts` 的整段 unset、`src/empty.ts` 的空壳判据都建立在这条上）。
@@ -173,7 +173,7 @@
 | --- | --- | --- | --- |
 | `@deepseek-ai/cordis` | `Context` / `Context as ClientContext` | type-only | Node 半各模块；`src/client/index.tsx` |
 | `@deepseek-ai/schemastery` | 默认导出 `z` | **值导入** | `src/index.ts`（`Config`）、`src/migrate.ts` |
-| `@deepseek-ai/dsh-settings` | `SettingsPathOp`、`SettingsDescriptor` | type-only | `SettingsPathOp`：`src/fix.ts` `src/migrate.ts` `src/reset.ts` `src/restore.ts` `src/prune.ts` `src/client/scope.ts`；`SettingsDescriptor`：`src/section.ts`（节读取收口，替掉各处 `describe().find`） |
+| `@deepseek-ai/dsh-settings` | `SettingsPathOp`、`SettingsDescriptor` | type-only | `SettingsPathOp`：`src/fix.ts` `src/migrate.ts` `src/reset.ts` `src/restore.ts` `src/prune.ts` `src/fill.ts` `src/writeback.ts` `src/client/scope.ts`；`SettingsDescriptor`：`src/section.ts`（节读取收口，替掉各处 `describe().find`） |
 | `@deepseek-ai/dsh-util-values` | `deepEqualJson` | **值导入** | `src/fix.ts` `src/migrate.ts` `src/compat.ts` `src/restore.ts` |
 | `@deepseek-ai/dsh-llm` | `LlmRuntime`、`ReasoningEffortId` | type-only | `src/probe-engine.ts`；`src/rpc.ts` 另有一处 `import type {} from '@deepseek-ai/dsh-llm'`（`ctx.llm` 服务面合并） |
 | `@deepseek-ai/dsh-llm/types` | `LlmFailure` | type-only | `src/probe-engine.ts`（**只在 `/types` 子路径**，包根未再导出） |
