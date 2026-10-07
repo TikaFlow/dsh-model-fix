@@ -1,7 +1,7 @@
 import { PLUGIN_NAME } from '@/shared/constants'
 
 /**
- * 卡片的样式层：一份内嵌样式表与它的幂等注入，外加说明气泡的宽度上限。
+ * 卡片的样式层：一份内嵌样式表与它的幂等注入，外加两处展示数值。
  *
  * 样式数值只此一处可查，是「UI 无痕融合纪律」的落地方式——改任何数值都改这一个文件，不必在组件里逐处找。
  * 色值一律只用 --dsw-alias-* 令牌，字面量仅作令牌缺失时的浅色守卫（取宿主主题真值）。
@@ -9,6 +9,9 @@ import { PLUGIN_NAME } from '@/shared/constants'
 
 /** 说明气泡宽度上限（px）：宿主 Tooltip 默认半视口，气泡会盖满整行开关区，故按瓦片列宽收窄 */
 export const TIP_MAX_WIDTH = 300
+
+/** 验证与探测两个弹层共用的记录区行数上限：跑满即滚动，够读完一轮的结论又不至于把弹层撑得过长 */
+export const VERIFY_TERMINAL_LINES = 8
 
 const STYLE_ID = 'dsh-model-fix-card-css'
 

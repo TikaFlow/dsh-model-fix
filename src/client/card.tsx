@@ -20,7 +20,8 @@
  * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
  * 除验证外的操作结果一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）。
- * 样式不在本文件：样式表与它的注入、说明气泡宽度上限统一见 card-styles.ts；末尾联系行（仓库地址 / 版本标记 / 反馈入口）见 card-meta.tsx。本文件只管卡片的状态与编排。
+ * 弹层不在本文件：样式表与它的注入、说明气泡宽度上限、两处展示数值统一见 card-styles.ts；末尾联系行（仓库地址 / 版本标记 / 反馈入口）见 card-meta.tsx；
+ * 「验证模型」弹层（候选列表 + 记录区 + 档位开关 + 发跑/停止）见 verify-dialog.tsx，卡片只递状态与回调。本文件只管卡片的状态与编排。
  */
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -29,14 +30,13 @@ import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TerminalBlockLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 // scope 类型来自本项目的 ConfigForm decode 包装层
 import type { DecodedScope } from '@/client/scope'
-import { ensureStyles, TIP_MAX_WIDTH } from '@/client/card-styles'
+import { ensureStyles, TIP_MAX_WIDTH, VERIFY_TERMINAL_LINES } from '@/client/card-styles'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import {
     VERSION_KEY,
     addExclude,
     applyGroup,
-    groupAllPicked,
     groupValue,
     isDirty,
     masterValue,
@@ -48,7 +48,6 @@ import {
     toggleCell,
     toggleGroupPicks,
     verifyCandidatesOf,
-    verifyKey,
     verifyTargets,
 } from '@/client/model'
 import type { Flags, Group, RowKey, VerifyCandidate, VerifyTarget } from '@/client/model'
@@ -56,6 +55,7 @@ import type { CardKey } from '@/client/locales'
 import { ExcludesTile, GroupTile, TILE_ORDER } from '@/client/tile'
 import { CardMeta } from '@/client/card-meta'
 import { ConfirmModal } from '@/client/confirm'
+import { VerifyDialog } from '@/client/verify-dialog'
 import { errorText } from '@/shared/errors'
 import { isProviderBlocking } from '@/shared/verify-progress'
 import type { UnsupportedEffort, ProbeOutcome, VerifyProbedFrame, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
@@ -65,8 +65,6 @@ import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 const CHEVRON_DOWN = primitives.IconChevronDownOutlineRegular
 const { Button, Modal, Switch, Tag, StateDot, TerminalBlock, Tooltip, IconInfoOutlineRegular } = primitives
 
-/** 验证记录区的行数上限 */
-const VERIFY_TERMINAL_LINES = 8
 /**
  * 探测跑完到关窗之间的展示延时（毫秒）：补全写回很快，不留时间用户就读不到刚跑出来的结论。
  * 取 2.5s 是一句结论读完的量级，不做成可配置项——它服务的是「别让结论一闪而过」，
@@ -191,16 +189,6 @@ export function Card(props: CardProps) {
         () => verifyCandidatesOf(providersSnap.status === 'ready' ? providersSnap.user : undefined),
         [providersSnap],
     )
-    // 按提供方归组渲染：候选本就是「提供方内聚」的录入顺序，取相邻同提供方成组即可，无需再分桶
-    const verifyGroups = useMemo(() => {
-        const groups: { provider: string; models: VerifyCandidate[] }[] = []
-        for (const candidate of verifyCandidates) {
-            const last = groups[groups.length - 1]
-            if (last !== undefined && last.provider === candidate.provider) last.models.push(candidate)
-            else groups.push({ provider: candidate.provider, models: [candidate] })
-        }
-        return groups
-    }, [verifyCandidates])
     // draft === null 表示未编辑、跟随已存值；首次点击即冻结当前显示值为草稿
     const [draft, setDraft] = useState<Flags | null>(null)
     // 全部写操作（保存 / 强制更新 / 重置 / 恢复 / 清空记忆 / 验证）共用单一互斥标志：
@@ -923,109 +911,25 @@ export function Card(props: CardProps) {
                 danger
                 confirmDisabled={busy !== null}
             />
-            {/* 「验证模型」弹层：结构逐条照官方 models 页「获取可用模型」的候选框（title / desc / 候选列表 / 底部取消 + 采用），
-                按需求去掉其「搜索 — 全选」工具条一行；改为列表下方一条 warn 额度提示，底部左侧加「验证所有推理级别」开关。
-                关窗（遮罩 / Escape / ×）即中止在途验证：连接一断，Node 半的执行循环随即早停，不会在用户离开之后继续烧额度 */}
-            <Modal
+            {/* 「验证模型」弹层见 verify-dialog.tsx：候选列表 + 记录区 + 底部动作行，本文件只递状态与回调 */}
+            <VerifyDialog
+                t={t}
                 open={verifyOpen}
                 onClose={closeVerify}
-                title={t('verifyTitle')}
-                closeLabel={t('close')}
-                description={t('verifyDesc')}
-                className="dsh-mf-verifyDialog"
-                footer={
-                    /* 宿主 .footer 是单行 flex、无 wrap、且 justify-content 为 flex-end。弹层加宽后档位开关与两键
-                        并排同一行、开关靠左两键靠右，故在 footer 内自绘容器覆盖宿主那三个数值。
-                        记录区不在这一行下方——它已移入正文，与探测弹层同序（提示之下、开关之上） */
-                    <div className="dsh-mf-verifyActions">
-                        <span className="dsh-mf-verifyOption">
-                            <Switch
-                                checked={verifyEfforts}
-                                disabled={busy === 'verify'}
-                                label={t('verifyEfforts')}
-                                onChange={setVerifyEfforts}
-                            />
-                            <span>{t('verifyEfforts')}</span>
-                            {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
-                            <Tooltip label={t('verifyEffortsTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
-                                <button type="button" className="dsh-mf-help" aria-label={t('verifyEffortsTip')}>
-                                    <IconInfoOutlineRegular size={12} />
-                                </button>
-                            </Tooltip>
-                        </span>
-                        <div className="dsh-mf-verifyButtons">
-                            <Button variant="outline" data-modal-autofocus disabled={busy === 'verify'} onClick={closeVerify}>{t('cancel')}</Button>
-                            <Button
-                                variant="outline"
-                                className="dsh-mf-warn"
-                                disabled={busy === null && verifyPicked.size === 0}
-                                onClick={busy === 'verify' ? stopVerify : runVerify}
-                            >
-                                {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点；
-                                    StateDot 的 ongoing 态就是侧边栏会话列表项左侧那个转圈（同原语、同动效） */}
-                                {busy === 'verify' ? <StateDot state="ongoing" /> : null}
-                                {t(busy === 'verify' ? 'verifyStop' : 'verifyGo')}
-                            </Button>
-                        </div>
-                    </div>
-                }
-            >
-                {/* 正文各段的纵向间距一律 12px，由这层容器给出：宿主 .body 无 gap、段靠自身 margin，
-                    而 flex 容器里 margin 不折叠、紧挨两段会相加，逐处自给必然算错 */}
-                <div className="dsh-mf-verifyBody">
-                    {verifyGroups.length === 0 ? (
-                        <p className="dsh-mf-verifyEmpty" role="status">{t('verifyEmpty')}</p>
-                    ) : (
-                        <ul className="dsh-mf-verifyList">
-                            {verifyGroups.map((group) => [
-                                <li key={`g-${group.provider}`} className="dsh-mf-verifyGroup">
-                                    {group.provider}
-                                    {/* 分组全选键：组件、尺寸与文案语义逐条照官方 candidateToolbar 的 ghost 小键 */}
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="dsh-mf-verifyGroupAll"
-                                        disabled={busy === 'verify'}
-                                        onClick={() => { toggleVerifyGroup(group.models) }}
-                                    >
-                                        {groupAllPicked(verifyPicked, group.models) ? t('verifyDeselectAll') : t('verifySelectAll')}
-                                    </Button>
-                                </li>,
-                                ...group.models.map((candidate) => {
-                                    const key = verifyKey(candidate.provider, candidate.model)
-                                    return (
-                                        <li key={key} className="dsh-mf-verifyRow">
-                                            {/* 官方候选行同构：label 内 checkbox + 等宽模型 id，点整行即切换 */}
-                                            <label className="dsh-mf-verifyLabel">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={verifyPicked.has(key)}
-                                                    disabled={busy === 'verify'}
-                                                    onChange={() => { toggleVerifyPick(key) }}
-                                                />
-                                                <span className="dsh-mf-verifyId" title={candidate.model}>{candidate.model}</span>
-                                            </label>
-                                        </li>
-                                    )
-                                }),
-                            ])}
-                        </ul>
-                    )}
-                    <p className="dsh-mf-verifyQuota">{t('verifyQuota')}</p>
-                    {/* 记录区排在提示之下：它是「正在发生的事」，提示是「这轮会做什么」，
-                        两者挨着放才读得顺。首次发起才出现——opened 帧一到即有总项数，先于此则没有任何进度可展示 */}
-                    {verifyTotal > 0 ? (
-                        <TerminalBlock
-                            command={t('verifyCommand', { total: String(verifyTotal) })}
-                            output={verifyLines.join('\n')}
-                            running={busy === 'verify'}
-                            maxLines={VERIFY_TERMINAL_LINES}
-                            labels={verifyTerminalLabels}
-                            className="dsh-mf-verifyLog"
-                        />
-                    ) : null}
-                </div>
-            </Modal>
+                running={busy === 'verify'}
+                idle={busy === null}
+                candidates={verifyCandidates}
+                picked={verifyPicked}
+                onTogglePick={toggleVerifyPick}
+                onToggleGroup={toggleVerifyGroup}
+                efforts={verifyEfforts}
+                onEffortsChange={setVerifyEfforts}
+                total={verifyTotal}
+                lines={verifyLines}
+                terminalLabels={verifyTerminalLabels}
+                onRun={runVerify}
+                onStop={stopVerify}
+            />
             {/* 「探测式填充」弹层：没有候选列表——范围由两个键与「忽略排除」开关决定，故正文依次是
                 记录区（首次发起才出现，与验证同纪律）→ 额度提示 → 两个开关；
                 footer 只留三键，直接吃宿主 .footer 的 flex-end 右对齐，不必自绘行容器。
