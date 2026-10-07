@@ -12,7 +12,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | --- | --- |
 | `src/index.ts` | Node 半入口：`Config`（宿主经 `entry.fiber.runtime.Config` 取用）+ 单一 `apply` 编排体（备份 → 配置源与段变更接线 → installRpc → 启动链） |
 | `src/shared/` | 跨半共享层（零 Node 依赖 / 零 schemastery / 零非基线 `@deepseek-ai/*`）：常量、`isPlainObject`/`providersOf`、当前版本配置的解析与物化与各组行键表、**验证与探测式填充共用**的探测契约（明细 / 汇报 / 进度帧 / 可用与不支持档位明细 / 写回统计，浏览器半须据此解析回传，禁反向 import Node 半） |
-| `src/config.ts` `src/migrate.ts` `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 配置解析与配置源 / 升级链 `upgradeTo4..7` 与 `migrateConfig` / 缓存读写与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
+| `src/config.ts` `src/migrate.ts` `src/upgrade.ts` `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 配置解析与配置源 / 当前版本侧的启动迁移、旧快照清理与自愈（`migrateConfig`；选迁移源时才调 `upgradeConfig`）/ **冻结的升级台阶链** `upgradeTo4..7`（历史形态的堆栈，**刻意不引用 `CONFIG_VERSION` 或当前版本默认值**，新增台阶只改这里）/ 缓存读写与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
 | `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 同批提交；`excludes` 命中者在 provider 循环入口整条跳过；同一两层循环顺带重建 `efforts` 记忆 |
 | `src/empty.ts` | 空壳字段的唯一判据 `stripEmptyFields`：`reasoningEfforts` / `input` / `compat` 的空形态一律等同「未声明」，**五条写回路径（`fix` 填充、`reset`、`restore`、`prune` 剔除、`fill` 探测式填充的预声明与收敛）统一过它**，不在各模块另写一份；无空壳时返回原引用，调用方以引用相等判「无需重建」。注意它只清**空形态**：把某个键整个删掉得由调用方显式 `delete` |
 | `src/reset.ts` `src/restore.ts` `src/guard.ts` `src/host.ts` `src/section.ts` `src/writeback.ts` `src/prune.ts` | 重置推理级别（仅剔除 `reasoningEfforts`，配置段零写入）/ 启动备份捕获与交集恢复 / 事件流守卫（写回期间短路整条事件链）/ 全部 settings 写回必经的 `queueTask` / **settings 节读取的唯一收口**（`descriptorOf` 取描述、`sectionOf` 把 `user` 收窄成整段、`ownSection` 读自有段；读不到一律返回 `undefined`，「显式失败还是静默早退」留给调用方决定，不在读取层替它选）/ **写回 `llm-pi-ai` 段的统一外壳**（读最新段 → 纯函数出计划 → 经 `queueTask` 写回 → `SETTINGS_CONFLICT` 限次重试；各端点只给「段不可读怎么办、计划怎么算、日志报什么」，文案一字不改。`guardedWritebackApi` 自带守卫、给守卫只覆盖本轮的端点用，`writebackApi` 给守卫持有整轮的探测式填充。`fix` 与探测兜底回退**刻意留在原处不套壳**，理由见该文件头）/ 剔除验证明细中**明确不支持**的档位（写入前判空壳、`excludes` 跳过、幂等） |
@@ -55,7 +55,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 ### 版本快照与冻结形态
 
 - 新增**顶层配置组**算形态变化，必须递增 `CONFIG_VERSION` 并加升级台阶；只往 `compat` 组内加键不算（新键须有 schema 默认，旧快照解析后即获得默认）。
-- `src/types.ts` 的 `V3`–`V6` 与 `migrate.ts` 的 `upgradeTo4`–`upgradeTo7` 是历史形态，**不随当前类型演进**（否则历史语义会被当前类型改写，破坏无损回退）。台阶按目标版本命名 `upgradeToN`：每级先 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力，再按 vN-1 冻结 schema 解析、补新增字段落默认，产物版本号写固定字面量；`upgradeConfig` 只调最新一级。
+- `src/types.ts` 的 `V3`–`V6` 与 `src/upgrade.ts` 的 `upgradeTo4`–`upgradeTo7` 是历史形态，**不随当前类型演进**（否则历史语义会被当前类型改写，破坏无损回退）。台阶按目标版本命名 `upgradeToN`：每级先 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力，再按 vN-1 冻结 schema 解析、补新增字段落默认，产物版本号写固定字面量；`upgradeConfig` 只调最新一级。台阶链与当前版本侧分居两个文件（`src/upgrade.ts` 只管「把某个旧版本升上来」，`src/migrate.ts` 只管当前版本与段内多版本共存），加台阶不许顺手改当前版本侧的默认值，反之亦然。
 - 提升 `MIN_SUPPORTED_VERSION` 到 M 时，低于 M 的冻结类型与台阶一并移除（其输入下限已被守卫拒绝），输入下限恰为 M 的一级转为最低一级、自持全链唯一的 `fromVersion < MIN_SUPPORTED_VERSION` 守卫。
 
 ### 工具链陷阱

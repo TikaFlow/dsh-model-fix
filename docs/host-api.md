@@ -172,7 +172,7 @@
 | 宿主模块 | 导入符号 | 形式 | 使用处 |
 | --- | --- | --- | --- |
 | `@deepseek-ai/cordis` | `Context` / `Context as ClientContext` | type-only | Node 半各模块；`src/client/index.tsx` |
-| `@deepseek-ai/schemastery` | 默认导出 `z` | **值导入** | `src/index.ts`（`Config`）、`src/migrate.ts` |
+| `@deepseek-ai/schemastery` | 默认导出 `z` | **值导入** | `src/index.ts`（`Config`）、`src/upgrade.ts`（冻结升级台阶链的 v3–v6 schema） |
 | `@deepseek-ai/dsh-settings` | `SettingsPathOp`、`SettingsDescriptor` | type-only | `SettingsPathOp`：`src/fix.ts` `src/migrate.ts` `src/reset.ts` `src/restore.ts` `src/prune.ts` `src/fill.ts` `src/writeback.ts` `src/client/scope.ts`；`SettingsDescriptor`：`src/section.ts`（节读取收口，替掉各处 `describe().find`） |
 | `@deepseek-ai/dsh-util-values` | `deepEqualJson` | **值导入** | `src/fix.ts` `src/migrate.ts` `src/compat.ts` `src/restore.ts` |
 | `@deepseek-ai/dsh-llm` | `LlmRuntime`、`ReasoningEffortId` | type-only | `src/probe-engine.ts`；`src/rpc.ts` 另有一处 `import type {} from '@deepseek-ai/dsh-llm'`（`ctx.llm` 服务面合并） |

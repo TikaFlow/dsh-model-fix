@@ -9,6 +9,7 @@ import { run as runFix } from '@test/fix.test'
 import { run as runGuard } from '@test/guard.test'
 import { run as runLookup } from '@test/lookup.test'
 import { run as runMigrate } from '@test/migrate.test'
+import { run as runUpgrade } from '@test/upgrade.test'
 import { run as runPrune } from '@test/prune.test'
 import { run as runProbe } from '@test/probe.test'
 import { run as runProbeBackup } from '@test/probe-backup.test'
@@ -36,6 +37,8 @@ section('lookup.test.ts')
 runLookup()
 section('migrate.test.ts')
 runMigrate()
+section('upgrade.test.ts')
+runUpgrade()
 section('prune.test.ts')
 runPrune()
 section('reset.test.ts')
