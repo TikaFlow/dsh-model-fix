@@ -22,7 +22,8 @@
  * - 档位表 = `可用 ∪ 原有`，开「剔除不支持」时改为 `可用 ∪ (原有 − 明确判不支持)`。
  * - **档位表算空即整个 `reasoningEfforts` 键删掉**（空对象等同未声明），故「全档不可用」的结果是字段消失，
  *   模型回到未声明态，与剔除路径同一形态。
- * - 该模型没跑完（被短路、被中止）即**原样还原**预声明之前的档位表：半截结论不足以动用户配置。
+ * - 该模型没跑完（被 provider 级短路连带）即**原样还原**预声明之前的档位表：半截结论不足以动用户配置。
+ * - 本轮被中止即**整轮**还原，一个模型都不补、不剔：必须完全跑完才谈补全。
  * - `ignoreExcludes` 同时作用于探测范围与两次写回（用户在本功能里显式要覆盖排除语义）；
  *   `dropUnsupported` 只影响收敛口径。两者都由浏览器半声明，Node 半不替它反推。
  */
@@ -117,8 +118,10 @@ function flagsOf(payload: unknown): { ignoreExcludes: boolean; dropUnsupported: 
 /**
  * 收敛口径：逐模型算出最终档位表。
  *
- * 「跑完没跑完」按明细条数与计划条数比：该模型的请求全部拿到结论才动它的配置，
- * 否则原样还原预声明之前的档位表——半截结论不足以动用户配置。
+ * 「跑完没跑完」有两道闸，任一不过即原样还原预声明之前的档位表——半截结论不足以动用户配置：
+ * 1. 本轮被中止（`aborted`）：**整轮**还原，不按模型逐个判。用户按「停止」要的就是原样停下，
+ *    不是「探到一半、填一半」；与「探到多少补多少」相比，全丢更可预期，也更不会把半截结论写成定论。
+ * 2. 该模型自己的请求没拿满（被 provider 级短路连带）：只还原它，其余模型照常收敛。
  */
 function convergeEntries(
     groups: readonly ProviderProbeGroup[],
@@ -126,6 +129,7 @@ function convergeEntries(
     preexisting: ReadonlyMap<string, readonly string[]>,
     summary: VerifySummary,
     dropUnsupported: boolean,
+    aborted: boolean,
 ): EffortApply[] {
     const usable = new Map<string, Set<string>>()
     const unsupported = new Map<string, Set<string>>()
@@ -141,8 +145,8 @@ function convergeEntries(
         // 预声明时不在配置里的模型（探测期间被用户删掉）不在原有档位表里，也不该被写回
         const before = preexisting.get(key)
         if (before === undefined) continue
-        const finished = (probed.get(key) ?? 0) >= (planned.get(key) ?? 0)
-        entries.push({ provider: target.provider, model: target.model, levels: finished ? finalLevels(key, before, usable, unsupported, dropUnsupported) : before })
+        const keep = !aborted && (probed.get(key) ?? 0) >= (planned.get(key) ?? 0)
+        entries.push({ provider: target.provider, model: target.model, levels: keep ? finalLevels(key, before, usable, unsupported, dropUnsupported) : before })
     }
     return entries
 }
@@ -209,7 +213,7 @@ export async function probeAndFill(
     try {
         const preexisting = await declareProbeEfforts(ctx, targets, flags.ignoreExcludes)
         const summary = await runProbeGroups(llm, groups, runProbeGroup, options)
-        const entries = convergeEntries(groups, targets, preexisting, summary, flags.dropUnsupported)
+        const entries = convergeEntries(groups, targets, preexisting, summary, flags.dropUnsupported, options.signal?.aborted === true)
         const { models, added, removed } = await convergeProbeEfforts(ctx, entries, flags.ignoreExcludes, preexisting)
         // 终帧最后发：写回已经落盘，消费方拿到 done 时看到的已是最终配置
         const filled: VerifySummary = { ...summary, fill: { models, added, removed } }

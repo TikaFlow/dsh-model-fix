@@ -205,7 +205,7 @@ export async function run(): Promise<void> {
         check('全组被短路时零写入（还原后与原值相同）', summary.fill?.models === 0 && ctx.mutateCalls.length === 2, summary.fill)
     }
     {
-        // 中止：已跑完的模型照常补全，未跑完的还原；且中止不发 done 帧
+        // 中止：整轮还原——已跑完的那个模型也不补（必须完全跑完才谈补全），且中止不发 done 帧
         const ctx = ctxOf()
         const controller = new AbortController()
         const frames: VerifyProgressFrame[] = []
@@ -216,12 +216,12 @@ export async function run(): Promise<void> {
         })
         check('中止时不发 done 帧', frames.every((f) => f.type !== 'done'), frames.map((f) => f.type))
         check(
-            '中止：跑完的模型补满七档，没跑完的还原成原有两档',
-            stable(Object.keys(effortsOf(ctx, 'acme', 'm1') as Record<string, unknown>)) === stable([...EFFORT_LEVELS])
+            '中止即整轮还原：连跑满七档的 m1 也回到未声明，m2 保持原有两档',
+            effortsOf(ctx, 'acme', 'm1') === undefined
             && stable(effortsOf(ctx, 'acme', 'm2')) === stable({ off: null, high: 'high' }),
             { m1: effortsOf(ctx, 'acme', 'm1'), m2: effortsOf(ctx, 'acme', 'm2') },
         )
-        check('中止时仍照实给出写回统计（models 只计改写了的那些）', summary.fill?.models === 1, summary.fill)
+        check('中止时零写入（整轮还原后与原值相同）', summary.fill?.models === 0, summary.fill)
     }
     {
         // 忽略排除：同一个 ctx，开关开则被排除的提供方照常预声明与写回
