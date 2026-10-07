@@ -12,9 +12,10 @@
  * 「验证模型」则弹一个自带确认的候选框（逐条照官方 models 页「获取可用模型」的候选框，减去其搜索/全选工具条）：
  * 按提供方分组多选模型，配「验证推理级别」开关，对每个勾选模型声明的每个推理级别发起真实探测；
  * 结论只留在该弹层内（实时记录区的末行），不写卡片状态行——验证即用即弃，不留任何配置痕迹。
- * 「探测式填充」是它的写回版：没有候选框（范围由「探测未填充 / 探测所有」两键与「忽略排除」开关决定，
- * 模型列表取**点按钮那一刻**的最新值并当场冻结），正文为「本次要探多少 → 实时记录区 → 额度提示」，
- * footer 内并排「忽略排除 / 剔除不支持」两个开关与 关闭 / 探测未填充 / 探测所有 三键；
+ * 「探测式填充」是它的写回版：没有候选框（范围由「探测所有 / 探测未填充」两键与「忽略排除」开关决定，
+ * 模型列表取**点按钮那一刻**的最新值并当场冻结），正文只有「实时记录区 → 额度提示」，
+ * 探测范围与花费由两个键各带出的模型数交代（不另起一行复述一遍）；footer 内并排
+ * 「忽略排除 / 剔除不支持」两个开关与 关闭 / 探测所有 / 探测未填充 三键（由宽到窄）；
  * 跑完把汇总与补全结果留在记录区并**延迟 PROBE_CLOSE_DELAY_MS 再关窗**，同一份结果另落卡片状态行。
  * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
@@ -53,7 +54,7 @@ import {
 import type { Flags, Group, RowKey, VerifyCandidate, VerifyTarget } from '@/client/model'
 import type { CardKey } from '@/client/locales'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locales'
-import { EFFORT_LEVELS, PLUGIN_NAME } from '@/shared/constants'
+import { PLUGIN_NAME } from '@/shared/constants'
 import { isProviderBlocking } from '@/shared/verify-progress'
 import type { UnsupportedEffort, ProbeOutcome, VerifyProbedFrame, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
@@ -698,9 +699,10 @@ export function Card(props: CardProps) {
                 disabled={running ? false : busy !== null || count === 0}
                 onClick={running ? stopProbe : () => { runProbe(scope === 'unfilled') }}
             >
-                {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点 */}
+                {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点。
+                    非在途态把模型数挂在键上：范围与花费一眼可见，不必另起一行复述 */}
                 {running ? <StateDot state="ongoing" /> : null}
-                {t(running ? 'probeStop' : scope === 'unfilled' ? 'probeUnfilled' : 'probeAll')}
+                {running ? t('probeStop') : t(scope === 'unfilled' ? 'probeUnfilled' : 'probeAll', { count: String(count) })}
             </Button>
         )
     }
@@ -1466,19 +1468,17 @@ export function Card(props: CardProps) {
                         {/* 关闭键在途不禁用：它是本弹层唯一的常驻出口，遮罩 / Escape / × 也都中止，
                             键却禁着就只剩「干等」一条路（验证那边有「停止」键顶替，故那边禁） */}
                         <Button variant="outline" data-modal-autofocus onClick={closeProbe}>{t('close')}</Button>
-                        {probeButton('unfilled', unfilledCount)}
+                        {/* 由宽到窄：先「全部」后「未填充」，两个键各带自己的模型数，
+                            从大到小读下来就是这一轮的范围由大到小的收窄 */}
                         {probeButton('all', allCount)}
+                        {probeButton('unfilled', unfilledCount)}
                     </div>
                 </div>}
             >
+                {/* 只在无可探模型时占位说明；范围与花费由两个键各自带出的模型数交代 */}
                 {unfilledCount === 0 && allCount === 0 ? (
                     <p className="dsh-mf-verifyEmpty" role="status">{t('probeEmpty')}</p>
-                ) : (
-                    <p className="dsh-mf-verifyQuota">{t('probePlan', {
-                        models: String(allCount),
-                        requests: String(allCount * EFFORT_LEVELS.length),
-                    })}</p>
-                )}
+                ) : null}
                 {probeTotal > 0 ? (
                     <TerminalBlock
                         command={t('probeCommand', { total: String(probeTotal) })}
