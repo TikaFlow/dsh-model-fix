@@ -951,7 +951,13 @@ export function Card(props: CardProps) {
     }
     // 停止：中止在途验证。连接随之断开，Node 半的执行循环随即早停，不再消耗额度。
     // 不顺手关窗——已验到哪一步值得留在记录里，用户看完可以原地重跑
-    const stopVerify = () => { verifyAbort.current?.abort() }
+    // 与探测弹层的 stopProbe 同一处理：「停止」是唯一不关窗的中止方式（关窗那几种记录随弹窗一起丢），
+    // 故按下即在记录区留一行——中止这件事要落在日志里，而不只是 TerminalBlock 那个改了就改了的「已停止」状态标签
+    const stopVerify = () => {
+        if (verifyAbort.current === null) return
+        verifyAbort.current.abort()
+        setVerifyLines((current) => [...current, t('verifyStoppedLine')])
+    }
     /**
      * 按当前状态算两份候选计划（未填充 / 全部）：模型列表取**此刻**的最新值。
      *

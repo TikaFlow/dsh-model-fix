@@ -99,6 +99,7 @@ export type CardKey =
     | 'verifyOutTimeout'
     | 'verifyOutOther'
     | 'verifyStopped'
+    | 'verifyStoppedLine'
     | 'verifyDoneModels'
     | 'verifyDoneLevels'
     | 'verifyFailed'
@@ -292,6 +293,7 @@ export const zh: Record<CardKey, string> = {
     verifyOutTimeout: '超时，未得出结论',
     verifyOutOther: '不可用',
     verifyStopped: '已停止',
+    verifyStoppedLine: '已停止，本轮不再继续验证。',
     // 收尾统计统一为「共验证 n 个模型，可用 [x/y] 个模型/推理级别」，n 取 tested（勾选去重数），
     // x 取实际可用数，y 取计划验证数。两档口径各取各的数：
     // 关（verifyDoneModels）请求不带档位，x=可用模型数、y=勾选模型数；
@@ -451,6 +453,7 @@ export const en: Record<CardKey, string> = {
     verifyOutTimeout: 'timed out, no conclusion',
     verifyOutOther: 'unavailable',
     verifyStopped: 'Stopped',
+    verifyStoppedLine: 'Stopped; this run does not continue.',
     // Closing stats are unified as "Verified n model(s), [x/y] model(s)/reasoning effort(s) usable",
     // where n = tested (checked distinct models), x = actually usable, y = planned to verify.
     // Two flavours match the two states of the effort switch: with it off (verifyDoneModels) the requests
