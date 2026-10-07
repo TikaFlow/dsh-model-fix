@@ -18,15 +18,18 @@
  * 进度按 `opened` → 每条 `probed` → 收于 `done` 发出；**中止时不发 `done`**，
  * 消费方见「流自然结束却没等到 done」即知这轮没跑完，据此保留进度而不是报成功。
  *
- * 纯计划与汇报（`planProbes` / `groupProbesByProvider` / `classifyFailure` / `reportProvider` / `summarizeProviders`）
- * 在 `@/probe-engine`，零 ctx、不触网；执行器 `verifyModels` 只依赖注入的 `llm.stream`，故带桩即可把短路与中止一并单测。
+ * 纯计划与汇报分层落在别处：`@/probe-plan`（入参校验与清单展开）、`@/probe-verdict`（失败分类与短路判据）、
+ * `@/probe-engine` 的汇报与汇总（`reportProvider` / `summarizeProviders`），均零 ctx、不触网；
+ * 执行器 `verifyModels` 只依赖注入的 `llm.stream`，故带桩即可把短路与中止一并单测。
  */
 
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { PLUGIN_NAME } from '@/shared/constants'
 import type { ProviderBlockReason, ProviderProbeOutcome, VerifyProbeResult, VerifySummary } from '@/shared/verify-progress'
-import type { GroupRunner, ProbeEmitter, ProbeRunOptions, ProviderProbeGroup } from '@/probe-engine'
-import { VERIFY_LIMITS, finishRun, planProbeGroups, probeOnce, runProbeGroups } from '@/probe-engine'
+import type { GroupRunner, ProbeEmitter, ProbeRunOptions } from '@/probe-engine'
+import { finishRun, probeOnce, runProbeGroups } from '@/probe-engine'
+import type { ProviderProbeGroup } from '@/probe-plan'
+import { VERIFY_LIMITS, planProbeGroups } from '@/probe-plan'
 import { isEffortRejection, providerBlockReason, sameModelTail, shouldSkipModelTail, shouldSkipModelTailAfterBaseline } from '@/probe-verdict'
 
 /** 验证请求不合法时的报错文案（入参来自浏览器半，一律按不可信输入校验） */
