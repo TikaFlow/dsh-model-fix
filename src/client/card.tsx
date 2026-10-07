@@ -1042,8 +1042,14 @@ export function Card(props: CardProps) {
             })
     }
     // 停止：中止在途探测。连接随之断开，Node 半的执行循环随即早停，不再消耗额度。
-    // 不顺手关窗——已探到哪一步值得留在记录里
-    const stopProbe = () => { probeAbort.current?.abort() }
+    // 不顺手关窗——已探到哪一步值得留在记录里。
+    // 「停止」是唯一不关窗的中止方式（关窗那几种记录随弹窗一起丢），故按下即在记录区留一行：
+    // 中止这件事要落在日志里，而不只是 TerminalBlock 那个改了就改了的「已停止」状态标签
+    const stopProbe = () => {
+        if (probeAbort.current === null) return
+        probeAbort.current.abort()
+        setProbeLines((current) => [...current, t('probeStoppedLine')])
+    }
     // 关闭即丢弃本轮记录与计划，并把两个开关一并复位（下次打开回到「关」的初始态）。
     // 与验证弹层同一处理（a8900c8）：开关是本轮的模式选择，留着会让下次打开时的模型数
     // 与用户当下看到的开关状态对不上——尤其「忽略排除」直接决定候选范围。

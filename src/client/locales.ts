@@ -128,6 +128,7 @@ export type CardKey =
     | 'probeClosing'
     | 'probeFilled'
     | 'probeFillFailed'
+    | 'probeStoppedLine'
     // 宿主 TerminalBlock 的展示文案：键名与 terminalLabels(t) 逐条对齐官方安装页的映射（ui-plugin-manager/…/locales.ts:152-164）
     | 'terminalSignal'
     | 'terminalExitCode'
@@ -328,6 +329,7 @@ export const zh: Record<CardKey, string> = {
     probeClosing: '即将关闭本窗口。',
     probeFilled: '已为 {models} 个模型补全推理级别：新增 {added} 个、剔除 {removed} 个。',
     probeFillFailed: '探测式填充失败：{message}。',
+    probeStoppedLine: '已停止，本轮不再继续探测。',
     terminalSignal: '信号 {signal}',
     terminalExitCode: '退出码 {code}',
     terminalNoExitCode: '未正常退出',
@@ -490,6 +492,7 @@ export const en: Record<CardKey, string> = {
     probeClosing: 'Closing this dialog shortly.',
     probeFilled: 'Filled reasoning levels for {models} model(s): {added} added, {removed} removed.',
     probeFillFailed: 'Probe & fill failed: {message}.',
+    probeStoppedLine: 'Stopped; this run does not continue.',
     terminalSignal: 'signal {signal}',
     terminalExitCode: 'exit code {code}',
     terminalNoExitCode: 'no exit code',
