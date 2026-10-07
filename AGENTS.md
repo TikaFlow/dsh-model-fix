@@ -21,7 +21,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/probe.ts` `src/fill.ts` | 「探测式填充」执行器与两次写回：`probeAndFill(ctx, llm, payload, options)` = 校验两个开关 → 展开七档计划 → **预声明**（`fill.ts` 按 `EFFORT_LEVELS` 排序写进配置并返回预声明之前的原有档位表）→ 逐档探测 → **收敛**（口径见「设计裁决」）→ 统计随终帧回传（`VerifySummary.fill`）。守卫**持有整轮**；两次写回共用 `planEffortApply`，`modelOps` 按当前值比对、增删统计按传入基线（预声明之前那份）比对 |
 | `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个 channel RPC 写回端点（以守卫互斥、验证只读不参与）+ **两条进度流**（`connection.fetch` 的 exact 路由，SSE 分帧，客户端断开即中止执行）：两者共用 `progressStreamFetch`，探测那条因一轮之内要写两次配置而**入口先查守卫**（已开回 409 + 中文文案）/ 保鲜刷新 |
 | `src/client/index.tsx` | 浏览器半入口：四个卡片刻位注册（共用一份 `cardProps` 展开）、词典、RPC 载体、**两条进度流的读流**（共用 `streamSummary`，非 2xx 取响应体文案作报错）、记忆监听子 fiber |
-| `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片、验证弹层（候选列表 + 实时记录区 + 停止）、**探测式填充弹层**（无候选列表：正文依次是「探测范围一句 → 记录区 → 额度提示 → 忽略排除 / 剔除不支持 两个开关」，那句提示的两个数分别对应 footer 的两个键、**键文本保持短**不挂计数；footer 只留 关闭 / 探测所有 / 探测未填充（由宽到窄），在途键就地变「停止」，跑完延迟 `PROBE_CLOSE_DELAY_MS` 再关窗）、验证跑完后的剔除确认层、footer 与末尾联系行；**全部样式数值在 `STYLE_TEXT`** |
+| `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片、验证弹层（候选列表 + 实时记录区 + 停止）、**探测式填充弹层**（无候选列表：正文依次是「记录区 → 探测范围一句 → 额度提示 → 忽略排除 / 剔除不支持 两个开关」（记录区在上、两行提示在下），那句提示的两个数分别对应 footer 的两个键、**键文本保持短**不挂计数；footer 只留 关闭 / 探测所有 / 探测未填充（由宽到窄），在途键就地变「停止」，跑完延迟 `PROBE_CLOSE_DELAY_MS` 再关窗）、验证跑完后的剔除确认层、footer 与末尾联系行；**全部样式数值在 `STYLE_TEXT`** |
 | `src/client/model.ts` / `effort.ts` / `scope.ts` / `locales.ts` | 快照↔配置纯映射（验证与探测候选拍取、两种目标收敛、探测的「未填充 = 无档位或只有 off」判据）/ 记忆纯逻辑 / ConfigForm 的 decode 包装 / 中英词典 |
 | `public/models-cache.json` | 构建期平铺复制到 `lib/` 根：models.dev 拍平缓存（首启离线可用） |
 | `docs/decisions.md` | 「设计裁决」全文（AGENTS.md 同节只留提纲）；仅供开发查阅，不进 `files` |

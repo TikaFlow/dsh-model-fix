@@ -13,7 +13,7 @@
  * 按提供方分组多选模型，配「验证推理级别」开关，对每个勾选模型声明的每个推理级别发起真实探测；
  * 结论只留在该弹层内（实时记录区的末行），不写卡片状态行——验证即用即弃，不留任何配置痕迹。
  * 「探测式填充」是它的写回版：没有候选框（范围由「探测所有 / 探测未填充」两键与「忽略排除」开关决定，
- * 模型列表取**点按钮那一刻**的最新值并当场冻结），正文依次是「探测范围一句 → 实时记录区 → 额度提示 → 两个开关」，
+ * 模型列表取**点按钮那一刻**的最新值并当场冻结），正文依次是「实时记录区 → 探测范围一句 → 额度提示 → 两个开关」，
  * 两个范围的大小由那句提示交代（分别对应「探测所有 / 探测未填充」两键，键文本保持短）；
  * footer 只留 关闭 / 探测所有 / 探测未填充 三键（由宽到窄）；
  * 跑完把汇总与补全结果留在记录区并**延迟 PROBE_CLOSE_DELAY_MS 再关窗**，同一份结果另落卡片状态行。
@@ -1446,16 +1446,8 @@ export function Card(props: CardProps) {
                     {probeButton('unfilled', unfilledCount)}
                 </div>}
             >
-                {/* 探测范围一句说清：两个数分别对应下面那两个键（全量 / 未填充），键文本保持短。
-                    两个范围都为空时改说「为何为空」——用户多半是先把提供方排除了 */}
-                {unfilledCount === 0 && allCount === 0 ? (
-                    <p className="dsh-mf-verifyEmpty" role="status">{t('probeEmpty')}</p>
-                ) : (
-                    <p className="dsh-mf-verifyQuota">{t('probePlan', {
-                        models: String(allCount),
-                        unfilled: String(unfilledCount),
-                    })}</p>
-                )}
+                {/* 记录区在上、两行提示在下：记录是「正在发生的事」，提示是「这轮会做什么」，
+                    顺序与阅读时机一致；反过来就成了在两段静态说明中间夹一块滚动区域 */}
                 {probeTotal > 0 ? (
                     <TerminalBlock
                         command={t('probeCommand', { total: String(probeTotal) })}
@@ -1466,6 +1458,16 @@ export function Card(props: CardProps) {
                         className="dsh-mf-verifyLog"
                     />
                 ) : null}
+                {/* 探测范围一句说清：两个数分别对应 footer 那两个键（全量 / 未填充），键文本保持短。
+                    两个范围都为空时改说「为何为空」——用户多半是先把提供方排除了 */}
+                {unfilledCount === 0 && allCount === 0 ? (
+                    <p className="dsh-mf-verifyEmpty" role="status">{t('probeEmpty')}</p>
+                ) : (
+                    <p className="dsh-mf-verifyQuota">{t('probePlan', {
+                        models: String(allCount),
+                        unfilled: String(unfilledCount),
+                    })}</p>
+                )}
                 <p className="dsh-mf-verifyQuota">{t('probeQuota')}</p>
                 {/* 两个开关放正文末尾而非 footer：它们是这一轮的参数（探测范围与收敛口径），
                     与正文里正在发生的事同处一屏，改动即刻可见；footer 因此只剩「关闭 / 探测」，
