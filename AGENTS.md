@@ -11,16 +11,18 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | 路径 | 职责（只写非显而易见的部分） |
 | --- | --- |
 | `src/index.ts` | Node 半入口：`Config`（宿主经 `entry.fiber.runtime.Config` 取用）+ 单一 `apply` 编排体（备份 → 配置源与段变更接线 → installRpc → 启动链） |
-| `src/shared/` | 跨半共享层（零 Node 依赖 / 零 schemastery / 零非基线 `@deepseek-ai/*`）：常量、`isPlainObject`/`providersOf`、当前版本配置的解析与物化与各组行键表、验证契约（明细 / 汇报 / 进度帧，浏览器半须据此解析回传，禁反向 import Node 半） |
+| `src/shared/` | 跨半共享层（零 Node 依赖 / 零 schemastery / 零非基线 `@deepseek-ai/*`）：常量、`isPlainObject`/`providersOf`、当前版本配置的解析与物化与各组行键表、**验证与探测式填充共用**的探测契约（明细 / 汇报 / 进度帧 / 可用与不支持档位明细 / 写回统计，浏览器半须据此解析回传，禁反向 import Node 半） |
 | `src/config.ts` `src/migrate.ts` `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 配置解析与配置源 / 升级链 `upgradeTo4..7` 与 `migrateConfig` / 缓存读写与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
 | `src/fix.ts` | 填充与写回（`force` 供强制更新单次绕过）；模型参数与路由 compat 同批提交；`excludes` 命中者在 provider 循环入口整条跳过；同一两层循环顺带重建 `efforts` 记忆 |
-| `src/empty.ts` | 空壳字段的唯一判据 `stripEmptyFields`：`reasoningEfforts` / `input` / `compat` 的空形态一律等同「未声明」，**四条写回路径（`fix` 填充、`reset`、`restore`、`prune` 剔除）统一过它**，不在各模块另写一份；无空壳时返回原引用，调用方以引用相等判「无需重建」 |
+| `src/empty.ts` | 空壳字段的唯一判据 `stripEmptyFields`：`reasoningEfforts` / `input` / `compat` 的空形态一律等同「未声明」，**五条写回路径（`fix` 填充、`reset`、`restore`、`prune` 剔除、`fill` 探测式填充的预声明与收敛）统一过它**，不在各模块另写一份；无空壳时返回原引用，调用方以引用相等判「无需重建」。注意它只清**空形态**：把某个键整个删掉得由调用方显式 `delete` |
 | `src/reset.ts` `src/restore.ts` `src/guard.ts` `src/host.ts` `src/prune.ts` | 重置推理级别（仅剔除 `reasoningEfforts`，配置段零写入）/ 启动备份捕获与交集恢复 / 事件流守卫（写回期间短路整条事件链）/ 全部 settings 写回必经的 `queueTask` / 剔除验证明细中**明确不支持**的档位（写入前判空壳、`excludes` 跳过、幂等） |
-| `src/verify.ts` | 「验证模型」：校验入参（含浏览器半逐模型声明的 `needTest`）并按模型序展开为「模型 × 其声明的档位」的**被验**请求序列（各模型档位数量不同，是累加非相乘）、按 provider 归组（组内串行即每 provider 单并发）、经宿主 `ctx.llm` 各发一次最小请求；`needTest` 为真的模型由执行器在其第一条被验请求前现发一次不带 `reasoningEffort` 的**探测**（每模型至多一次，不进计划/明细/统计，跑通时不发进度帧；**探测不通据此短路时发一条不带档位的记录**，否则该模型在记录区凭空消失。它参与 `reachable` / `keyValid` 记账）；失败**只按** `LlmFailure` 的 `code` 分类（不看 `status`），端点不可达（只认传输层失败码）/ 凭据无效即短路整组、额度耗尽只压该模型、限流与超时归瞬态（既不判不可用也不短该模型的后续档位）；执行器只依赖注入的 `llm.stream`，带桩即可全链路单测；接受外部 `signal`（客户端断开 / 用户停止）与 `onProgress` 出口，中止同时断在途请求**并**让执行循环早停，中止时不发 `done` 帧；返回逐提供方汇报 + 逐条被验明细（含失败原始事实）+ **`unsupportedEfforts` 不支持档位明细**（前端不自己筛，剔除直接用）；汇报带两个计划数：`planned`（被验请求数）与 `plannedEfforts`（其中带档位的条目数，即级别口径的分母） |
-| `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个 channel RPC 写回端点（以守卫互斥、验证只读不参与）+ 验证进度流（`connection.fetch` 的 exact 路由，SSE 分帧，客户端断开即中止执行）/ 保鲜刷新 |
-| `src/client/index.tsx` | 浏览器半入口：四个卡片刻位注册、词典、RPC 载体、验证进度流读流、记忆监听子 fiber |
-| `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片、验证弹层（实时记录区 + 停止）、验证跑完后的剔除确认层、footer 与末尾联系行；**全部样式数值在 `STYLE_TEXT`** |
-| `src/client/model.ts` / `effort.ts` / `scope.ts` / `locales.ts` | 快照↔配置纯映射（验证候选拍取与目标收敛）/ 记忆纯逻辑 / ConfigForm 的 decode 包装 / 中英词典 |
+| `src/probe-engine.ts` | **验证与探测式填充共用的执行引擎**：入参校验与计划展开（`planProbes`，硬闸 `ProbeLimits`：真正发出的请求数 + 模型数）、按 provider 分组、`probeOnce`（只认 `block-start`、30s 超时、`AbortSignal.any` 合成外部中止）、失败**只按** `LlmFailure` 的 `code` 分类、`isEffortRejection`（`INVALID_REQUEST`，判「档位不支持」的第一条件）、汇报与汇总（同源产出 `usableEfforts` 与 `unsupportedEfforts`）、跨 provider ≤5 路并发与进度帧。两个功能只差注入的 `runGroup` |
+| `src/verify.ts` | 「验证模型」执行器，只留验证独有的一段：`needTest` 为真的模型现发一次不带 `reasoningEffort` 的**基线探测**（不进计划/明细/统计，跑通不发帧，不通则短该模型并发一条模型级记录并参与 `reachable`/`keyValid` 记账），以及两级短路：provider 级（端点不可达只认传输层失败码 / 凭据无效即短路整组）与模型级（某档**报错**且非档位不支持、非瞬态时短该模型剩余档位） |
+| `src/probe.ts` `src/fill.ts` | 「探测式填充」执行器与两次写回：`probeAndFill(ctx, llm, payload, options)` = 校验两个开关 → 展开七档计划 → **预声明**（`fill.ts` 按 `EFFORT_LEVELS` 排序写进配置并返回预声明之前的原有档位表）→ 逐档探测 → **收敛**（口径见「设计裁决」）→ 统计随终帧回传（`VerifySummary.fill`）。守卫**持有整轮**；两次写回共用 `planEffortApply`，`modelOps` 按当前值比对、增删统计按传入基线（预声明之前那份）比对 |
+| `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个 channel RPC 写回端点（以守卫互斥、验证只读不参与）+ **两条进度流**（`connection.fetch` 的 exact 路由，SSE 分帧，客户端断开即中止执行）：两者共用 `progressStreamFetch`，探测那条因一轮之内要写两次配置而**入口先查守卫**（已开回 409 + 中文文案）/ 保鲜刷新 |
+| `src/client/index.tsx` | 浏览器半入口：四个卡片刻位注册（共用一份 `cardProps` 展开）、词典、RPC 载体、**两条进度流的读流**（共用 `streamSummary`，非 2xx 取响应体文案作报错）、记忆监听子 fiber |
+| `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片、验证弹层（候选列表 + 实时记录区 + 停止）、**探测式填充弹层**（无候选列表：正文为「本次要探多少 → 记录区 → 额度提示」，footer 内两个开关 + 关闭 / 探测未填充 / 探测所有，在途键就地变「停止」，跑完延迟 `PROBE_CLOSE_DELAY_MS` 再关窗）、验证跑完后的剔除确认层、footer 与末尾联系行；**全部样式数值在 `STYLE_TEXT`** |
+| `src/client/model.ts` / `effort.ts` / `scope.ts` / `locales.ts` | 快照↔配置纯映射（验证与探测候选拍取、两种目标收敛、探测的「未填充 = 无档位或只有 off」判据）/ 记忆纯逻辑 / ConfigForm 的 decode 包装 / 中英词典 |
 | `public/models-cache.json` | 构建期平铺复制到 `lib/` 根：models.dev 拍平缓存（首启离线可用） |
 | `docs/decisions.md` | 「设计裁决」全文（AGENTS.md 同节只留提纲）；仅供开发查阅，不进 `files` |
 | `docs/host-api.md` | 「宿主 API 与类型契约」全文：本插件实际在用的宿主服务调用、宿主类型导入面、依赖宿主字面量的键与码、宿主运行时行为假设（全文见同节「宿主契约文档纪律」）；仅供开发查阅，不进 `files` |
@@ -61,7 +63,6 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 - `pnpm test` 走专用单对象配置 `tsdown.test.config.ts`；**禁止指回数组主配置**（CLI 参数会合并进每一项、浏览器半的工厂 banner 会污染测试产物）。
 - **TS 7 与 ESLint 并存靠 npm 别名**：TS 7 原生版无 JS API，typescript-eslint 见之即抛错。故 `typescript` = `npm:@typescript/typescript6@^6.0.2`（bin 为 `tsc6`），TS 7 挂别名 `@typescript/native`。
 - `pnpm lint` 走 `eslint.config.js`：忽略 `lib/`、`dist/`、`.test-dist/`、`public/`、`.tmp-dsh/`；除官方 recommended 外只加两条硬约束（禁相对导入、`consistent-type-imports`）。
-- **沙箱内验证结果不可信，要提权跑**：文件沙箱禁止命名管道，子进程输出捕获受阻，`pnpm test`/`pnpm build` 可能返回 exit 0 却既无汇总也不落产物。以看到的 `ALL PASS (n)` 与 `lib/*.js` 的大小/mtime 为准。
 - 宿主包本地依赖全走 devDeps 且须与宿主 latest 同号；一律用 `pnpm add` 变更（`-E` 保精确、`--save-peer` 写 peer）。**升级只能写具体版本号**（各子包的 `latest` tag 陈旧）。
 
 ## UI 无痕融合纪律
@@ -80,17 +81,20 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 
 代码里看不出动机的前提，全文见 [`docs/decisions.md`](docs/decisions.md)。改动下列任一模块前，先读对应条目：
 
-- **解析与填充**：快照优先级（当前版本 → 更高版本降级 → 默认，非法或残缺按当前生效值规范化）；`allowUpdate` 含缺失补写、数据无档位不删已有值；`force` 单次绕过；`fix` 读 `descriptor.user` + revision 围栏；空壳字段一律删且**判据只有一处** `stripEmptyFields`（`reasoningEfforts`/`input`/`compat` 的空形态等同未声明，`fix`/`reset`/`restore`/`prune` 四条写回路径共用，缺失补写也按清理后的值认）；`compat` 开关即增删且只写路由级。
+- **解析与填充**：快照优先级（当前版本 → 更高版本降级 → 默认，非法或残缺按当前生效值规范化）；`allowUpdate` 含缺失补写、数据无档位不删已有值；`force` 单次绕过；`fix` 读 `descriptor.user` + revision 围栏；空壳字段一律删且**判据只有一处** `stripEmptyFields`（`reasoningEfforts`/`input`/`compat` 的空形态等同未声明，`fix`/`reset`/`restore`/`prune`/`fill` 五条写回路径共用，缺失补写也按清理后的值认）；`compat` 开关即增删且只写路由级。
 - **排除与列表**：`excludes` 是零操作排除而非撤销；允许填不存在的 id；不自动清理失效 id（列表顺序即录入意图）。
 - **参数来源**：图片模态只缓存正向信息；`99999999` / 0 视为无该字段；id 匹配宁可漏不错配；档位序取 `EFFORT_LEVELS`。
 - **推理级别记忆**：`efforts` 是运行时记忆而非用户配置；Node 半只持久化不自动设级别；`rememberEfforts` 关闭只停「保存新的」；`defaultHigh` 三条护栏；两个开关都不读 `excludes`。
 - **写回端点**：重置只剔 `reasoningEfforts`、不写配置段；恢复备份只回退交集、绝不延迟补捕；写回端点以守卫互斥。
-- **验证**：只读诊断、只由用户主动发起、即用即弃；**只认 `block-start`、不看内容**（`usage` 不算受理）；失败**只按** `LlmFailure` 的 `code` 分类（**全程不比对报错文案**——pi-ai 侧抛错只给 `{message, code}`，上游状态码与措辞在到达前已被压平），端点不可达（**只认 `TRANSPORT`/`STREAM_CLOSED`**）/ 凭据无效即短路整组、额度耗尽只压该模型（额度可能只覆盖某个模型），**限流与超时归瞬态：既不判不可用、也不短该模型的后续档位**（它们只否定这一次，实测 429 挡掉的档位隔一会儿就通），档位不支持只记录不短路；某档位**报错**且非档位不支持、非瞬态时短该模型的剩余档位（换档位也是同样结果），退化完成不算报错、不短；每 provider 单并发、跨 provider ≤5 路、无退避；列表默认不预选；档位开关关态=**不发** `reasoningEffort`（端点可能有默认级别，不是取最低档去验）；收尾统计随开关分两档、**数字跟着「档位」的含义走**：关档位只报模型（勾选 `tested` / 可用 `models`），开档位报级别（`efforts` / `plannedEfforts`，分母只数带档位的条目，`planned` 还含没声明档位的模型那条）；浏览器半逐模型声明 `needTest`（只「确有档位要验」时为真），为真的模型由执行器现发一次不带档位的**探测**（每模型至多一次，不进计划 / 明细 / 统计，跑通时不发进度帧，只参与端点与凭据记账；**探测不通据此短路时发一条不带档位的模型级记录**，否则该模型在记录区凭空消失），那一次不带档位的请求不通即短该模型，已通则该档位被判为**参数不正确**（`INVALID_REQUEST`，宿主已从文案归一好的 4xx 码）即判不支持且**不**短后续——控制变量法：探测已排除端点、凭据、额度、网络与模型名，两次请求唯一变量就是档位；弹层自确认；进度以 SSE 流实时逐条展示，主键在途变「停止」，**关窗 / 断连即中止执行**（验证即用即弃，用户不在之后继续跑等于白烧额度）；跑完若有**明确判为档位不支持**的结论即弹剔除确认层，明细由 `VerifySummary.unsupportedEfforts` 直接给出、剔除经 Node 半写回（守卫不可省，否则写回触发 `fix` 把刚剔的又填回）。
+- **验证**：只读诊断、只由用户主动发起、即用即弃；**只认 `block-start`、不看内容**（`usage` 不算受理）；失败**只按** `LlmFailure` 的 `code` 分类（**全程不比对报错文案**，理由见 host-api），端点不可达只认 `TRANSPORT`/`STREAM_CLOSED`、凭据无效即短路整组、额度耗尽只压该模型，**限流与超时归瞬态**（既不判不可用也不短该模型的后续档位），档位不支持只记录不短路；某档**报错**且非档位不支持、非瞬态时短该模型剩余档位（退化完成不算报错）；每 provider 单并发、跨 provider ≤5 路、无退避；档位开关关态=**不发** `reasoningEffort`（端点可能有默认级别）；收尾统计随开关分两档，数字跟着「档位」的含义走（关=模型口径，开=级别口径且分母取 `plannedEfforts`）；浏览器半逐模型声明 `needTest`，为真的模型由执行器现发一次不带档位的基线探测（不进计划/明细/统计，跑通不发帧，不通则短该模型并发一条模型级记录）；基线已通且该档被判 `INVALID_REQUEST` 即判不支持且**不**短后续——控制变量法：两次请求唯一变量就是档位；弹层自确认，SSE 流实时逐条展示、主键在途变「停止」、**关窗 / 断连即中止**且中止不发 `done`；跑完有明确不支持结论即弹剔除确认层（明细由 `unsupportedEfforts` 直接给出、经 Node 半写回，守卫不可省）。
+- **探测式填充**：逐档试出可用的推理级别并**立即写回**（与验证共用执行引擎，只差注入的 `runGroup`）；**必须先把候选档位临时预声明进配置**（宿主按配置里声明的档位本地校验，未声明的档位不出网），同轮结束时收敛回收回、增删统计以预声明之前那份为基线；**不做模型级短路**（无基线，`off` 被拒不等于模型不可用），「不支持」的第二条件是「同模型已有更低档跑通」；收敛口径由「剔除不支持」开关选（关=`可用 ∪ 原有`，开=`可用 ∪ (原有 − 明确判不支持)`），只认明确状态，档位表算空即删键，**没跑完的模型原样还原**；「忽略排除」是**唯一**突破「排除约束一切写入」的地方且同时管探测与写回；守卫**持有整轮**；收敛写回在流内完成、终帧最后发，故统计随 `VerifySummary.fill` 回来而无独立写回端点；跑完**延迟 2.5s 再关窗**。
 - **宿主与卡片**：RPC channel 自注册；按钮取「保存」不取「应用」；卡片末尾固定联系行；不引入 `failed` 态、不做「恢复默认」。
 
 ## 数据流骨架
 
-段变更按 ns 分流为两条链：自有段「自愈 → 填充」、llm-pi-ai 段「填充 → 保鲜刷新」，入口先判事件流守卫。浏览器半：`configForms` → `makeScope` → 四席共用同一张卡 + 记忆监听子 fiber；验证链路为 卡片弹层 → `verifyTargets` → 进度流端点（`fetch` 逐帧回调）→ `ctx.llm`（只读）。
+段变更按 ns 分流为两条链：自有段「自愈 → 填充」、llm-pi-ai 段「填充 → 保鲜刷新」，入口先判事件流守卫。浏览器半：`configForms` → `makeScope` → 四席共用同一张卡 + 记忆监听子 fiber。两条诊断链路：
+- **验证**（只读）：卡片弹层 → `verifyTargets` → 进度流端点（`fetch` 逐帧回调）→ `ctx.llm`。
+- **探测式填充**（写回）：卡片弹层（点开时冻结候选）→ `probeTargetsOf` → 探测进度流端点 → Node 半「预声明 → `ctx.llm` 逐档 → 收敛写回」→ 终帧带统计 → 卡片延迟关窗并落状态行；全程持事件流守卫。
 
 ## 命令
 
@@ -98,4 +102,4 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 
 ## 测试规范
 
-`test/` 只收不依赖 DSH 运行时的纯函数与零 ctx 编排（配置解析与迁移、目录拍平与缓存条目校验、id 匹配与档位转换、compat 计划、`planResetModels`/`planRestore`/`planPruneEfforts`/`parsePruneTargets`、`planProbes`/`groupProbesByProvider`/`classifyFailure`/`reportProvider`/`summarizeProviders`、`verifyModels` 带桩跑通短路与中止全链路（进度帧序列、`skipped`、早停不发 `done`、未开跑的组不进汇报）、守卫、`rpc-route` 的纯信封逻辑 + node:http 桩、`fix` 编排 + `test/ctx.ts` 的常驻内存 settings 桩、浏览器半纯映射层）；浏览器组件与真实 fs / 网络不进 `test/`（`verifyModels` 只依赖注入的 `llm.stream`，故带桩即可，不触网）。`indexedCache` 与 `configSource` 是模块级单例，每个用例前调 `resetModules()`。
+`test/` 只收不依赖 DSH 运行时的纯函数与零 ctx 编排（配置解析与迁移、目录拍平与缓存条目校验、id 匹配与档位转换、compat 计划、`planResetModels`/`planRestore`/`planPruneEfforts`/`parsePruneTargets`、`planProbes`/`groupProbesByProvider`/`classifyFailure`/`reportProvider`/`summarizeProviders`、`planEffortApply`/`declaredEffortsOf`、`verifyModels` 与 `probeAndFill` 带桩跑通短路与中止全链路（进度帧序列、`skipped`、早停不发 `done`、未开跑的组不进汇报、探测的预声明→收敛写回结果与终帧统计）、守卫、`rpc-route` 的纯信封逻辑 + node:http 桩、`fix`/`probeAndFill` 编排 + `test/ctx.ts` 的常驻内存 settings 桩（`noPlugin` 可模拟自有段未登记）、浏览器半纯映射层（含探测候选的未填充判据与七档展开）；浏览器组件与真实 fs / 网络不进 `test/`（两个执行器都只依赖注入的 `llm.stream`，故带桩即可，不触网）。`indexedCache` 与 `configSource` 是模块级单例，每个用例前调 `resetModules()`。

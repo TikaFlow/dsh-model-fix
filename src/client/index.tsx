@@ -29,7 +29,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client'
 import { Card } from '@/client/card'
 import { CARD_NS, en, zh } from '@/client/locales'
-import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS, VERIFY_STREAM_URL } from '@/shared/constants'
+import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS, PROBE_STREAM_URL, VERIFY_STREAM_URL } from '@/shared/constants'
 import { decodeProgressFrame } from '@/shared/verify-progress'
 import type { UnsupportedEffort, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
 import { DEFAULT_CONFIG } from '@/shared/parse'
@@ -82,27 +82,31 @@ function boot(
     const pruneEfforts = (targets: readonly UnsupportedEffort[]) =>
         rpc.call(`/${MODEL_FIX_NS}`, 'pruneEfforts', { targets })
     /**
-     * 验证模型：载荷是卡片按勾选收敛好的「提供方 / 模型 / 各自档位列表 / 是否需要探测」计划，Node 半只按它逐档位展开；探测由 Node 半在执行阶段现发。
+     * 读一条进度流：POST 载荷，逐帧回调非终帧，收于终帧时返回整轮汇总。
      *
-     * 走独立的进度流端点而非 channel RPC——一次调用要回持续多帧的响应，RPC 的「一次调用 = 一个
-     * JSON 结果」装不下。用文档相对路由（去掉前导斜杠）是宿主对浏览器侧的约定，服务端 key 保持绝对，
-     * 两侧同取 `src/shared/constants.ts` 的同一常量。
+     * 用 `fetch` + `getReader()` 而非 `EventSource`：后者自动重连，而重连等于把整轮重新跑一遍。
+     * 非 2xx 时优先用响应体文案（Node 半两条流都会给一句中文原因，如「另一操作进行中」），
+     * 裸状态码对用户无意义。
      *
      * @returns 整轮汇总；被中止（点停止 / 关窗 / 断连）时返回 `undefined`，那不是失败
      */
-    const verifyModels = async (
-        models: readonly VerifyTarget[],
+    const streamSummary = async (
+        url: string,
+        body: unknown,
         onFrame: (frame: VerifyProgressUpdate) => void,
         signal: AbortSignal,
     ): Promise<VerifySummary | undefined> => {
         try {
-            const response = await fetch(VERIFY_STREAM_URL, {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ models }),
+                body: JSON.stringify(body),
                 signal,
             })
-            if (!response.ok || response.body === null) throw new Error(`HTTP ${response.status}`)
+            if (!response.ok || response.body === null) {
+                const reason = (await response.text().catch(() => '')).trim()
+                throw new Error(reason === '' ? `HTTP ${response.status}` : reason)
+            }
             const reader = response.body.getReader()
             const decoder = new TextDecoder()
             let buffer = ''
@@ -129,12 +133,45 @@ function boot(
             throw error
         }
     }
+    /**
+     * 验证模型：载荷是卡片按勾选收敛好的「提供方 / 模型 / 各自档位列表 / 是否需要探测」计划，Node 半只按它逐档位展开；探测由 Node 半在执行阶段现发。
+     *
+     * 走独立的进度流端点而非 channel RPC——一次调用要回持续多帧的响应，RPC 的「一次调用 = 一个
+     * JSON 结果」装不下。用文档相对路由（去掉前导斜杠）是宿主对浏览器侧的约定，服务端 key 保持绝对，
+     * 两侧同取 `src/shared/constants.ts` 的同一常量。
+     */
+    const verifyModels = (models: readonly VerifyTarget[], onFrame: (frame: VerifyProgressUpdate) => void, signal: AbortSignal) =>
+        streamSummary(VERIFY_STREAM_URL, { models }, onFrame, signal)
+    /**
+     * 探测式填充：载荷与验证同形（每个模型一份「要试哪几档」的清单），另带两个开关。
+     *
+     * 两个开关必须与 Node 半的两次写回共用同一个值：「忽略排除」若只在这边放开而那边仍跳过排除，
+     * 等于白探测一轮；「剔除不支持」决定收敛口径（`可用 ∪ 原有` 还是 `可用 ∪ (原有 − 不支持)`）。
+     * 终帧里的 `summary.fill` 是收敛写回的增删统计——写回发生在整轮探测之后、终帧之前。
+     */
+    const probeEfforts = (
+        models: readonly VerifyTarget[],
+        flags: { ignoreExcludes: boolean; dropUnsupported: boolean },
+        onFrame: (frame: VerifyProgressUpdate) => void,
+        signal: AbortSignal,
+    ) => streamSummary(PROBE_STREAM_URL, { models, ...flags }, onFrame, signal)
     // 每模型推理级别记忆经自有 NS 的 settings scope 直写（与「保存」同一条写路径）；
     // 空记忆也写 `{}` 而非删键——字段在文件里恒存在、形态恒定
     const rememberEffort = (provider: string, model: string, effort: string | null): void => {
         const next = applyEffort(scope.getSnapshot().value?.efforts ?? {}, provider, model, effort)
         // 记忆写入失败不影响会话本身（级别已在当前会话生效），故只吞掉 rejection
         void scope.mutate([{ op: 'set', path: [VERSION_KEY, 'efforts'], value: next }]).catch(() => {})
+    }
+    // 四席共用的卡片入参：载体与 scope 逐席相同，逐席展开只会让每行都长到读不动
+    const cardProps = {
+        scope,
+        providersScope,
+        forceUpdate,
+        resetModels,
+        restoreModels,
+        verifyModels,
+        pruneEfforts,
+        probeEfforts,
     }
     // 单元格标识按 kind：list 席位用 id、keyed 席位用 key（footer 是配置 NS，bundle 是 npm 包名，
     // row 是「包名#patch 条目 id」；不同 slot 即不同账本，无需后缀区分）；footer 以 order 排最前
@@ -144,14 +181,14 @@ function boot(
         id: MODEL_FIX_NS,
         order: -999999,
         locale: CARD_NS,
-    }, (props) => <Card {...props} scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} verifyModels={verifyModels} pruneEfforts={pruneEfforts} />))
+    }, (props) => <Card {...props} {...cardProps} />))
     // 插件详情页的配置段：keyed 按 entryKey 分发，key 是 npm 包名（不是 patch 条目 id）
     // defaultOpen：配置段就是该页主体，默认收起等于让用户多点一次
     ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
         name: 'plugins.bundle.config',
         key: name,
         locale: CARD_NS,
-    }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} verifyModels={verifyModels} pruneEfforts={pruneEfforts} />))
+    }, (props) => <Card {...props} defaultOpen {...cardProps} />))
     // patch 声明的组件实例自己的配置页：key = `<npm 包名>#<patch 条目 id>`（宿主 rowConfigKey 拼接，
     // 条目 id 即运行实例 id = MODEL_FIX_NS）。注册后「包含的组件」里该实例的 title 变为可点按钮，
     // 进入组件详情页（返回按钮为插件名、下方不再有组件列表）；不注册则 title 是纯文本、无任何交互。
@@ -160,7 +197,7 @@ function boot(
         name: 'plugins.row.config',
         key: `${name}#${MODEL_FIX_NS}`,
         locale: CARD_NS,
-    }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} verifyModels={verifyModels} pruneEfforts={pruneEfforts} />))
+    }, (props) => <Card {...props} defaultOpen {...cardProps} />))
     // 「设置 → 内置插件」的 tablist（list 席位，面板即本卡）：与官方「插件列表」tab 同级并排。
     // tab label 走 thunk，section 每次读账本时求值、切语言即跟随
     const t = ctx.locale.bind(CARD_NS)
@@ -170,7 +207,7 @@ function boot(
         order: 20,
         label: () => t('tabLabel'),
         locale: CARD_NS,
-    }, (props) => <Card {...props} defaultOpen scope={scope} providersScope={providersScope} forceUpdate={forceUpdate} resetModels={resetModels} restoreModels={restoreModels} verifyModels={verifyModels} pruneEfforts={pruneEfforts} />))
+    }, (props) => <Card {...props} defaultOpen {...cardProps} />))
 
     // 记忆监听子 fiber（宿主无 sessions/modelDirectories 时静默不启用）：纯监听，只订阅会话投影；
     // 自动设置经宿主公开 directory.select，保存经自有 NS 的 settings scope 直写

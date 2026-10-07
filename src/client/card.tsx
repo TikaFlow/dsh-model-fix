@@ -7,11 +7,15 @@
  * 用户体验）+ 一张动态集合瓦片（排除提供方，summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）。
  * 瓦片手风琴：默认收起、同时只开一个。
  * 布尔瓦片的每一行标题带一个说明键：悬停或键盘聚焦时经宿主 Tooltip 气泡给出该设置项释义（组释义在首行、项释义在气泡）。
- * footer 左侧为强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）/ 验证模型（次级键），右侧为取消（仅未保存时渲染）/ 保存；
+ * footer 左侧为强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）/ 验证模型（次级键）/ 探测式填充（次级键），右侧为取消（仅未保存时渲染）/ 保存；
  * 三把写回键与「清空记忆」均先弹宿主 Modal 二次确认，再经 Connection RPC 或 settings scope 请求 Node 半。
  * 「验证模型」则弹一个自带确认的候选框（逐条照官方 models 页「获取可用模型」的候选框，减去其搜索/全选工具条）：
  * 按提供方分组多选模型，配「验证推理级别」开关，对每个勾选模型声明的每个推理级别发起真实探测；
  * 结论只留在该弹层内（实时记录区的末行），不写卡片状态行——验证即用即弃，不留任何配置痕迹。
+ * 「探测式填充」是它的写回版：没有候选框（范围由「探测未填充 / 探测所有」两键与「忽略排除」开关决定，
+ * 模型列表取**点按钮那一刻**的最新值并当场冻结），正文为「本次要探多少 → 实时记录区 → 额度提示」，
+ * footer 内并排「忽略排除 / 剔除不支持」两个开关与 关闭 / 探测未填充 / 探测所有 三键；
+ * 跑完把汇总与补全结果留在记录区并**延迟 PROBE_CLOSE_DELAY_MS 再关窗**，同一份结果另落卡片状态行。
  * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
  * 除验证外的操作结果一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）。
@@ -36,6 +40,8 @@ import {
     isDirty,
     masterValue,
     providerIdsOf,
+    probeCandidatesOf,
+    probeTargetsOf,
     removeExclude,
     resolveHits,
     toggleCell,
@@ -47,7 +53,7 @@ import {
 import type { Flags, Group, RowKey, VerifyCandidate, VerifyTarget } from '@/client/model'
 import type { CardKey } from '@/client/locales'
 import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locales'
-import { PLUGIN_NAME } from '@/shared/constants'
+import { EFFORT_LEVELS, PLUGIN_NAME } from '@/shared/constants'
 import { isProviderBlocking } from '@/shared/verify-progress'
 import type { UnsupportedEffort, ProbeOutcome, VerifyProbedFrame, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
@@ -61,6 +67,12 @@ const TIP_MAX_WIDTH = 300
 
 /** 验证记录区的行数上限 */
 const VERIFY_TERMINAL_LINES = 8
+/**
+ * 探测跑完到关窗之间的展示延时（毫秒）：补全写回很快，不留时间用户就读不到刚跑出来的结论。
+ * 取 2.5s 是一句结论读完的量级，不做成可配置项——它服务的是「别让结论一闪而过」，
+ * 停留更久用户自己会关，更短则来不及读。
+ */
+const PROBE_CLOSE_DELAY_MS = 2_500
 
 /** 宿主 TerminalBlock 的展示文案：该包无语言回退，字段缺一即类型报错，故整份照官方 terminalLabels(t) 提供 */
 function terminalLabelsOf(t: TranslateNS<'settings.modelFix'>): TerminalBlockLabels {
@@ -181,6 +193,17 @@ export interface CardProps {
     ) => Promise<VerifySummary | undefined>
     /** 剔除不被支持的推理级别：入参是验证明细给出的「提供方 / 模型 / 档位」清单；返回实际剔掉的档位条数 */
     pruneEfforts: (targets: readonly UnsupportedEffort[]) => Promise<ConnectionRpcResult<unknown>>
+    /**
+     * 探测式填充：走进度流端点，Node 半先把候选档位临时预声明进配置、再对每个模型逐档各发一次最小请求，
+     * 跑完按结论收敛写回（终帧的 `summary.fill` 带增删统计）。两个开关须与 Node 半的两次写回同值。
+     * 被中止（停止 / 关窗 / 断连）回 undefined——中止不发终帧，且未跑完的模型一律还原成预声明之前的形态。
+     */
+    probeEfforts: (
+        models: readonly VerifyTarget[],
+        flags: { ignoreExcludes: boolean; dropUnsupported: boolean },
+        onFrame: (frame: VerifyProgressUpdate) => void,
+        signal: AbortSignal,
+    ) => Promise<VerifySummary | undefined>
     /** 初始折叠态：插件详情页（plugins.bundle.config）、组件实例详情页（plugins.row.config）与「内置插件」选项卡（settings.plugins.tab）默认展开；模型页 footer 席不传即默认收起（与官方插件卡一致）。同时决定保存成功后是否自动收起——只在默认收起的席位上生效 */
     defaultOpen?: boolean
 }
@@ -325,6 +348,8 @@ const STYLE_TEXT = [
     // 档位开关：放在 body 内而非 footer——宿主 RiskConfirmation（敏感操作前置确认）正是这个排法，
     // 确认控件留在正文、footer 只放取消/确认两键；上间距逐条取其 .acknowledgement 的 margin-top:20px
     '.dsh-mf-verifyOption{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-secondary,#61666b)}',
+    // 探测弹层的两个开关并排：同属一组操作参数，按「小节内相邻块」的 12px 档定距（不另造数值）
+    '.dsh-mf-verifyOptions{display:flex;align-items:center;gap:12px;min-width:0}',
     // 验证弹层 footer 的纵向容器与按钮行：宿主 .footer 是单行 flex 且无 wrap，整行块只能自己排。
     // 间距取宿主 .dialog 的列间距 20px（同层），按钮行三个数值逐条复刻宿主 .footer
     '.dsh-mf-verifyFoot{display:flex;flex-direction:column;gap:20px;width:100%}',
@@ -586,7 +611,7 @@ export function Card(props: CardProps) {
     const [draft, setDraft] = useState<Flags | null>(null)
     // 全部写操作（保存 / 强制更新 / 重置 / 恢复 / 清空记忆 / 验证）共用单一互斥标志：
     // 一者 in-flight 时其余入口与按钮全禁；后续新增动作只加成员，不必改既有互斥
-    const [busy, setBusy] = useState<'save' | 'force' | 'reset' | 'restore' | 'clear' | 'verify' | 'prune' | null>(null)
+    const [busy, setBusy] = useState<'save' | 'force' | 'reset' | 'restore' | 'clear' | 'verify' | 'probe' | 'prune' | null>(null)
     // 折叠态为卡片本地状态（读姿而非配置）：初始值取 defaultOpen（缺省收起、与官方插件卡一致）；草稿跨折叠存活
     const [open, setOpen] = useState(props.defaultOpen ?? false)
     // 保存后自动收起只对默认收起的席位有意义：默认展开的三席（插件详情页 / 组件实例详情页 / 内置插件选项卡）
@@ -626,6 +651,33 @@ export function Card(props: CardProps) {
     )
     const saveStarted = useRef(false)
 
+    // 「探测式填充」弹层：两个开关 + 点开弹层那一刻冻结的候选清单（两个键各一份）+ 记录区。
+    // 候选清单冻结在点开时而非渲染时：模型列表要取**点按钮那一刻**的最新值，
+    // 弹层开着期间用户改了配置也不影响本轮（否则记录区的总项数与实际发的不一致）
+    const [probeOpen, setProbeOpen] = useState(false)
+    const [probeIgnoreExcludes, setProbeIgnoreExcludes] = useState(false)
+    const [probeDropUnsupported, setProbeDropUnsupported] = useState(false)
+    const [probePlan, setProbePlan] = useState<{ unfilled: readonly VerifyTarget[]; all: readonly VerifyTarget[] } | null>(null)
+    // 本轮跑的是哪个键：在途那个键就地变「停止」，故得记住发起时的选择
+    const [probeScope, setProbeScope] = useState<'unfilled' | 'all' | null>(null)
+    const [probeLines, setProbeLines] = useState<readonly string[]>([])
+    const [probeTotal, setProbeTotal] = useState(0)
+    const [probeStopped, setProbeStopped] = useState(false)
+    // 在途的 AbortController：点停止、关窗与组件卸载都靠它中止
+    const probeAbort = useRef<AbortController | null>(null)
+    // 跑完到关窗之间的展示延时：补全写回很快，不留时间用户就读不到刚跑出来的结论。
+    // 定时器挂 ref 是为了关窗 / 卸载时能撤掉它——否则用户已经走了，回调还会把弹层状态再改一次
+    const probeClosing = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载即中止在途探测并撤掉关窗定时器（与验证同一条纪律）
+    useEffect(() => () => {
+        probeAbort.current?.abort()
+        if (probeClosing.current !== null) clearTimeout(probeClosing.current)
+    }, [])
+    const probeTerminalLabels = useMemo<TerminalBlockLabels>(
+        () => ({ ...terminalLabelsOf(t), done: probeStopped ? t('verifyStopped') : t('terminalDone') }),
+        [t, probeStopped],
+    )
+
     const saved = snap.value
     const shown = draft ?? saved ?? DEFAULT_FLAGS
     const ready = snap.status === 'ready' && saved !== undefined
@@ -633,6 +685,25 @@ export function Card(props: CardProps) {
     const dirty = draft !== null && saved !== undefined && isDirty(draft, saved)
     // 命中集合按草稿算（编辑中即所见即所得），未命中项同样生效，只是当前无同名提供方
     const hits = useMemo(() => resolveHits(shown.excludes, providerIds), [shown.excludes, providerIds])
+    // 两个探测键各自的模型数（点开弹层时冻结的那份计划）：为 0 的键禁用，不做「点了没反应」
+    const unfilledCount = probePlan?.unfilled.length ?? 0
+    const allCount = probePlan?.all.length ?? 0
+    /** 探测弹层的两个发起键：在途那个就地变成「停止」，另一个禁用——弹层只有这两个入口，收起它们就只剩关闭 */
+    const probeButton = (scope: 'unfilled' | 'all', count: number) => {
+        const running = busy === 'probe' && probeScope === scope
+        return (
+            <Button
+                variant="outline"
+                className="dsh-mf-warn"
+                disabled={running ? false : busy !== null || count === 0}
+                onClick={running ? stopProbe : () => { runProbe(scope === 'unfilled') }}
+            >
+                {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点 */}
+                {running ? <StateDot state="ongoing" /> : null}
+                {t(running ? 'probeStop' : scope === 'unfilled' ? 'probeUnfilled' : 'probeAll')}
+            </Button>
+        )
+    }
 
     // 保存成功（保存结束且 dirty 归 false）后自动收起，仅限默认收起的席位；
     // 写失败保留草稿与展开态可重试。其余动作的 busy 起止不触碰 saveStarted，不会误收起
@@ -867,6 +938,122 @@ export function Card(props: CardProps) {
     // 停止：中止在途验证。连接随之断开，Node 半的执行循环随即早停，不再消耗额度。
     // 不顺手关窗——已验到哪一步值得留在记录里，用户看完可以原地重跑
     const stopVerify = () => { verifyAbort.current?.abort() }
+    /**
+     * 按当前状态算两份候选计划（未填充 / 全部）：模型列表取**此刻**的最新值。
+     *
+     * 排除值用卡片当前显示的那份（与「命中」判定同源，故所见即所得）；`ignoreExcludes` 由调用方给，
+     * 它同时传下去管 Node 半的两次写回，两边必须是同一个值。
+     */
+    const probePlanOf = (ignoreExcludes: boolean) => {
+        const user = providersSnap.status === 'ready' ? providersSnap.user : undefined
+        const pick = (unfilledOnly: boolean): readonly VerifyTarget[] => probeTargetsOf(probeCandidatesOf(user, {
+            excludes: shown.excludes,
+            ignoreExcludes,
+            unfilledOnly,
+        }))
+        return { unfilled: pick(true), all: pick(false) }
+    }
+    /** 探测式填充：点开弹层并当场冻结计划。弹层开着期间配置再变也不改本轮（记录区的总项数照这份计划走） */
+    const onProbe = () => {
+        if (busy !== null) return
+        setProbePlan(probePlanOf(probeIgnoreExcludes))
+        setProbeOpen(true)
+    }
+    // 切「忽略排除」要重算计划：探测范围随它变，两个键上标的模型数与记录区的总项数不跟着变，
+    // 用户看到的数字就和实际会探的模型对不上了
+    const toggleIgnoreExcludes = (value: boolean) => {
+        setProbeIgnoreExcludes(value)
+        setProbePlan(probePlanOf(value))
+    }
+    /**
+     * 跑一轮探测式填充。
+     *
+     * 跑完不立刻关窗：Node 半在终帧之前已把档位按结论收敛写回（终帧的 `summary.fill` 带增删统计），
+     * 写回很快，不留一点时间的话用户刚看到记录区就被关掉，结论等于没给。故先把收尾行与补全结果
+     * 追加进记录区，延时 PROBE_CLOSE_DELAY_MS 再关窗，并把同一份结果落到卡片状态行。
+     * 在途被中止则不写回统计也不关窗：未跑完的模型已被 Node 半还原成本轮开始前的形态，
+     * 留在窗里让用户看见「探到哪一步」比报一个半截结论诚实。
+     */
+    const runProbe = (unfilledOnly: boolean) => {
+        if (busy !== null || probePlan === null) return
+        const models = unfilledOnly ? probePlan.unfilled : probePlan.all
+        if (models.length === 0) return
+        // 重跑先撤掉上一次的关窗定时器：否则它在第二次探测跑到一半时把窗关了
+        if (probeClosing.current !== null) {
+            clearTimeout(probeClosing.current)
+            probeClosing.current = null
+        }
+        setProbeLines([])
+        setProbeTotal(0)
+        setProbeStopped(false)
+        setBusy('probe')
+        const controller = new AbortController()
+        probeAbort.current = controller
+        setProbeScope(unfilledOnly ? 'unfilled' : 'all')
+        props.probeEfforts(models, { ignoreExcludes: probeIgnoreExcludes, dropUnsupported: probeDropUnsupported }, (frame) => {
+            if (frame.type === 'opened') {
+                setProbeTotal(frame.total)
+                return
+            }
+            setProbeLines((current) => [...current, verifyLineOf(frame, t)])
+        }, controller.signal)
+            .then((summary) => {
+                if (summary === undefined) {
+                    setProbeStopped(true)
+                    return
+                }
+                const fill = summary.fill
+                const stats = t('probeDone', {
+                    models: String(summary.tested),
+                    levels: String(summary.plannedEfforts),
+                    usable: String(summary.efforts),
+                    unsupported: String(summary.unsupported),
+                })
+                const filled = t('probeFilled', {
+                    models: String(fill?.models ?? 0),
+                    added: String(fill?.added ?? 0),
+                    removed: String(fill?.removed ?? 0),
+                })
+                setNotice({ text: filled, tone: 'success' })
+                setProbeLines((current) => [...current, stats, filled, t('probeClosing')])
+                probeClosing.current = setTimeout(() => {
+                    probeClosing.current = null
+                    closeProbe()
+                }, PROBE_CLOSE_DELAY_MS)
+            })
+            .catch((error: unknown) => {
+                const failed = t('probeFillFailed', { message: truncateMessage(error instanceof Error ? error.message : String(error)) })
+                setNotice({ text: failed, tone: 'error' })
+                setProbeLines((current) => [...current, failed])
+                probeClosing.current = setTimeout(() => {
+                    probeClosing.current = null
+                    closeProbe()
+                }, PROBE_CLOSE_DELAY_MS)
+            })
+            .finally(() => {
+                probeAbort.current = null
+                setProbeScope(null)
+                setBusy(null)
+            })
+    }
+    // 停止：中止在途探测。连接随之断开，Node 半的执行循环随即早停，不再消耗额度。
+    // 不顺手关窗——已探到哪一步值得留在记录里
+    const stopProbe = () => { probeAbort.current?.abort() }
+    // 关闭即丢弃本轮记录与计划；两个开关**不复位**（那是下次要不要再放开排除/剔除的用户决定，与本次无关）。
+    // 在途时关窗同时中止并撤掉关窗定时器；遮罩 / Escape / × / 「关闭」键四种关闭都汇到 Modal 的 onClose 与该键
+    const closeProbe = () => {
+        probeAbort.current?.abort()
+        if (probeClosing.current !== null) {
+            clearTimeout(probeClosing.current)
+            probeClosing.current = null
+        }
+        setProbeOpen(false)
+        setProbePlan(null)
+        setProbeScope(null)
+        setProbeLines([])
+        setProbeTotal(0)
+        setProbeStopped(false)
+    }
     // 关闭即丢弃本次勾选与记录，并把档位开关一并复位（下次打开回到未预选、无记录、开关关闭的初始态）
     // 在途时关窗同时中止：验证即用即弃，用户已经离开就没必要继续烧额度。
     // 遮罩 / Escape / × 三种关闭都汇到 Modal 的 onClose，故中止只此一处；跑完后控制器已置空，是空操作
@@ -1020,6 +1207,16 @@ export function Card(props: CardProps) {
                         onClick={onVerify}
                     >
                         {t('verify')}
+                    </button>
+                    {/* 探测式填充：与验证同一 warn 语义（点开即进入会花额度、且会写回配置的流程）。
+                        它放在验证之后——两者都花额度，但验证只读、探测写回，后者需要用户已经读过验证的结论 */}
+                    <button
+                        type="button"
+                        className="dsh-mf-discard dsh-mf-warn"
+                        disabled={!ready || busy !== null}
+                        onClick={onProbe}
+                    >
+                        {t('probe')}
                     </button>
                 </span>
             </div>
@@ -1220,6 +1417,79 @@ export function Card(props: CardProps) {
                     </ul>
                 )}
                 <p className="dsh-mf-verifyQuota">{t('verifyQuota')}</p>
+            </Modal>
+            {/* 「探测式填充」弹层：没有候选列表——范围由两个键与「忽略排除」开关决定，故正文只留三段：
+                本次要探多少（花费预期的唯一线索）→ 记录区（首次发起才出现，与验证同纪律）→ 额度提示。
+                两个开关与三键同排 footer：宿主 .footer 是单行 flex，用 .dsh-mf-verifyActions 覆盖其
+                justify-content:flex-end（开关左、三键右），与验证弹层同一排法，只把记录区挪进正文。
+                关窗（遮罩 / Escape / × / 关闭键）即中止在途探测，Node 半随即早停并把未跑完的模型还原 */}
+            <Modal
+                open={probeOpen}
+                onClose={closeProbe}
+                title={t('probeTitle')}
+                closeLabel={t('close')}
+                description={t('probeDesc')}
+                className="dsh-mf-verifyDialog"
+                footer={<div className="dsh-mf-verifyActions">
+                    <div className="dsh-mf-verifyOptions">
+                        <span className="dsh-mf-verifyOption">
+                            <Switch
+                                checked={probeIgnoreExcludes}
+                                disabled={busy === 'probe'}
+                                label={t('probeIgnoreExcludes')}
+                                onChange={toggleIgnoreExcludes}
+                            />
+                            <span>{t('probeIgnoreExcludes')}</span>
+                            {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
+                            <Tooltip label={t('probeIgnoreExcludesTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                                <button type="button" className="dsh-mf-help" aria-label={t('probeIgnoreExcludesTip')}>
+                                    <IconInfoOutlineRegular size={12} />
+                                </button>
+                            </Tooltip>
+                        </span>
+                        <span className="dsh-mf-verifyOption">
+                            <Switch
+                                checked={probeDropUnsupported}
+                                disabled={busy === 'probe'}
+                                label={t('probeDropUnsupported')}
+                                onChange={setProbeDropUnsupported}
+                            />
+                            <span>{t('probeDropUnsupported')}</span>
+                            <Tooltip label={t('probeDropUnsupportedTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                                <button type="button" className="dsh-mf-help" aria-label={t('probeDropUnsupportedTip')}>
+                                    <IconInfoOutlineRegular size={12} />
+                                </button>
+                            </Tooltip>
+                        </span>
+                    </div>
+                    <div className="dsh-mf-verifyButtons">
+                        {/* 关闭键在途不禁用：它是本弹层唯一的常驻出口，遮罩 / Escape / × 也都中止，
+                            键却禁着就只剩「干等」一条路（验证那边有「停止」键顶替，故那边禁） */}
+                        <Button variant="outline" data-modal-autofocus onClick={closeProbe}>{t('close')}</Button>
+                        {probeButton('unfilled', unfilledCount)}
+                        {probeButton('all', allCount)}
+                    </div>
+                </div>}
+            >
+                {unfilledCount === 0 && allCount === 0 ? (
+                    <p className="dsh-mf-verifyEmpty" role="status">{t('probeEmpty')}</p>
+                ) : (
+                    <p className="dsh-mf-verifyQuota">{t('probePlan', {
+                        models: String(allCount),
+                        requests: String(allCount * EFFORT_LEVELS.length),
+                    })}</p>
+                )}
+                {probeTotal > 0 ? (
+                    <TerminalBlock
+                        command={t('probeCommand', { total: String(probeTotal) })}
+                        output={probeLines.join('\n')}
+                        running={busy === 'probe'}
+                        maxLines={VERIFY_TERMINAL_LINES}
+                        labels={probeTerminalLabels}
+                        className="dsh-mf-verifyLog"
+                    />
+                ) : null}
+                <p className="dsh-mf-verifyQuota">{t('probeQuota')}</p>
             </Modal>
         </>
     )

@@ -1,4 +1,4 @@
-/** src/client/model.ts 纯映射层用例：解码（只读 version-7，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化、验证候选拍取、目标收敛与分组全选 */
+/** src/client/model.ts 纯映射层用例：解码（只读 version-7，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化、验证候选拍取、目标收敛与分组全选、探测式填充候选（未填充判据 / 忽略排除）与七档展开 */
 
 import { check, stable } from '@test/helper'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
@@ -12,6 +12,8 @@ import {
     groupValue,
     isDirty,
     masterValue,
+    probeCandidatesOf,
+    probeTargetsOf,
     providerIdsOf,
     removeExclude,
     resolveHits,
@@ -22,6 +24,7 @@ import {
     verifyTargets,
 } from '@/client/model'
 import type { Flags } from '@/client/model'
+import { EFFORT_LEVELS } from '@/shared/constants'
 
 /** 三组全开的配置（总控与整组置位用例的基准，无排除项，无记忆，用户体验三项全开） */
 const ALL_ON: Flags = {
@@ -356,4 +359,54 @@ export function run(): void {
         [...completed],
     )
     check('toggleGroupPicks 不改入参', partial.size === 2 && !partial.has(acmeKeyB))
+    // ---------- 探测式填充候选：与验证候选同源同形，只按两个开关收窄 ----------
+    const probeUser = {
+        providers: {
+            // 三种档位形态：无声明（未填充）、只有 off（同样算未填充）、有其它档位（已填充）
+            acme: { models: [{ id: 'none' }, { id: 'off-only', reasoningEfforts: { off: null } }, { id: 'full', reasoningEfforts: { low: 'low' } }] },
+            lab: { models: [{ id: 'lab-none' }] },
+        },
+    }
+    const pick = (excludes: readonly string[], ignoreExcludes: boolean, unfilledOnly: boolean) =>
+        probeCandidatesOf(probeUser, { excludes, ignoreExcludes, unfilledOnly })
+    check(
+        'probeCandidatesOf 探测所有：收全部模型（两个开关关）',
+        stable(pick([], false, false)) === stable([
+            { provider: 'acme', model: 'none', efforts: [] },
+            { provider: 'acme', model: 'off-only', efforts: ['off'] },
+            { provider: 'acme', model: 'full', efforts: ['low'] },
+            { provider: 'lab', model: 'lab-none', efforts: [] },
+        ]),
+        pick([], false, false),
+    )
+    check(
+        'probeCandidatesOf 探测未填充：无档位声明与只有 off 都算未填充，有其它档位的不算',
+        stable(pick([], false, true)) === stable([
+            { provider: 'acme', model: 'none', efforts: [] },
+            { provider: 'acme', model: 'off-only', efforts: ['off'] },
+            { provider: 'lab', model: 'lab-none', efforts: [] },
+        ]),
+        pick([], false, true),
+    )
+    check(
+        'probeCandidatesOf 默认跳过排除命中的提供方',
+        stable(pick(['lab'], false, false).map((c) => `${c.provider}/${c.model}`)) === stable(['acme/none', 'acme/off-only', 'acme/full']),
+        pick(['lab'], false, false),
+    )
+    check(
+        'probeCandidatesOf 忽略排除：被排除的提供方也收进来（同一开关同时管 Node 半的两次写回）',
+        stable(pick(['lab'], true, true).map((c) => `${c.provider}/${c.model}`)) === stable(['acme/none', 'acme/off-only', 'lab/lab-none']),
+        pick(['lab'], true, true),
+    )
+    check('probeCandidatesOf 垃圾输入返回空', probeCandidatesOf(undefined, { excludes: [], ignoreExcludes: false, unfilledOnly: false }).length === 0)
+    check(
+        'probeTargetsOf 逐模型展开全部七档且 needTest 恒假（预声明本身就是那次对照）',
+        stable(probeTargetsOf(pick([], false, true)).map((t) => t.efforts)) === stable([
+            [...EFFORT_LEVELS],
+            [...EFFORT_LEVELS],
+            [...EFFORT_LEVELS],
+        ]) && probeTargetsOf(pick([], false, true)).every((t) => t.needTest === false),
+        probeTargetsOf(pick([], false, true)).map((t) => t.efforts),
+    )
+    check('probeTargetsOf 空候选得空', probeTargetsOf([]).length === 0)
 }

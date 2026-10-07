@@ -145,11 +145,11 @@ export function verifyKey(provider: string, model: string): string {
 }
 
 /**
- * 从 `llm-pi-ai` 的 user 层拍出验证候选（与 Node 半 fix 遍历同一事实源，故列表与实际会填充的模型零漂移）。
+ * 候选遍历的唯一实现：验证与探测式填充共用同一份事实源与同一套形状规则，
+ * 两者只在「收哪些」上分岔（前者全收，后者按两个开关过滤）。
  * 保持录入顺序；提供方非对象、无 models 数组、模型无 id 的行一律跳过。
- * 不套用 `excludes`：验证是只读诊断，排除语义只约束插件对配置的写入。
  */
-export function verifyCandidatesOf(user: unknown): VerifyCandidate[] {
+function candidatesOf(user: unknown, keep: (provider: string, candidate: VerifyCandidate) => boolean): VerifyCandidate[] {
     const candidates: VerifyCandidate[] = []
     for (const [provider, entry] of Object.entries(providersOf(user) ?? {})) {
         if (!isPlainObject(entry) || !Array.isArray(entry.models)) continue
@@ -158,10 +158,57 @@ export function verifyCandidatesOf(user: unknown): VerifyCandidate[] {
             const declared = isPlainObject(model.reasoningEfforts) ? model.reasoningEfforts : undefined
             // 档位取配置里的**键**（即模型页送出、宿主校验的那个 id），并按规范次序归一
             const efforts = declared === undefined ? [] : EFFORT_LEVELS.filter((level) => Object.hasOwn(declared, level))
-            candidates.push({ provider, model: model.id, efforts: [...efforts] })
+            const candidate: VerifyCandidate = { provider, model: model.id, efforts: [...efforts] }
+            if (keep(provider, candidate)) candidates.push(candidate)
         }
     }
     return candidates
+}
+
+/**
+ * 从 `llm-pi-ai` 的 user 层拍出验证候选（与 Node 半 fix 遍历同一事实源，故列表与实际会填充的模型零漂移）。
+ * 不套用 `excludes`：验证是只读诊断，排除语义只约束插件对配置的写入。
+ */
+export function verifyCandidatesOf(user: unknown): VerifyCandidate[] {
+    return candidatesOf(user, () => true)
+}
+
+/** 探测式填充的两个开关：只影响「收哪些模型」，不影响请求本身 */
+export interface ProbeCandidateOptions {
+    /** 排除提供方 id（取卡片上的当前值，与「命中」判定同源，故所见即所得） */
+    excludes: readonly string[]
+    /** 忽略排除：开则连被排除的提供方也一起探测（Node 半的两次写回同时放行，两处必须同一个开关） */
+    ignoreExcludes: boolean
+    /** 只收未填充的：该模型没有声明 `reasoningEfforts`，或该字段只有 `off` 一个档位 */
+    unfilledOnly: boolean
+}
+
+/** 「未填充」判据：无档位声明，或只声明了 `off`（等同于「这个模型不推理」） */
+function isUnfilled(efforts: readonly string[]): boolean {
+    return efforts.length === 0 || efforts.every((effort) => effort === 'off')
+}
+
+/**
+ * 探测式填充的候选：与验证候选同源同形，只按两个开关收窄。
+ *
+ * 「忽略排除」必须同时传给 Node 半的两次写回——只在这边放开而那边仍跳过，等于白探测一轮；
+ * 反之只在那边放开则探测范围与写回范围对不上，故两边共用同一个开关值。
+ */
+export function probeCandidatesOf(user: unknown, options: ProbeCandidateOptions): VerifyCandidate[] {
+    const excluded = new Set(options.excludes)
+    return candidatesOf(user, (provider, candidate) => (options.ignoreExcludes || !excluded.has(provider))
+        && (!options.unfilledOnly || isUnfilled(candidate.efforts)))
+}
+
+/**
+ * 探测式填充的**请求计划**：每个模型按 `EFFORT_LEVELS` 由低到高各试一档（`off` 在最前）。
+ *
+ * `needTest` 恒假：本功能没有「不带档位的基线对照」这一步——宿主按配置里声明的档位校验，
+ * 未声明的档位根本出不了网，故 Node 半会先把候选档位临时预声明进配置（见 `src/probe.ts`），
+ * 预声明本身就是那次对照，逐档平推即可。
+ */
+export function probeTargetsOf(candidates: readonly VerifyCandidate[]): VerifyTarget[] {
+    return candidates.map((candidate) => ({ ...candidate, efforts: [...EFFORT_LEVELS], needTest: false }))
 }
 
 /**

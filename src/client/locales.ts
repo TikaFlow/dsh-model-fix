@@ -108,6 +108,26 @@ export type CardKey =
     | 'pruneGo'
     | 'pruneDone'
     | 'pruneFailed'
+    // 探测式填充：两个发起键共用一套行模板与结论词（复用 verifyOut* / verifySkipped / verifyStopped），
+    // 只有开关、范围键与收尾几行是它自己的说法
+    | 'probe'
+    | 'probeTitle'
+    | 'probeDesc'
+    | 'probeQuota'
+    | 'probePlan'
+    | 'probeEmpty'
+    | 'probeIgnoreExcludes'
+    | 'probeIgnoreExcludesTip'
+    | 'probeDropUnsupported'
+    | 'probeDropUnsupportedTip'
+    | 'probeUnfilled'
+    | 'probeAll'
+    | 'probeStop'
+    | 'probeCommand'
+    | 'probeDone'
+    | 'probeClosing'
+    | 'probeFilled'
+    | 'probeFillFailed'
     // 宿主 TerminalBlock 的展示文案：键名与 terminalLabels(t) 逐条对齐官方安装页的映射（ui-plugin-manager/…/locales.ts:152-164）
     | 'terminalSignal'
     | 'terminalExitCode'
@@ -288,6 +308,25 @@ export const zh: Record<CardKey, string> = {
     pruneGo: '剔除',
     pruneDone: '已剔除 {count} 个不被支持的推理级别。',
     pruneFailed: '剔除失败：{message}。',
+    // 探测式填充：跑完立即把档位按结论补进模型配置（不询问），故 notice 除额度外还要说清「会写配置」
+    probe: '探测式填充',
+    probeTitle: '探测推理级别并补全',
+    probeDesc: '对每个模型的全部推理级别各发一次最小请求，能用的补进模型配置；所耗时间随模型数量增加。',
+    probePlan: '本次将探测 {models} 个模型、共 {requests} 次最小请求。',
+    probeEmpty: '没有可探测的模型：请先在「模型」设置中添加模型，或关闭「忽略排除」后重试。',
+    probeQuota: '探测会发起真实请求，可能消耗少量额度；并会把结论写回模型配置。',
+    probeIgnoreExcludes: '忽略排除',
+    probeIgnoreExcludesTip: '开启后，被「排除提供方」列出的提供方也照常探测并写入。',
+    probeDropUnsupported: '剔除不支持',
+    probeDropUnsupportedTip: '开启后，明确判为不支持的推理级别会从模型配置里去掉；关闭时只增不减。',
+    probeUnfilled: '探测未填充',
+    probeAll: '探测所有',
+    probeStop: '停止',
+    probeCommand: '探测 {total} 项',
+    probeDone: '共探测 {models} 个模型、{levels} 个推理级别：可用 {usable} 个、不支持 {unsupported} 个。',
+    probeClosing: '即将关闭本窗口。',
+    probeFilled: '已为 {models} 个模型补全推理级别：新增 {added} 个、剔除 {removed} 个。',
+    probeFillFailed: '探测式填充失败：{message}。',
     terminalSignal: '信号 {signal}',
     terminalExitCode: '退出码 {code}',
     terminalNoExitCode: '未正常退出',
@@ -428,6 +467,26 @@ export const en: Record<CardKey, string> = {
     pruneGo: 'Remove',
     pruneDone: 'Removed {count} unsupported reasoning effort(s).',
     pruneFailed: 'Failed to remove: {message}.',
+    // Probe & fill: the usable levels go straight back into the model config without asking, so the
+    // notice says both things it does — spends quota and writes config
+    probe: 'Probe & fill',
+    probeTitle: 'Probe reasoning levels and fill',
+    probeDesc: 'Each model gets one minimal request per reasoning level; the usable ones are written back to the model config. Takes longer with more models.',
+    probePlan: 'This run probes {models} model(s) with {requests} minimal request(s).',
+    probeEmpty: 'No models to probe. Add models on the Models settings page, or turn off "Ignore exclusions" and retry.',
+    probeQuota: 'Probing sends real requests and may use a small amount of your quota; the result is written back to the model config.',
+    probeIgnoreExcludes: 'Ignore exclusions',
+    probeIgnoreExcludesTip: 'When on, providers listed under "Excluded providers" are probed and written to as well.',
+    probeDropUnsupported: 'Drop unsupported',
+    probeDropUnsupportedTip: 'When on, levels judged unsupported are removed from the model config; when off, nothing is removed.',
+    probeUnfilled: 'Probe unfilled',
+    probeAll: 'Probe all',
+    probeStop: 'Stop',
+    probeCommand: 'Probe {total} item(s)',
+    probeDone: 'Probed {models} model(s), {levels} reasoning effort(s): {usable} usable, {unsupported} unsupported.',
+    probeClosing: 'Closing this dialog shortly.',
+    probeFilled: 'Filled reasoning levels for {models} model(s): {added} added, {removed} removed.',
+    probeFillFailed: 'Probe & fill failed: {message}.',
     terminalSignal: 'signal {signal}',
     terminalExitCode: 'exit code {code}',
     terminalNoExitCode: 'no exit code',
