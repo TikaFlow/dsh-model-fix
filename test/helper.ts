@@ -52,7 +52,6 @@ export function stable(value: unknown): string {
 
 /**
  * 汇总输出：先补最后一个模块的进度行，再逐条列出失败明细，最后给总判据行。
- * 总判据行 `ALL PASS (n)` / `n/m FAILED` 是仓库约定（AGENTS.md 与沙箱校验都按它判定），不得改动。
  */
 export function summary(): void {
     closeSection()

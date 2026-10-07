@@ -1,6 +1,7 @@
-// src/verify.ts 用例：请求计划展开（逐模型逐档位 / needTest 声明 / 入参校验）、按提供方分组、失败分类、逐组汇报、
-// 汇总求和，以及带桩跑通的整条执行链（探测现发 + 分组串行 + provider 级失败短路）
-import { classifyFailure, groupProbesByProvider, planProbes, reportProvider, summarizeProviders, verifyModels } from '@/verify'
+// src/verify.ts 与 src/probe-engine.ts 用例：请求计划展开（逐模型逐档位 / needTest 声明 / 入参校验与配额）、按提供方分组、失败分类、逐组汇报、
+// 汇总求和，以及带桩跑通的整条执行链（基线探测现发 + 分组串行 + provider 级失败短路）
+import { verifyModels } from '@/verify'
+import { classifyFailure, groupProbesByProvider, planProbes, reportProvider, summarizeProviders } from '@/probe-engine'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm/types'
 import { decodeProgressFrame, encodeProgressFrame, isProviderBlocking, isTransientOutcome } from '@/shared/verify-progress'
