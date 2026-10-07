@@ -4,17 +4,23 @@
  * 两个功能要发的是同一形态的请求（同一把提示词、同一个受理判据、同一种失败分类、同样的
  * provider 间并发 / provider 内串行 / 中止早停 / 进度帧），把它们各写一份必然随演进漂移，
  * 故本模块只留**共用的那一半**：入参校验与计划、分组、单次请求与判定、汇总与汇报、并发编排与进度帧。
- * 两级短路的判据也共用：provider 级是 `providerBlockReason`（端点不通 / 凭据无效 / **首个请求超时**，短整组），
- * 模型级是 `shouldSkipModelTail`（失败与档位无关即短到该模型自己的档位尾，额度耗尽是其中最要紧的一种）。
+ * 两级短路的判据也共用，且**只有一条判据：能否断定后续请求必然失败**——断不得的，宁可多烧额度也不误杀。
+ * provider 级是 `providerBlockReason`（端点不通 / 凭据无效 / **本组首个请求超时**，短整组）；
+ * 模型级是 `shouldSkipModelTail`（档位请求上只有额度耗尽够格）与 `shouldSkipModelTailAfterBaseline`
+ * （基线请求不带档位、失败天生与档位无关，故多认「被厂商确定性拒绝」一种）。
  * 真正不同的只有「一组里怎么逐条跑」——验证按 `needTest` 先发一次不带档位的基线探测，
  * 探测式填充逐档各发一次——故该部分由调用方以 `runGroup` 注入，而「这次失败是否只否定这一档」
- * （`effortScoped`）由各功能用自己的对照给出：验证用基线探测，探测式填充用同模型已跑通的更低档。
+ * 由各功能用自己的对照给出：验证用基线探测，探测式填充用同模型已跑通的更低档。
  *
  * 判定口径（与本文件同生共死，两功能一致）：
  * - 收到首个 `block-start` 即判该「模型 × 档位」可用，随即中断、不再消耗生成额度；
  *   `usage` 不含受理信息，只判「非 finish 块」会把额度耗尽的 key 误判成可用。
  * - 失败只按宿主 `LlmFailure.code` 分类（宿主明令 route on `code`），不看 `status`（pi-ai 侧恒缺）、不比对文案。
- * - 限流与超时单列为瞬态：它们只否定这一次，既不算不可用、也不能用来短该模型的后续档位。
+ * - 限流与超时单列为瞬态：它们只否定这一次，既不算不可用、也不能用来短任何后续请求。
+ * - **短路只有一条判据**：能断定后续请求必然失败才短。额度耗尽够格（同一把 key 已见底）、
+ *   端点不通与凭据无效够格（同一 url、同一把 key）、本组首个请求超时够格（成因在请求之外）；
+ *   上游 5xx、模型不存在等厂商侧拒绝只在**基线**上算（那里档位压根没参与，换档位发的还是同一个请求），
+ *   落在档位请求上则只否定了这一次。
  * - 每 provider 单并发（分组即结构保证）、跨 provider 至多 `PROBE_PROVIDER_CONCURRENCY` 路、无退避重试。
  * - 中止同时断在途请求并让执行循环早停；**中止不发 `done` 帧**，消费方见「流自然结束却没等到 done」
  *   即知这轮没跑完，据此保留进度而不是报成功。
@@ -29,7 +35,7 @@ import type { LlmFailure } from '@deepseek-ai/dsh-llm/types'
 import { LEVELS } from '@/constants'
 import type { ProbeOutcome, ProviderBlockReason, ProviderProbeOutcome, UnsupportedEffort, UsableEffort, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
 import { isPlainObject } from '@/shared/types'
-import { isProviderBlocking, isTransientOutcome } from '@/shared/verify-progress'
+import { isProviderBlocking } from '@/shared/verify-progress'
 
 /** 探测提示词：只要一句应答，最省 token */
 const PROBE_PROMPT = 'Just say OK'
@@ -249,43 +255,61 @@ export function sameModelTail(probes: readonly VerifyProbe[], from: number): num
 /**
  * 该失败是否足以否定**整个提供方**（provider 级短路的唯一判据，验证与探测式填充共用）。
  *
- * 返回短路原因，不短路即 `undefined`：
- * - **端点不通 / 凭据无效**（`isProviderBlocking`）：同一提供方共用同一 url 与同一把 key，一条不通整组都不通。
- * - **该提供方的首个请求超时**：首条请求就等满 `PROBE_TIMEOUT_MS`，多半是端点压根连不上（域名不通、
- *   代理挂起、端口没人听）；后面每个模型、每档位再等一次，只会把同样的 30 秒乘上几十遍，
- *   用户等的却是一条都拿不到的结果。故首个超时即按「不可达」断整组。
- *   首个之后的超时不当不可达：那时已经跑通过请求，链路是活的，只是这一次慢——仍按瞬态处理。
+ * 判据只有一条：**能断定后续请求必然失败**，才能短路。返回短路原因，不短路即 `undefined`：
+ * - **端点不通 / 凭据无效**（`isProviderBlocking`）：与请求内容无关，同一提供方又共用同一 url 与
+ *   同一把 key，故一条不通整组都不通。
+ * - **该提供方的首个请求超时**：首条就等满 `PROBE_TIMEOUT_MS`，成因无非是 url 不可达、端点服务中断、
+ *   本地网络不通——后续请求只会是同样无意义的超时，等下去既拿不到结果又白等几十遍 30 秒，
+ *   故断整组。理由记 `timeout` 而**不是** `unreachable`：报告里的「可达 / 凭据」只按真实失败事实记，
+ *   超时不是传输层失败的证据，翻假会让用户以为端点已确认连不上。
+ *   首个之后的超时不同：那时已经跑通过请求，链路是活的，只是这一次慢，仍按瞬态处理。
  *
  * `firstRequest` 由各功能按「本组已发出几条请求」给出，验证那边要把它额外的基线探测请求算进去。
  */
 export function providerBlockReason(outcome: ProbeOutcome, firstRequest: boolean): ProviderBlockReason | undefined {
     if (isProviderBlocking(outcome)) return outcome
-    return firstRequest && outcome === 'timeout' ? 'unreachable' : undefined
+    return firstRequest && outcome === 'timeout' ? 'timeout' : undefined
 }
 
 /**
  * 该失败是否足以否定**该模型的其余档位**（模型级短路的唯一判据，验证与探测式填充共用）。
  *
- * 三条同时满足才短：
- * - **有失败事实**：正常终止却没有内容块属退化完成，不是报错，换档位仍可能出内容；
- * - **不是「只否定这一档」**（`effortScoped`）：`INVALID_REQUEST` 有可能是这一档自己的问题，
- *   而逐档试出来正是为此——换一档可能就通了。各功能用自己的对照给出这条（验证拿不带档位的基线
- *   探测，探测式填充拿同模型已跑通的更低档；对照还没到手时一律当作「可能只否定这一档」），
- *   判据本身共用，判据的**依据**各功能不同。
- * - **不是瞬态**：限流与超时只否定了这一次，重试同一模型只是烧额度，实测限流挡掉的那一档
- *   隔一会儿就通了。
+ * 判据同 provider 级：**能断定后续请求必然失败**才短。档位请求上只有**额度耗尽**够格——
+ * 额度按提供方与模型计，同一把 key 的额度已经用完，换多少档都是同样结果。
  *
- * 其余都短：额度耗尽（同一把 key 的额度已经用完，换多少档都是同样结果）、以及各类与档位无关的
- * 报错（同名模型不存在、内容策略拒绝…）。这类逐条再试纯属烧额度，用户要的「这一档行不行」在
- * 第一次就没了答案。
+ * 其余一律不短，宁可多烧几次额度也不误杀可用档位：
+ * - **其它厂商侧拒绝**（含上游 5xx、`PI_AI_ERROR` 未归一的错误）：多半是服务端的一次性故障，
+ *   换个档位可能就通；判「只否定这一档」还要求宿主判为 `INVALID_REQUEST` **且**该功能自己的对照
+ *   成立（验证拿不带档位的基线，探测式填充拿同模型已跑通的更低档，见 `isEffortRejection`），
+ *   两者凑齐才落「档位不支持」，那种结论本就不该短后面的档位。
+ * - **限流与超时**：只否定了这一次，重试同一模型只是白烧额度。
  */
-export function shouldSkipModelTail(outcome: ProbeOutcome, failure: VerifyFailureFacts | undefined, effortScoped: boolean): boolean {
-    return failure !== undefined && !effortScoped && !isTransientOutcome(outcome)
+export function shouldSkipModelTail(outcome: ProbeOutcome, failure: VerifyFailureFacts | undefined): boolean {
+    return failure !== undefined && outcome === 'quota'
+}
+
+/**
+ * **基线**失败后是否短该模型的档位尾（验证独有，但判据与上面的共用判据同处一地，便于对照与单测）。
+ *
+ * 基线请求**不带推理级别**，故它的失败天生与档位无关：同一个模型再换任何档位，请求的其余部分一模一样。
+ * 于是只剩「这个失败是不是确定性的」一问——限流与超时明确不是（隔一会儿就通），
+ * 额度耗尽与其它厂商侧拒绝则是（模型不存在、参数被拒、无权限、上游持续故障），故短路。
+ *
+ * 与档位请求上的模型级短路分开，是因变量不同：那里「档位」是唯一变过的变量，故只有额度够格；
+ * 这里档位压根没参与，剩下的失败对同一模型的后续请求照样成立。
+ */
+export function shouldSkipModelTailAfterBaseline(outcome: ProbeOutcome): boolean {
+    return outcome === 'quota' || outcome === 'other'
 }
 
 /**
  * 单组结论 -> 汇报：可用模型按「提供方 / 模型」去重；档位不可用单独计数，不与其它失败混计。
- * 可达 / 凭据取自**全程**结果（被验请求与基线探测一并计入）而非首个：跑到一半才撞上额度耗尽同样该如实记为凭据不可用。
+ * 可达 / 凭据取自**全程**结果（被验请求与基线探测一并计入）而非首个。
+ *
+ * **只认能否定整个提供方的失败**：端点不通翻 `reachable`，凭据无效翻 `keyValid`。
+ * 额度耗尽两者都不翻——它多半是**按模型**设的额度（有的厂商给某个模型单独限额），
+ * 拿一个模型的额度去否定整把 key 正是「层级错配」，它已由模型级短路压到该模型尾，
+ * 要看出了什么事得看该模型自己的明细条目（那里记着 `quota`）。
  */
 export function reportProvider(result: ProviderProbeOutcome): VerifyProviderReport {
     const usable = new Set<string>()
@@ -303,14 +327,14 @@ export function reportProvider(result: ProviderProbeOutcome): VerifyProviderRepo
             unsupported++
         } else if (item.outcome === 'unreachable') {
             unreachable = true
-        } else if (item.outcome === 'quota' || item.outcome === 'credential') {
+        } else if (item.outcome === 'credential') {
             keyRejected = true
         }
     }
     // 基线探测同样能证伪端点与凭据（它也是真发出去的一次请求），故一并纳入；只是它不产明细、不计任何计数
     for (const item of result.tests) {
         if (item.outcome === 'unreachable') unreachable = true
-        else if (item.outcome === 'quota' || item.outcome === 'credential') keyRejected = true
+        else if (item.outcome === 'credential') keyRejected = true
     }
     return {
         provider: result.provider,

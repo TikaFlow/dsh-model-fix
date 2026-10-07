@@ -50,14 +50,25 @@ export type ProbeOutcome =
     | 'rate-limit'
     /** 瞬态失败：本方或上游超时，理由同上 */
     | 'timeout'
-    /** 其它厂商侧拒绝；多与**具体模型**有关（如同名模型不存在），故不参与短路 */
+    /** 其它厂商侧拒绝（含上游 5xx）：**不能断定后续请求必然失败**，故既不短整组也不短该模型的档位尾 */
     | 'other'
 
-/** provider 级失败：命中即整组短路——同一提供方共用同一 url 与同一把 key，一次过不了后面同样过不了。额度耗尽不在其列，理由见 `quota` 那一支 */
-export type ProviderBlockReason = 'unreachable' | 'credential'
+/**
+ * provider 级失败：命中即整组短路——理由只有一条：**能断定后续请求必然失败**。
+ *
+ * - `unreachable` / `credential`：同一提供方共用同一 url 与同一把 key，一次过不了后面同样过不了。
+ *   额度耗尽不在其列（额度可能只覆盖其中某个模型），理由见 `quota` 那一支。
+ * - `timeout`：**仅当它就是本组的首个请求**才成立（判据见 `@/probe-engine` 的 `providerBlockReason`），
+ *   故它不由本类型自己判定。单看一次超时只是「这次没跑成」，什么也断定不了。
+ */
+export type ProviderBlockReason = 'unreachable' | 'credential' | 'timeout'
 
-/** 该结果是否构成 provider 级失败（命中即整组短路） */
-export function isProviderBlocking(outcome: ProbeOutcome): outcome is ProviderBlockReason {
+/**
+ * 该失败**单看自身**是否就否定整个提供方（即与请求内容无关、换个模型照样过不去）。
+ *
+ * 超时不在其列：它要连「本组首个请求」这条一起才成立，那是 `providerBlockReason` 的事。
+ */
+export function isProviderBlocking(outcome: ProbeOutcome): outcome is Exclude<ProviderBlockReason, 'timeout'> {
     return outcome === 'unreachable' || outcome === 'credential'
 }
 
@@ -127,7 +138,10 @@ export interface VerifyProviderReport {
     provider: string
     /** 端点可达：全程未出现传输层失败 */
     reachable: boolean
-    /** 凭据有效且有额度：可达且全程未出现额度 / 凭据类失败（从未可达时不作断言） */
+    /**
+     * 凭据有效：可达且全程未出现凭据类失败（从未可达时不作断言）。
+     * **额度耗尽不在此列**——它多半是按模型设的额度，属模型级事实，否定不了整把 key。
+     */
     keyValid: boolean
     /** 整组是否因 provider 级失败被短路 */
     skipped: boolean

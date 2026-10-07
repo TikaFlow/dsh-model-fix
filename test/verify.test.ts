@@ -1,11 +1,11 @@
-// src/verify.ts 与 src/probe-engine.ts 用例：请求计划展开（逐模型逐档位 / needTest 声明 / 入参校验与配额）、按提供方分组、失败分类、逐组汇报、
-// 汇总求和，以及带桩跑通的整条执行链（基线探测现发 + 分组串行 + provider 级失败短路，含「首个请求超时即按不可达短路」）
+// src/verify.ts 与 src/probe-engine.ts 用例：请求计划展开（逐模型逐档位 / needTest 声明 / 入参校验与配额）、按提供方分组、失败分类、两级短路判据、逐组汇报、
+// 汇总求和，以及带桩跑通的整条执行链（基线探测现发 + 分组串行 + 两级短路，含「本组首个请求超时即短整组」）
 import { verifyModels } from '@/verify'
-import { classifyFailure, groupProbesByProvider, planProbes, providerBlockReason, reportProvider, summarizeProviders } from '@/probe-engine'
+import { classifyFailure, groupProbesByProvider, planProbes, providerBlockReason, reportProvider, shouldSkipModelTail, shouldSkipModelTailAfterBaseline, summarizeProviders } from '@/probe-engine'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm/types'
 import { decodeProgressFrame, encodeProgressFrame, isProviderBlocking, isTransientOutcome } from '@/shared/verify-progress'
-import type { ProbeOutcome, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport } from '@/shared/verify-progress'
+import type { ProbeOutcome, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport } from '@/shared/verify-progress'
 import { check, stable } from '@test/helper'
 
 /**
@@ -23,6 +23,9 @@ const BLOCK_START = { type: 'block-start', index: 0, blockType: 'text' }
 const FINISH_STOP = { type: 'finish', reason: { kind: 'stop' } }
 const finishError = (code: string, status?: number): StreamChunk =>
     ({ type: 'finish', reason: { kind: 'error', failure: failure(code, status) } }) as unknown as StreamChunk
+
+/** 失败事实（`VerifyFailureFacts`）桩：只给 code 与 message，status 恒缺（pi-ai 路径即如此） */
+const failureFacts = (code: string): VerifyFailureFacts => ({ code, status: undefined, message: '文案随便写' })
 
 /** 同上但自定义 message：基线对照判据要看报错原文，故得能构造出回显档位值的报文 */
 const finishErrorText = (code: string, status: number, message: string): StreamChunk =>
@@ -115,7 +118,7 @@ export async function run(): Promise<void> {
     check('classifyFailure 上游限流归瞬态而非不可用', classifyFailure(failure('RATE_LIMIT', 429)) === 'rate-limit')
     check('classifyFailure 上游超时归瞬态而非不可用', classifyFailure(failure('TIMEOUT')) === 'timeout')
 
-    // ---------- isProviderBlocking：只有三类 provider 级失败才短路 ----------
+    // ---------- isProviderBlocking：单看自身就否定整个提供方的只有端点不通与凭据无效 ----------
     check('isProviderBlocking 端点不可达', isProviderBlocking('unreachable') === true)
     check('isProviderBlocking 额度耗尽不短路（额度可能只覆盖其中某个模型）', isProviderBlocking('quota') === false)
     check('isProviderBlocking 凭据无效', isProviderBlocking('credential') === true)
@@ -124,13 +127,28 @@ export async function run(): Promise<void> {
     check('isProviderBlocking 可用不短路', isProviderBlocking('usable') === false)
     check('isProviderBlocking 限流不短路（换个时间可能就通）', isProviderBlocking('rate-limit') === false)
 
-    // ---------- providerBlockReason：上面三类之外，只补一条「本组首个请求就超时」 ----------
+    // ---------- providerBlockReason：判据只有「能断定后续请求必然失败」 ----------
     check('providerBlockReason 端点不通与凭据无效照旧短路', providerBlockReason('unreachable', false) === 'unreachable' && providerBlockReason('credential', true) === 'credential')
-    check('providerBlockReason 首个请求超时按不可达短整组', providerBlockReason('timeout', true) === 'unreachable')
+    check('providerBlockReason 首个请求超时短整组，理由记 timeout 而非 unreachable', providerBlockReason('timeout', true) === 'timeout')
     check('providerBlockReason 首个之后的超时不短路（链路已经跑通过，只是这一次慢）', providerBlockReason('timeout', false) === undefined)
     check('providerBlockReason 首个请求限流不当不可达（端点明明有应答）', providerBlockReason('rate-limit', true) === undefined)
     check('providerBlockReason 额度耗尽即便首个也不短整组（额度可能只覆盖其中某个模型）', providerBlockReason('quota', true) === undefined)
     check('providerBlockReason 可用不短路', providerBlockReason('usable', true) === undefined)
+    check('providerBlockReason 厂商侧拒绝不短整组（多半是服务端的一次性故障）', providerBlockReason('other', true) === undefined)
+
+    // ---------- shouldSkipModelTail：档位请求上只有额度耗尽能断定后续必然失败 ----------
+    check('shouldSkipModelTail 额度耗尽短到该模型尾', shouldSkipModelTail('quota', failureFacts('QUOTA')) === true)
+    check('shouldSkipModelTail 上游 5xx 不断（换个档位可能就通）', shouldSkipModelTail('other', failureFacts('SERVER')) === false)
+    check('shouldSkipModelTail 参数不正确不断（它正是「只否定这一档」的候选）', shouldSkipModelTail('other', failureFacts('INVALID_REQUEST')) === false)
+    check('shouldSkipModelTail 限流与超时不断（只否定了这一次）', shouldSkipModelTail('rate-limit', failureFacts('RATE_LIMIT')) === false && shouldSkipModelTail('timeout', failureFacts('TIMEOUT')) === false)
+    check('shouldSkipModelTail 可用不短', shouldSkipModelTail('usable', undefined) === false)
+    check('shouldSkipModelTail 退化完成（有结论但无失败事实）不短', shouldSkipModelTail('quota', undefined) === false)
+
+    // ---------- shouldSkipModelTailAfterBaseline：基线不带档位，失败与档位无关 ----------
+    check('基线额度耗尽短该模型尾', shouldSkipModelTailAfterBaseline('quota') === true)
+    check('基线被厂商确定性拒绝（模型不存在 / 参数被拒 / 无权限）短该模型尾', shouldSkipModelTailAfterBaseline('other') === true)
+    check('基线限流与超时不断（冷启动、限流窗口都可能让下一次反而跑通）', shouldSkipModelTailAfterBaseline('rate-limit') === false && shouldSkipModelTailAfterBaseline('timeout') === false)
+    check('基线可用不短', shouldSkipModelTailAfterBaseline('usable') === false)
 
     // ---------- isTransientOutcome：瞬态既不算不可用，也不能用来短该模型的后续档位 ----------
     check('isTransientOutcome 限流', isTransientOutcome('rate-limit') === true)
@@ -172,13 +190,13 @@ export async function run(): Promise<void> {
         }),
         dead,
     )
-    // 可达但额度耗尽：端点通、无额度——这正是「凭据有效且有额度」要拆成两态的原因。
-    // 额度不再构成 provider 级短路，故此处不带 blockedBy
+    // 可达但额度耗尽：端点通、凭据没被否——额度多半是按模型设的，否定不了整把 key。
+    // 额度不构成 provider 级短路，故此处不带 blockedBy；出了什么事看 m1 自己的明细条目
     const outOfQuota = report([detail('m1', 'usable', 'off'), detail('m1', 'quota', 'high')])
     check(
-        'reportProvider 额度耗尽：可达但无额度，且不算 provider 级失败',
+        'reportProvider 额度耗尽：可达且不否凭据（额度是模型级事实），不算 provider 级失败',
         stable(outOfQuota) === stable({
-            provider: 'a', reachable: true, keyValid: false, skipped: false, blockedBy: undefined,
+            provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
             models: 1, efforts: 1, unsupported: 0, planned: 3, plannedEfforts: 3, probed: 2, tested: 2,
         }),
         outOfQuota,
@@ -195,9 +213,9 @@ export async function run(): Promise<void> {
     )
     const probedNoKey = report([], undefined, [detail('m1', 'quota')])
     check(
-        'reportProvider 探测撞额度耗尽：端点可达但无额度（额度不构成短路，故 skipped 为假）',
+        'reportProvider 探测撞额度耗尽：端点可达、凭据未被否（额度是模型级事实），且不构成短路故 skipped 为假',
         stable(probedNoKey) === stable({
-            provider: 'a', reachable: true, keyValid: false, skipped: false, blockedBy: undefined,
+            provider: 'a', reachable: true, keyValid: true, skipped: false, blockedBy: undefined,
             models: 0, efforts: 0, unsupported: 0, planned: 3, plannedEfforts: 3, probed: 0, tested: 2,
         }),
         probedNoKey,
@@ -319,14 +337,15 @@ export async function run(): Promise<void> {
         )
     }
     {
-        // 额度耗尽：只压该模型的剩余档位（额度可能只覆盖其中某个模型），不构成 provider 级失败
+        // 额度耗尽：只压该模型的剩余档位（额度可能只覆盖其中某个模型），不构成 provider 级失败，
+        // 也不否凭据——它是模型级事实，整把 key 有没有效还看不出来
         const { llm, calls } = stub({ 'm1@off': [finishError('QUOTA', 429)] })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
         check(
             'verifyModels 额度耗尽跳过后续档位但不算 provider 级失败',
             calls.length === 2 && summary.probed === 1 && summary.planned === 2
             && !summary.providers[0].skipped && summary.providers[0].blockedBy === undefined
-            && summary.providers[0].reachable && !summary.providers[0].keyValid,
+            && summary.providers[0].reachable && summary.providers[0].keyValid,
             { calls, summary },
         )
         // 明细须带上失败的原始事实，调用方可据此做比本插件更细的分类与展示
@@ -410,19 +429,33 @@ export async function run(): Promise<void> {
         )
     }
     {
-        // 模型级短路：某档位报错且不是「档位不支持」时，换个档位也是同样结果，不必再花额度
+        // 模型级短路：档位请求上报额度耗尽时换任何档都是同样结果，不必再花额度
+        const frames: VerifyProgressFrame[] = []
+        const { llm, calls } = stub({ 'm1@off': [finishError('QUOTA', 429)] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] }, {
+            onProgress: (frame) => { frames.push(frame) },
+        })
+        check(
+            'verifyModels 档位请求撞额度耗尽即短该模型尾并记 skipped',
+            calls.length === 2 && summary.probed === 1 && summary.planned === 3
+            && stable(frames[1]) === stable({
+                type: 'probed', provider: 'a', model: 'm1', effort: 'off', outcome: 'quota', skipped: 2, done: 1, total: 3,
+            }),
+            { calls, summary, frames },
+        )
+    }
+    {
+        // 反面：上游 5xx 断不得「后续必然失败」（多半是服务端的一次性故障，换个档位可能就通），
+        // 故档位请求上只记这一条、不短后面的档位
         const frames: VerifyProgressFrame[] = []
         const { llm, calls } = stub({ 'm1@off': [finishError('SERVER_ERROR', 500)] })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] }, {
             onProgress: (frame) => { frames.push(frame) },
         })
         check(
-            'verifyModels 非档位类报错跳过后续档位并记 skipped（探测帧不发出）',
-            // 报错原文没有带引号的档位名，故判不出「不支持」，按模型级短路跳过后续档位
-            calls.length === 2 && summary.probed === 1 && summary.planned === 3
-            && stable(frames[1]) === stable({
-                type: 'probed', provider: 'a', model: 'm1', effort: 'off', outcome: 'other', skipped: 2, done: 1, total: 3,
-            }),
+            'verifyModels 上游 5xx 不参与模型级短路：后续档位照验',
+            calls.length === 4 && summary.probed === 3 && summary.planned === 3 && summary.efforts === 2
+            && frames[1].type === 'probed' && frames[1].outcome === 'other' && frames[1].skipped === undefined,
             { calls, summary, frames },
         )
     }
@@ -447,8 +480,8 @@ export async function run(): Promise<void> {
         })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high'])] })
         check(
-            'verifyModels 5xx 即使回显了档位也不判不支持',
-            calls.length === 2 && summary.unsupported === 0 && summary.probed === 1,
+            'verifyModels 5xx 即使回显了档位也不判不支持，且不短后面的档位',
+            calls.length === 3 && summary.unsupported === 0 && summary.probed === 2,
             { calls, summary },
         )
     }
@@ -478,7 +511,7 @@ export async function run(): Promise<void> {
     }
     {
         // 模型级短路只压该模型自己的档位，同组其余模型照验（provider 级才是压整组）
-        const { llm, calls } = stub({ 'm1@off': [finishError('SERVER_ERROR', 500)] })
+        const { llm, calls } = stub({ 'm1@off': [finishError('QUOTA', 429)] })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] })
         check(
             'verifyModels 模型级短路不牵连同组其它模型',
@@ -557,18 +590,18 @@ export async function run(): Promise<void> {
         )
     }
     {
-        // 本组首个请求就超时（这里正是那条基线探测）：多半是端点压根连不上，
-        // 后面每个模型、每档位再等一次只是把同样的 30 秒乘上几十遍，故按不可达短整组
+        // 本组首个请求就超时（这里正是那条基线探测）：成因在请求之外——url 不可达、端点服务中断、
+        // 本地网络不通，后面每个模型、每档位再等一次只是把同样的 30 秒乘上几十遍，故短整组
         const frames: VerifyProgressFrame[] = []
         const { llm, calls } = stub({ 'm1': [finishError('TIMEOUT')] })
         const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] }, {
             onProgress: (frame) => { frames.push(frame) },
         })
         check(
-            'verifyModels 首个请求超时按不可达短整组（基线也算本组的请求），blockedBy 为 unreachable',
+            'verifyModels 首个请求超时短整组（基线也算本组的请求），blockedBy 记 timeout',
             calls.length === 1 && summary.probed === 0 && summary.planned === 3 && summary.tested === 1
-            // 短路理由记「不可达」，但 reachable 不翻假：超时只是没等到受理，不是传输层失败的证据
-            && summary.providers[0].blockedBy === 'unreachable' && summary.providers[0].reachable
+            // 理由记「超时」而非「不可达」，reachable 也不翻假：超时只是没等到受理，不是传输层失败的证据
+            && summary.providers[0].blockedBy === 'timeout' && summary.providers[0].reachable
             && stable(frames[1]) === stable({
                 type: 'probed', provider: 'a', model: 'm1', effort: undefined, outcome: 'timeout', skipped: 3, done: 1, total: 3,
             }) && frames[2].type === 'done',

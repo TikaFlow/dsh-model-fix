@@ -1,5 +1,5 @@
 // src/probe.ts 与 src/fill.ts 用例：预声明 → 逐档探测 → 收敛写回的整条链（档位不支持的两条件判据、
-// 与档位无关的失败短到模型尾而「参数不正确」不短、provider 级短路（含首个请求超时即按不可达）、未跑完即还原、剔除不支持、忽略排除、帧序列与终帧里的写回统计）
+// 与档位无关的失败短到模型尾而「参数不正确」不短、provider 级短路（含本组首个请求超时即短整组）、未跑完即还原、剔除不支持、忽略排除、帧序列与终帧里的写回统计）
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm/types'
@@ -177,15 +177,16 @@ export async function run(): Promise<void> {
         )
     }
     {
-        // 一档都没验通 ⇒ 档位表算空 ⇒ 整个 reasoningEfforts 键删掉（回到未声明态，不留空壳）
+        // 一档都没验通 ⇒ 档位表算空 ⇒ 整个 reasoningEfforts 键删掉（回到未声明态，不留空壳）。
+        // 顺带钉住判据：厂商侧拒绝（含上游 5xx）断不得「后续必然失败」，故七档一条不少地发完
         const ctx = ctxOf()
         const dead = Object.fromEntries(EFFORT_LEVELS.map((level) => [`m1@${level}`, [finishError('PI_AI_ERROR')]]))
-        const { llm } = stub(dead)
+        const { llm, calls } = stub(dead)
         const summary = await probeAndFill(ctx as unknown as Context, llm, { models: [target('acme', 'm1')] })
         check(
-            '全档没跑通时档位表算空：字段整个删掉（等同未声明，不留空壳）',
-            effortsOf(ctx, 'acme', 'm1') === undefined && summary.usableEfforts.length === 0 && summary.fill?.models === 0,
-            { efforts: effortsOf(ctx, 'acme', 'm1'), fill: summary.fill },
+            '全档没跑通时档位表算空：字段整个删掉（等同未声明，不留空壳），且厂商侧拒绝不短档位尾',
+            calls.length === 7 && effortsOf(ctx, 'acme', 'm1') === undefined && summary.usableEfforts.length === 0 && summary.fill?.models === 0,
+            { calls, efforts: effortsOf(ctx, 'acme', 'm1'), fill: summary.fill },
         )
     }
     {
@@ -248,16 +249,16 @@ export async function run(): Promise<void> {
         check('全组被短路时零写入（还原后与原值相同）', summary.fill?.models === 0 && apiWrites(ctx).length === 2, summary.fill)
     }
     {
-        // 本组首个请求就超时：多半是端点压根连不上，再逐条等下去只是把同样的 30 秒乘上几十遍，
-        // 故按不可达短整组（本功能没有基线，首个请求就是该模型的第一档）
+        // 本组首个请求就超时：成因在请求之外——url 不可达、端点服务中断、本地网络不通，
+        // 再逐条等下去只是把同样的 30 秒乘上几十遍，故短整组（本功能没有基线，首个请求就是该模型的第一档）
         const ctx = ctxOf()
         const { llm, calls } = stub({ 'm1@off': [finishError('TIMEOUT')] })
         const summary = await probeAndFill(ctx as unknown as Context, llm, { models: [target('acme', 'm1'), target('acme', 'm2')] })
         check(
-            '首个请求超时按不可达短整组：只发第一条、blockedBy 为 unreachable',
+            '首个请求超时短整组：只发第一条、blockedBy 记 timeout',
             calls.length === 1 && summary.probed === 1 && summary.planned === 14
-            // 短路理由记「不可达」，但 reachable 不翻假：超时只是没等到受理，不是传输层失败的证据
-            && summary.providers[0].blockedBy === 'unreachable' && summary.providers[0].reachable,
+            // 理由记「超时」而非「不可达」，reachable 也不翻假：超时只是没等到受理，不是传输层失败的证据
+            && summary.providers[0].blockedBy === 'timeout' && summary.providers[0].reachable,
             { calls, report: summary.providers[0] },
         )
         check(

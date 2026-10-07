@@ -26,7 +26,7 @@ import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { PLUGIN_NAME } from '@/shared/constants'
 import type { ProviderBlockReason, ProviderProbeOutcome, VerifyProbeResult, VerifySummary } from '@/shared/verify-progress'
 import type { GroupRunner, ProbeEmitter, ProbeRunOptions, ProviderProbeGroup } from '@/probe-engine'
-import { VERIFY_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, providerBlockReason, runProbeGroups, sameModelTail, shouldSkipModelTail } from '@/probe-engine'
+import { VERIFY_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, providerBlockReason, runProbeGroups, sameModelTail, shouldSkipModelTail, shouldSkipModelTailAfterBaseline } from '@/probe-engine'
 
 /** 验证请求不合法时的报错文案（入参来自浏览器半，一律按不可信输入校验） */
 const VERIFY_REJECT_MESSAGE = `${PLUGIN_NAME}: 验证请求不合法（模型条目或推理级别取值越界）`
@@ -38,20 +38,19 @@ const VERIFY_REJECT_MESSAGE = `${PLUGIN_NAME}: 验证请求不合法（模型条
  * 判「某档位不被支持」只能靠它（理由见 `isEffortRejection`）。基线不是被验对象：它不进明细、
  * 不计任何统计、跑通时也不留记录（用户看到的每一条都该是被验的那一次）。
  * 唯一的例外是**基线失败并据此短路**：那一条档位请求根本没发出去，用户无从得知，只能靠这条记录交代。
+ *   瞬态失败（限流 / 超时）不留这种短路——它们只否定了这一次，随后照常逐档位验（见下）。
  * 两种模型没有基线：关掉档位开关时全部请求本就不带参数，以及模型没有声明任何档位时——
  * 那一次不带档位的请求本身就是被验对象（`needTest` 为假），故基线与它无从分开。
  *
- * 两级短路（基线与验证请求一视同仁）：
- * - **provider 级**：同一提供方共用同一 url 与同一把 key，这次过不了后面同样过不了，没必要再花额度。
- *   判据是 `@/probe-engine` 的 `providerBlockReason`（与「探测式填充」共用）：端点不通 / 凭据无效，
- *   外加**本组首个请求超时**——首条就等满 30 秒多半是端点压根连不上，再逐条等下去只是把同样的
- *   30 秒乘上几十遍。基线探测也算「本组的请求」，故首个请求常常正是它。
- * - **模型级**：某次请求**报错**且不是「只否定这一档」时，同模型的后续档位换过去也是同样结果，同样不必再花额度。
- *   「只否定这一档」恰是唯一值得继续验的结论——换个档位可能就通了，那正是逐档位验的意义。
- *   判据是 `@/probe-engine` 的 `shouldSkipModelTail`（与「探测式填充」共用），本模块只给它的对照：
- *   这里的对照是那条基线探测跑通没有。只对有失败事实的请求生效：正常终止却没有内容块属退化完成，
- *   不是报错，换档位仍可能出内容。限流与超时同样不停（`isTransientOutcome`）：它们只否定了这一次，
- *   否不了下一次，把它固化成「后面的档位也别验了」才是真误判——实测限流挡掉的那一档，隔一会儿就通了。
+ * 两级短路，判据只有一条：**能断定后续请求必然失败**（判据本体在 `@/probe-engine`，与「探测式填充」共用）：
+ * - **provider 级**（`providerBlockReason`）：同一提供方共用同一 url 与同一把 key，这次过不了后面同样过不了。
+ *   端点不通 / 凭据无效，外加**本组首个请求超时**——url 不可达、端点服务中断或本地网络不通，成因都落在
+ *   请求之外，后续只会是同样无意义的超时。基线探测也算「本组的请求」，故首个请求常常正是它。
+ * - **模型级**：档位请求上只有**额度耗尽**够格（`shouldSkipModelTail`）——同一把 key 的额度用完，
+ *   换多少档都是同样结果。**基线请求**不带档位，失败天生与档位无关，故多认「被厂商确定性拒绝」一种
+ *   （`shouldSkipModelTailAfterBaseline`）：模型不存在、参数被拒、无权限，换档位发出去的还是同一个请求。
+ *   限流与超时两者都不算（`isTransientOutcome`）：它们只否定了这一次，否不了下一次——冷启动与限流窗口
+ *   都可能让下一次反而跑通。实测限流挡掉的那一档，隔一会儿就通了。
  * 外部中止同样在此早停：只断在途请求而不停循环，后续请求会带着已中止的信号跑出一串假失败。
  */
 const runGroup: GroupRunner = async (
@@ -95,15 +94,17 @@ const runGroup: GroupRunner = async (
                 // 未发出的条数含当前这条：它同样因基线不通而没发出去
                 emitProbe({ provider: probe.provider, model: probe.model }, testVerdict, group.probes.length - index)
                 break
-            } else {
-                // 基线都没跑通，换任何档位也是同样结果，不必再逐档位烧额度；
-                // 瞬态失败（限流 / 超时）同理：这次没跑成不代表下次也跑不通，但重试同一模型也只是烧额度
-                // （本组首个请求的超时已由上面那条 provider 级规则接走，落到这里的都是链路已跑通过的）
-                // 短路必须留一条记录（模型级，不带档位——没有哪一档被验过）：否则该模型在记录区彻底消失，
-                // 用户只看到别的模型的结果，无从知道它为什么没出现
+            } else if (shouldSkipModelTailAfterBaseline(testVerdict.outcome)) {
+                // 基线请求**不带推理级别**，故它的失败与档位无关：同一模型换任何档位，发出去的还是同一个请求。
+                // 额度用尽、或被厂商确定性拒绝（模型不存在、参数被拒、无权限）时，后续必然同样失败，短到该模型尾
                 emitProbe({ provider: probe.provider, model: probe.model }, testVerdict, tail + 1)
                 index += tail
                 continue
+            } else {
+                // 限流与超时只否定了这一次：冷启动、限流窗口都可能让下一次反而跑通，断不得。
+                // 留一条模型级记录（不带档位——没有哪一档被验过）交代基线为什么没过，随后照常逐档位验：
+                // 用户要的正是「哪一档行」，宁可多烧几次额度也不能替他把答案省掉
+                emitProbe({ provider: probe.provider, model: probe.model }, testVerdict, undefined)
             }
         }
         const verdict = await probeOnce(llm, probe, signal)
@@ -126,7 +127,7 @@ const runGroup: GroupRunner = async (
         if (blockReason !== undefined) {
             blockedBy = blockReason
             skipped = group.probes.length - index - 1
-        } else if (shouldSkipModelTail(outcome, verdict.failure, outcome === 'unsupported-effort')) {
+        } else if (shouldSkipModelTail(outcome, verdict.failure)) {
             skipped = tail
         } else {
             skipped = 0
