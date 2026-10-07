@@ -65,10 +65,46 @@ function readVolatile(config: unknown): unknown {
     return typeof value?.get === 'function' ? value.get() : config
 }
 
+/**
+ * 首轮启动链：迁移 → 读缓存 → 填充 → 探测兜底回退 → 异步刷新。
+ *
+ * 迁移必须最先：否则旧格式的 `version-N` 快照会被填充按当前 schema 误解析。
+ * 填充分两步走：先用缓存即刻生效，再异步刷新目录（`refreshIfStale` 的 ts 初始 0 必过期 ⇒ 启动必拉取），
+ * 与事件路径同构（fix → refreshIfStale → 拉取结算后再 fix）。每个续体前都判一次 `isDisposed`：
+ * 卸载后不读缓存、不触碰已销毁上下文。
+ */
+function runStartupChain(ctx: Context, isDisposed: () => boolean): void {
+    void migrateConfig(ctx, isDisposed)
+        .catch((error: unknown) => {
+            if (isDisposed()) return
+            ctx.logger.warn(`${PLUGIN_NAME}: 配置迁移失败，使用当前生效配置继续：${error instanceof Error ? error.message : String(error)}`)
+        })
+        .then(() => {
+            // 卸载后不再读缓存
+            if (isDisposed()) return
+            return readCache()
+        })
+        .then((cached) => {
+            if (isDisposed()) return
+            if (cached) setCatalog(cached)
+            fix(ctx)
+                .then(() => recoverProbeBackup(ctx, isDisposed))
+                .finally(() => {
+                    if (isDisposed()) return
+                    refreshIfStale(ctx, isDisposed)
+                })
+                .catch((error: unknown) => {
+                    if (isDisposed()) return
+                    ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${error instanceof Error ? error.message : String(error)}`)
+                })
+        })
+}
+
 /** 入口：单一编排体（备份 → 配置源与段变更接线 → RPC → 启动链） */
 export function apply(ctx: Context, config?: unknown): void {
     // 插件级卸载标记：启动链与事件驱动的异步续体都据此中止，卸载后不触碰已销毁上下文
     let disposed = false
+    const isDisposed = (): boolean => disposed
     // 备份仅此一次，且必须早于一切写回（接线即起异步 fix）——晚了备份的就是被填充过的内容；
     // 此刻注册与文档装载都先于 apply，describe() 已含 API_NS，必可读
     captureBackup(ctx)
@@ -77,38 +113,12 @@ export function apply(ctx: Context, config?: unknown): void {
     setConfigSource(() => resolveConfig(readVolatile(config)))
     ctx.on('settings/document-updated', (ns) => {
         if (ns === PLUGIN_NS) refillAfterOwnChange(ctx)
-        else if (ns === API_NS) refillAfterApiChange(ctx, () => disposed)
+        else if (ns === API_NS) refillAfterApiChange(ctx, isDisposed)
     })
     // 浏览器半「强制更新 / 重置推理级别 / 恢复备份」RPC channel（结果经 ConnectionRpcResult 回传卡片）
     installRpc(ctx)
-    // 首轮：迁移 → 缓存 → 填充 → 异步刷新（refreshIfStale 的 ts 初始 0 必过期 ⇒ 启动必拉取），
-    // 与事件路径共用同一入口与守卫；卸载置位后在途结果不触碰已销毁上下文
     ctx.effect(() => {
-        void migrateConfig(ctx, () => disposed)
-            .catch((error) => {
-                if (disposed) return
-                ctx.logger.warn(`${PLUGIN_NAME}: 配置迁移失败，使用当前生效配置继续：${error instanceof Error ? error.message : String(error)}`)
-            })
-            .then(() => {
-                // 卸载后不再读缓存
-                if (disposed) return
-                return readCache()
-            })
-            .then((cached) => {
-                if (disposed) return
-                if (cached) setCatalog(cached)
-                // 先用缓存填充即刻生效，再异步刷新（与事件路径同构：fix → refreshIfStale → 拉取结算后再 fix）
-                fix(ctx)
-                    .then(() => recoverProbeBackup(ctx, () => disposed))
-                    .finally(() => {
-                        if (disposed) return
-                        refreshIfStale(ctx, () => disposed)
-                    })
-                    .catch((error) => {
-                        if (disposed) return
-                        ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${error instanceof Error ? error.message : String(error)}`)
-                    })
-            })
+        runStartupChain(ctx, isDisposed)
         return () => {
             disposed = true
             // 取消待触发的拉取重试定时器（闭包持有 ctx，卸载后不应再触发）

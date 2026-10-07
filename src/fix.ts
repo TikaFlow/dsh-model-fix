@@ -10,8 +10,8 @@ import { getConfig } from '@/config'
 import { stripEmptyFields } from '@/empty'
 import { queueTask } from '@/host'
 import { versionKey } from '@/shared/parse'
-import { isCapacity } from '@/types'
-import { isPlainObject, providersOf, type EffortMemory } from '@/shared/types'
+import { isCapacity, type IndexedCatalog } from '@/types'
+import { isPlainObject, providersOf, type EffortMemory, type PluginConfig } from '@/shared/types'
 import { descriptorOf } from '@/section'
 import { errorText, isSettingsConflict } from '@/writeback'
 
@@ -20,9 +20,18 @@ function toInputValue(image: boolean | undefined): string[] | undefined {
     return image ? ['text', 'image'] : undefined
 }
 
+/** 填充计划：`llm-pi-ai` 段的写回 op 与重建后的 `efforts` 记忆（纯计算产物，不含 revision 与日志文案） */
+export interface FillPlan {
+    readonly ops: SettingsPathOp[]
+    readonly newEfforts: EffortMemory
+    readonly changes: number
+    readonly compatChanges: number
+    readonly excluded: number
+}
+
 /**
- * 遍历提供方计算变更并写回：模型参数与路由兼容性两类 op 在 llm-pi-ai 的**同一批 mutate** 内提交
- * （二者互不影响），记忆清理另起自有 NS 的独立 mutate：
+ * 纯计划函数：遍历提供方，算出模型参数 op、路由 compat op 与重建后的 `efforts` 记忆（零 ctx、可单测）。
+ * 两类 op 在 `llm-pi-ai` 的**同一批 mutate** 内提交（二者互不影响），记忆另起自有 NS 的独立 mutate：
  * - 模型参数：缺失推理级别/容量/图片模态且有目录数据则填充（受 autoFill 对应字段控制），
  *   allowUpdate（force 时单次绕过，不落存储）开启则按目录最新值同步——含缺失补写与已有覆盖
  *   （旧值缺失经 deepEqualJson 判为不一致，属设计裁决，见 AGENTS.md「设计裁决」），并剔除空壳字段
@@ -33,16 +42,136 @@ function toInputValue(image: boolean | undefined): string[] | undefined {
  *   见 src/compat.ts），只写路由级、不写模型级。
  * - 提供方排除：`excludes` 命中的 providerId 在循环入口即整条跳过，填充/compat/force 一律不作用其上
  *   （等效于对该提供方关闭插件；预防性——已写入的值原地保留，见 AGENTS.md 设计裁决）。
- * - 记忆清理：同一两层循环顺带**重建** `efforts` 记忆——只保留「当前 llm-pi-ai 里仍存在的
+ * - 记忆重建：同一两层循环顺带**重建** `efforts` 记忆——只保留「当前 llm-pi-ai 里仍存在的
  *   provider + model」的记忆条目，已删除的模型/提供方不重建即被清除（无需另遍历记忆）；
  *   `excludes` 命中的提供方同样在跳过处**单独循环其模型**按模型重建（不写回该提供方，
- *   但已删除模型的记忆条目一并清除，见 AGENTS.md 设计裁决）。重建结果与旧值经 `deepEqualJson`
- *   相同则零写入，不同才以自有 NS 的 revision 写回 `version-N.efforts`（独立于 llm-pi-ai 的写回批次，
- *   且先于模型写回、失败仅告警不影响主流程）。
+ *   但已删除模型的记忆条目一并清除，见 AGENTS.md 设计裁决）。
  *   整段受 `userExperience.forgetRemoved` 控制（默认开）：关闭时**不做任何操作**——不遍历、不重建、不写回，
- *   已删除模型的记忆条目原样保留（见 AGENTS.md 设计裁决）。
- * 返回变更模型数（不含路由 compat 计数与记忆清理，保持 RPC 契约）；写回失败（冲突重试用尽等）
- * 先告警再抛出，由调用方决定后续处理（RPC 转失败结果回传，事件侧吞掉 rejection）。
+ *   已删除模型的记忆条目原样保留（见 AGENTS.md 设计裁决）。是否落盘由调用方拿 `newEfforts` 与旧值比对。
+ */
+export function planFill(
+    cfg: PluginConfig,
+    providers: Record<string, unknown>,
+    indexed: IndexedCatalog,
+    force: boolean,
+): FillPlan {
+    const allowRules = cfg.allowUpdate
+    const autoRules = cfg.autoFill
+    const compatRules = cfg.compat
+    // 提供方级排除：命中的 id 整条跳过（模型写回与路由 compat 都不作用其上）
+    const excludes = new Set(cfg.excludes)
+    // 记忆清理 = 重建：旧记忆为基线，只保留循环里仍存在的 provider+model 条目，不存在的即被清除。
+    // 受「忘记已删除模型」开关控制：关闭时整段跳过（本循环也不重建），已删除模型的记忆原样保留。
+    const forgetRemoved = cfg.userExperience.forgetRemoved
+    const oldEfforts = cfg.efforts
+    const newEfforts: EffortMemory = {}
+    const ops: SettingsPathOp[] = []
+    let changes = 0
+    let compatChanges = 0
+    let excluded = 0
+    for (const [providerId, provider] of Object.entries(providers)) {
+        if (excludes.has(providerId)) {
+            // 已排除的提供方不执行填充，但要单独重建其记忆，逻辑与下方相同（开关关闭则整段不重建）
+            const models = isPlainObject(provider) ? provider.models : undefined
+            if (forgetRemoved && Array.isArray(models)) {
+                for (let i = 0; i < models.length; i++) {
+                    const model = models[i]
+                    if (!isPlainObject(model) || model.id === undefined || model.id === null) continue
+                    const modelId = String(model.id)
+                    const kept = oldEfforts[providerId]?.[modelId]
+                    if (kept !== undefined) (newEfforts[providerId] ??= {})[modelId] = kept
+                }
+            }
+            excluded++
+            continue
+        }
+        if (!isPlainObject(provider)) continue
+        const { api, models, compat: currentCompat } = provider as { api?: unknown; models?: unknown; compat?: unknown }
+        if (Array.isArray(models)) {
+            let next: Record<string, unknown>[] | undefined
+            for (let i = 0; i < models.length; i++) {
+                const model = models[i]
+                if (!isPlainObject(model) || model.id === undefined || model.id === null) continue
+                const modelId = String(model.id)
+                // 记忆重建：该模型仍存在才重建其记忆条目（已删除的不重建，即被清除；开关关闭则整段不重建）
+                if (forgetRemoved) {
+                    const kept = oldEfforts[providerId]?.[modelId]
+                    if (kept !== undefined) (newEfforts[providerId] ??= {})[modelId] = kept
+                }
+                // 取值一律取自剔除空壳后的模型：空壳在 harness 语义上等同未声明，缺失补写就得认它——
+                // 否则 `reasoningEfforts: {}` 会既不被填又被清掉，要等下一轮事件才补上，凭空多一个来回
+                const cleaned = stripEmptyFields(model)
+                const { reasoningEfforts, contextWindow, maxTokens } = cleaned as {
+                    reasoningEfforts?: unknown
+                    contextWindow?: unknown
+                    maxTokens?: unknown
+                }
+                const entry = lookup(indexed, providerId, modelId)
+                const efforts = toReasoningEfforts(entry)
+                // 图片模态同上：判据取自 cleaned.input
+                const input = cleaned.input
+                const inputValue = toInputValue(entry?.image)
+                // 推理级别
+                const reasoningFillable = autoRules.reasoning
+                    && reasoningEfforts === undefined && !!efforts
+                const reasoningUpdatable = (force || allowRules.reasoning)
+                    && !deepEqualJson(reasoningEfforts, efforts)
+                    && isPlainObject(efforts)
+                // 容量新值须为正整数且非哨兵（写 0 会被宿主 schema 拒绝并连累整批写入）
+                const ctxW = entry?.contextWindow
+                const maxT = entry?.maxTokens
+                const contextFillable = autoRules.context
+                    && contextWindow === undefined && isCapacity(ctxW)
+                const contextUpdatable = (force || allowRules.context)
+                    && ctxW !== contextWindow
+                    && isCapacity(ctxW)
+                const maxTokensFillable = autoRules.context
+                    && maxTokens === undefined && isCapacity(maxT)
+                const maxTokensUpdatable = (force || allowRules.context)
+                    && maxT !== maxTokens
+                    && isCapacity(maxT)
+                const imageFillable = autoRules.image
+                    && input === undefined && !!inputValue
+                const imageUpdatable = (force || allowRules.image)
+                    && !!inputValue
+                    && !deepEqualJson(input, inputValue)
+                if (cleaned === model && !reasoningFillable && !reasoningUpdatable
+                    && !contextFillable && !contextUpdatable && !maxTokensFillable && !maxTokensUpdatable
+                    && !imageFillable && !imageUpdatable) continue
+                changes++
+                next ??= models.slice()
+                const patched = { ...cleaned }
+                if (reasoningFillable || reasoningUpdatable) patched.reasoningEfforts = efforts
+                if (contextFillable || contextUpdatable) patched.contextWindow = ctxW
+                if (maxTokensFillable || maxTokensUpdatable) patched.maxTokens = maxT
+                if (imageFillable || imageUpdatable) patched.input = inputValue
+                next[i] = patched
+            }
+            if (next) {
+                ops.push({ op: 'set', path: ['providers', providerId, 'models'], value: next })
+            }
+        }
+        // 路由级兼容性（与模型参数无关，故 models 缺失也要处理）；协议适用范围见 DEVELOPER_COMPAT_APIS
+        if (typeof api === 'string' && DEVELOPER_COMPAT_APIS.has(api)) {
+            const plan = planProviderCompat(compatRules, currentCompat)
+            if (plan) {
+                compatChanges++
+                ops.push(plan.op === 'set'
+                    ? { op: 'set', path: ['providers', providerId, 'compat'], value: plan.value }
+                    : { op: 'unset', path: ['providers', providerId, 'compat'] })
+            }
+        }
+    }
+    return { ops, newEfforts, changes, compatChanges, excluded }
+}
+
+/**
+ * 填充与写回的编排体：读最新段 → `planFill` 出计划 → 记忆清理与模型写回两次提交 → 返回变更模型数。
+ *
+ * 记忆清理与模型参数分属两段，故这里要写两次，且**先写自有段、再写 `llm-pi-ai`**：记忆写回失败只告警
+ * 不影响主流程（已重建的条目下次事件再收敛），模型写回失败（冲突重试用尽等）先告警再抛出，
+ * 由调用方决定后续处理（RPC 转失败结果回传，事件侧吞掉 rejection）。冲突重试时重读整段以取最新 revision。
+ * 返回变更模型数（不含路由 compat 计数与记忆清理，保持 RPC 契约）。
  *
  * 本函数**不走** `src/writeback.ts` 的写回外壳：它是「先写自有段的记忆清理、再写 llm-pi-ai」的两段式，
  * 且守卫不由它托管，与四个写回端点的单段骨架不同形（理由见该文件的文件头注释）；只复用其中的
@@ -58,129 +187,20 @@ export async function fix(ctx: Context, force = false): Promise<number> {
         const providers = providersOf(descriptor.user)
         if (!providers) return 0
         const cfg = getConfig()
-        const allowRules = cfg.allowUpdate
-        const autoRules = cfg.autoFill
-        const compatRules = cfg.compat
-        // 提供方级排除：命中的 id 整条跳过（模型写回与路由 compat 都不作用其上）
-        const excludes = new Set(cfg.excludes)
-        const indexed = getCatalog()
-        // 记忆清理 = 重建：旧记忆为基线，只保留循环里仍存在的 provider+model 条目，不存在的即被清除。
-        // 受「忘记已删除模型」开关控制：关闭时整段跳过（本循环也不重建），已删除模型的记忆原样保留。
-        const forgetRemoved = cfg.userExperience.forgetRemoved
-        const oldEfforts = cfg.efforts
-        const newEfforts: EffortMemory = {}
-        const ops: SettingsPathOp[] = []
-        let changes = 0
-        let compatChanges = 0
-        let excluded = 0
-        for (const [providerId, provider] of Object.entries(providers)) {
-            if (excludes.has(providerId)) {
-                // 已排除的提供方不执行填充，但要单独重建其记忆，逻辑与下方相同（开关关闭则整段不重建）
-                const models = isPlainObject(provider) ? provider.models : undefined
-                if (forgetRemoved && Array.isArray(models)) {
-                    for (let i = 0; i < models.length; i++) {
-                        const model = models[i]
-                        if (!isPlainObject(model) || model.id === undefined || model.id === null) continue
-                        const modelId = String(model.id)
-                        const kept = oldEfforts[providerId]?.[modelId]
-                        if (kept !== undefined) (newEfforts[providerId] ??= {})[modelId] = kept
-                    }
-                }
-                excluded++
-                continue
-            }
-            if (!isPlainObject(provider)) continue
-            const { api, models, compat: currentCompat } = provider as { api?: unknown; models?: unknown; compat?: unknown }
-            if (Array.isArray(models)) {
-                let next: Record<string, unknown>[] | undefined
-                for (let i = 0; i < models.length; i++) {
-                    const model = models[i]
-                    if (!isPlainObject(model) || model.id === undefined || model.id === null) continue
-                    const modelId = String(model.id)
-                    // 记忆重建：该模型仍存在才重建其记忆条目（已删除的不重建，即被清除；开关关闭则整段不重建）
-                    if (forgetRemoved) {
-                        const kept = oldEfforts[providerId]?.[modelId]
-                        if (kept !== undefined) (newEfforts[providerId] ??= {})[modelId] = kept
-                    }
-                    // 取值一律取自剔除空壳后的模型：空壳在 harness 语义上等同未声明，缺失补写就得认它——
-                    // 否则 `reasoningEfforts: {}` 会既不被填又被清掉，要等下一轮事件才补上，凭空多一个来回
-                    const cleaned = stripEmptyFields(model)
-                    const { reasoningEfforts, contextWindow, maxTokens } = cleaned as {
-                        reasoningEfforts?: unknown
-                        contextWindow?: unknown
-                        maxTokens?: unknown
-                    }
-                    const entry = lookup(indexed, providerId, modelId)
-                    const efforts = toReasoningEfforts(entry)
-                    // 图片模态同上：判据取自 cleaned.input
-                    const input = cleaned.input
-                    const inputValue = toInputValue(entry?.image)
-                    // 推理级别
-                    const reasoningFillable = autoRules.reasoning
-                        && reasoningEfforts === undefined && !!efforts
-                    const reasoningUpdatable = (force || allowRules.reasoning)
-                        && !deepEqualJson(reasoningEfforts, efforts)
-                        && isPlainObject(efforts)
-                    // 容量新值须为正整数且非哨兵（写 0 会被宿主 schema 拒绝并连累整批写入）
-                    const ctxW = entry?.contextWindow
-                    const maxT = entry?.maxTokens
-                    const contextFillable = autoRules.context
-                        && contextWindow === undefined && isCapacity(ctxW)
-                    const contextUpdatable = (force || allowRules.context)
-                        && ctxW !== contextWindow
-                        && isCapacity(ctxW)
-                    const maxTokensFillable = autoRules.context
-                        && maxTokens === undefined && isCapacity(maxT)
-                    const maxTokensUpdatable = (force || allowRules.context)
-                        && maxT !== maxTokens
-                        && isCapacity(maxT)
-                    const imageFillable = autoRules.image
-                        && input === undefined && !!inputValue
-                    const imageUpdatable = (force || allowRules.image)
-                        && !!inputValue
-                        && !deepEqualJson(input, inputValue)
-                    if (cleaned === model && !reasoningFillable && !reasoningUpdatable
-                        && !contextFillable && !contextUpdatable && !maxTokensFillable && !maxTokensUpdatable
-                        && !imageFillable && !imageUpdatable) continue
-                    changes++
-                    next ??= models.slice()
-                    const patched = { ...cleaned }
-                    if (reasoningFillable || reasoningUpdatable) patched.reasoningEfforts = efforts
-                    if (contextFillable || contextUpdatable) patched.contextWindow = ctxW
-                    if (maxTokensFillable || maxTokensUpdatable) patched.maxTokens = maxT
-                    if (imageFillable || imageUpdatable) patched.input = inputValue
-                    next[i] = patched
-                }
-                if (next) {
-                    ops.push({ op: 'set', path: ['providers', providerId, 'models'], value: next })
-                }
-            }
-            // 路由级兼容性（与模型参数无关，故 models 缺失也要处理）；协议适用范围见 DEVELOPER_COMPAT_APIS
-            if (typeof api === 'string' && DEVELOPER_COMPAT_APIS.has(api)) {
-                const plan = planProviderCompat(compatRules, currentCompat)
-                if (plan) {
-                    compatChanges++
-                    ops.push(plan.op === 'set'
-                        ? { op: 'set', path: ['providers', providerId, 'compat'], value: plan.value }
-                        : { op: 'unset', path: ['providers', providerId, 'compat'] })
-                }
-            }
-        }
-
-        try { // 重建记忆不影响主流程；开关关闭时整段不执行（连同上面的重建遍历）
-            if (forgetRemoved && own && !deepEqualJson(newEfforts, oldEfforts)) {
-                await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, [{ op: 'set', path: [versionKey(CONFIG_VERSION), 'efforts'], value: newEfforts }], own.revision))
+        const plan = planFill(cfg, providers, getCatalog(), force)
+        try { // 重建记忆不影响主流程；开关关闭时整段不执行（连同 planFill 里的重建遍历）
+            if (cfg.userExperience.forgetRemoved && own && !deepEqualJson(plan.newEfforts, cfg.efforts)) {
+                await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, [{ op: 'set', path: [versionKey(CONFIG_VERSION), 'efforts'], value: plan.newEfforts }], own.revision))
                 ctx.logger.info(`${PLUGIN_NAME}: 已重建推理级别记忆`)
             }
         } catch (error) {
             ctx.logger.error(`${PLUGIN_NAME}: ${errorText(error)}`)
         }
-
-        if (ops.length === 0) return 0
+        if (plan.ops.length === 0) return 0
         try {
-            await queueTask(ctx, () => ctx.settings.mutate(API_NS, ops, descriptor.revision))
-            ctx.logger.info(`${PLUGIN_NAME}: 已变更 ${changes} 个模型（补充/同步推理级别、容量字段、图片模态、清理空字段）、${compatChanges} 个提供方的路由 compat（developer 角色兼容），跳过 ${excluded} 个已排除提供方`)
-            return changes
+            await queueTask(ctx, () => ctx.settings.mutate(API_NS, plan.ops, descriptor.revision))
+            ctx.logger.info(`${PLUGIN_NAME}: 已变更 ${plan.changes} 个模型（补充/同步推理级别、容量字段、图片模态、清理空字段）、${plan.compatChanges} 个提供方的路由 compat（developer 角色兼容），跳过 ${plan.excluded} 个已排除提供方`)
+            return plan.changes
         } catch (error) {
             if (isSettingsConflict(error) && attempt < MAX_ATTEMPTS) continue
             ctx.logger.warn(`${PLUGIN_NAME}: ${errorText(error)}`)
