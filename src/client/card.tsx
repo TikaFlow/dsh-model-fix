@@ -21,7 +21,8 @@
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
  * 除验证外的操作结果一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）。
  * 弹层不在本文件：样式表与它的注入、说明气泡宽度上限、两处展示数值统一见 card-styles.ts；末尾联系行（仓库地址 / 版本标记 / 反馈入口）见 card-meta.tsx；
- * 「验证模型」弹层（候选列表 + 记录区 + 档位开关 + 发跑/停止）见 verify-dialog.tsx，卡片只递状态与回调。本文件只管卡片的状态与编排。
+ * 「验证模型」弹层（候选列表 + 记录区 + 档位开关 + 发跑/停止）见 verify-dialog.tsx，
+ * 「探测式填充」弹层（两个范围键 + 记录区 + 两个开关）见 probe-dialog.tsx，卡片只递状态与回调。本文件只管卡片的状态与编排。
  */
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -30,7 +31,7 @@ import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TerminalBlockLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 // scope 类型来自本项目的 ConfigForm decode 包装层
 import type { DecodedScope } from '@/client/scope'
-import { ensureStyles, TIP_MAX_WIDTH, VERIFY_TERMINAL_LINES } from '@/client/card-styles'
+import { ensureStyles } from '@/client/card-styles'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import {
@@ -56,6 +57,7 @@ import { ExcludesTile, GroupTile, TILE_ORDER } from '@/client/tile'
 import { CardMeta } from '@/client/card-meta'
 import { ConfirmModal } from '@/client/confirm'
 import { VerifyDialog } from '@/client/verify-dialog'
+import { ProbeDialog } from '@/client/probe-dialog'
 import { errorText } from '@/shared/errors'
 import { isProviderBlocking } from '@/shared/verify-progress'
 import type { UnsupportedEffort, ProbeOutcome, VerifyProbedFrame, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
@@ -63,7 +65,7 @@ import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 
 /** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
 const CHEVRON_DOWN = primitives.IconChevronDownOutlineRegular
-const { Button, Modal, Switch, Tag, StateDot, TerminalBlock, Tooltip, IconInfoOutlineRegular } = primitives
+const { Tag } = primitives
 
 /**
  * 探测跑完到关窗之间的展示延时（毫秒）：补全写回很快，不留时间用户就读不到刚跑出来的结论。
@@ -272,24 +274,6 @@ export function Card(props: CardProps) {
     // 两个探测键各自的模型数（点开弹层时冻结的那份计划）：为 0 的键禁用，不做「点了没反应」
     const unfilledCount = probePlan?.unfilled.length ?? 0
     const allCount = probePlan?.all.length ?? 0
-    /** 探测弹层的两个发起键：在途那个就地变成「停止」，另一个禁用——弹层只有这两个入口，收起它们就只剩关闭 */
-    const probeButton = (scope: 'unfilled' | 'all', count: number) => {
-        const running = busy === 'probe' && probeScope === scope
-        return (
-            <Button
-                variant="outline"
-                className="dsh-mf-warn"
-                disabled={running ? false : busy !== null || count === 0}
-                onClick={running ? stopProbe : () => { runProbe(scope === 'unfilled') }}
-            >
-                {/* 在途指示：宿主 Button 自身即 inline-flex + gap，指示器直接作首个子节点。
-                    键文本保持短——两个范围的大小由正文那句提示交代，不往键上堆 */}
-                {running ? <StateDot state="ongoing" /> : null}
-                {t(running ? 'probeStop' : scope === 'unfilled' ? 'probeUnfilled' : 'probeAll')}
-            </Button>
-        )
-    }
-
     // 保存成功（保存结束且 dirty 归 false）后自动收起，仅限默认收起的席位；
     // 写失败保留草稿与展开态可重试。其余动作的 busy 起止不触碰 saveStarted，不会误收起
     useEffect(() => {
@@ -930,92 +914,26 @@ export function Card(props: CardProps) {
                 onRun={runVerify}
                 onStop={stopVerify}
             />
-            {/* 「探测式填充」弹层：没有候选列表——范围由两个键与「忽略排除」开关决定，故正文依次是
-                记录区（首次发起才出现，与验证同纪律）→ 额度提示 → 两个开关；
-                footer 只留三键，直接吃宿主 .footer 的 flex-end 右对齐，不必自绘行容器。
-                关窗（遮罩 / Escape / × / 关闭键）即中止在途探测，Node 半随即早停并把未跑完的模型还原 */}
-            <Modal
+            {/* 「探测式填充」弹层见 probe-dialog.tsx：两个范围键 + 记录区 + 两个开关，本文件只递状态与回调 */}
+            <ProbeDialog
+                t={t}
                 open={probeOpen}
                 onClose={closeProbe}
-                title={t('probeTitle')}
-                closeLabel={t('close')}
-                description={t('probeDesc')}
-                className="dsh-mf-verifyDialog"
-                footer={<div className="dsh-mf-verifyButtons">
-                    {/* 关闭键在途不禁用：它是本弹层唯一的常驻出口，遮罩 / Escape / × 也都中止，
-                        键却禁着就只剩「干等」一条路（验证那边有「停止」键顶替，故那边禁） */}
-                    <Button variant="outline" data-modal-autofocus onClick={closeProbe}>{t('close')}</Button>
-                    {/* 由宽到窄：先「全部」后「未填充」，两个键各带自己的模型数，
-                        从大到小读下来就是这一轮的范围由大到小的收窄 */}
-                    {probeButton('all', allCount)}
-                    {probeButton('unfilled', unfilledCount)}
-                </div>}
-            >
-                {/* 正文各段的纵向间距一律 12px，由这层容器给出：宿主 .body 无 gap、段靠自身 margin，
-                    而 flex 容器里 margin 不折叠、紧挨两段会相加（此处「范围提示」与「额度提示」正是紧挨两段） */}
-                <div className="dsh-mf-verifyBody">
-                    {/* 探测范围一句说清：两个数分别对应 footer 那两个键（全量 / 未填充），键文本保持短。
-                        两个范围都为空时改说「为何为空」——用户多半是先把提供方排除了 */}
-                    {unfilledCount === 0 && allCount === 0 ? (
-                        <p className="dsh-mf-verifyEmpty" role="status">{t('probeEmpty')}</p>
-                    ) : (
-                        <p className="dsh-mf-verifyQuota">{t('probePlan', {
-                            models: String(allCount),
-                            unfilled: String(unfilledCount),
-                        })}</p>
-                    )}
-                    <p className="dsh-mf-verifyQuota">{t('probeQuota')}</p>
-                    {/* 记录区排在提示之下、开关之上，与验证弹层同序：它是「正在发生的事」，
-                        提示是「这轮会做什么」，两者挨着放才读得顺；反过来就成了在两段静态说明中间夹一块滚动区域。
-                        首次发起才出现——opened 帧一到即有总项数，先于此则没有任何进度可展示 */}
-                    {probeTotal > 0 ? (
-                        <TerminalBlock
-                            command={t('probeCommand', { total: String(probeTotal) })}
-                            output={probeLines.join('\n')}
-                            running={busy === 'probe'}
-                            maxLines={VERIFY_TERMINAL_LINES}
-                            labels={probeTerminalLabels}
-                            className="dsh-mf-verifyLog"
-                        />
-                    ) : null}
-                {/* 两个开关放正文末尾而非 footer：它们是这一轮的参数（探测范围与收敛口径），
-                        与正文里正在发生的事同处一屏，改动即刻可见；footer 因此只剩「关闭 / 探测」，
-                        与其余弹层「footer 只放取消与确认」的形态一致 */}
-                    <div className="dsh-mf-verifyOptions">
-                        <span className="dsh-mf-verifyOption">
-                            <Switch
-                                checked={probeIgnoreExcludes}
-                                disabled={busy === 'probe'}
-                                label={t('probeIgnoreExcludes')}
-                                onChange={toggleIgnoreExcludes}
-                            />
-                            <span>{t('probeIgnoreExcludes')}</span>
-                            {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
-                            <Tooltip label={t('probeIgnoreExcludesTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
-                                <button type="button" className="dsh-mf-help" aria-label={t('probeIgnoreExcludesTip')}>
-                                    <IconInfoOutlineRegular size={12} />
-                                </button>
-                            </Tooltip>
-                        </span>
-                        <span className="dsh-mf-verifyOption">
-                            <Switch
-                                checked={probeDropUnsupported}
-                                // 跑「未填充」时一并禁掉：这一轮压根不读它（见 runProbe），让开关显形地失效，
-                                // 好过留一个亮着的开关骗人——用户在途时看得见这一轮是「只增不剔」
-                                disabled={busy === 'probe' || probeScope === 'unfilled'}
-                                label={t('probeDropUnsupported')}
-                                onChange={setProbeDropUnsupported}
-                            />
-                            <span>{t('probeDropUnsupported')}</span>
-                            <Tooltip label={t('probeDropUnsupportedTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
-                                <button type="button" className="dsh-mf-help" aria-label={t('probeDropUnsupportedTip')}>
-                                    <IconInfoOutlineRegular size={12} />
-                                </button>
-                            </Tooltip>
-                        </span>
-                    </div>
-                </div>
-            </Modal>
+                running={busy === 'probe'}
+                idle={busy === null}
+                scope={probeScope}
+                unfilledCount={unfilledCount}
+                allCount={allCount}
+                onProbe={runProbe}
+                onStop={stopProbe}
+                ignoreExcludes={probeIgnoreExcludes}
+                onIgnoreExcludesChange={toggleIgnoreExcludes}
+                dropUnsupported={probeDropUnsupported}
+                onDropUnsupportedChange={setProbeDropUnsupported}
+                total={probeTotal}
+                lines={probeLines}
+                terminalLabels={probeTerminalLabels}
+            />
         </>
     )
 
