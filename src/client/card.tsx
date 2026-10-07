@@ -684,6 +684,8 @@ export function Card(props: CardProps) {
     const shown = draft ?? saved ?? DEFAULT_FLAGS
     const ready = snap.status === 'ready' && saved !== undefined
     const canWrite = ready && snap.writable === true
+    // 五个动作键共用一个占用态：三个写回端点与两个弹层都牵动模型配置，任一处在途或任一弹层开着，其余四个一并禁用
+    const configLocked = busy !== null || verifyOpen || probeOpen
     const dirty = draft !== null && saved !== undefined && isDirty(draft, saved)
     // 命中集合按草稿算（编辑中即所见即所得），未命中项同样生效，只是当前无同名提供方
     const hits = useMemo(() => resolveHits(shown.excludes, providerIds), [shown.excludes, providerIds])
@@ -1189,10 +1191,11 @@ export function Card(props: CardProps) {
             {/* 动作键独占一行、置于分隔线之上：键数增长后不再与取消/保存挤在同一行 */}
             <div className="dsh-mf-bar">
                 <span className="dsh-mf-actions">
+                    {/* 五个动作键共用一个占用态 configLocked：在途或任一弹层开着都算占用，其余四个一并禁用 */}
                     <button
                         type="button"
                         className="dsh-mf-force"
-                        disabled={!ready || busy !== null}
+                        disabled={!ready || configLocked}
                         onClick={onForce}
                     >
                         {busy === 'force' ? t('forceBusy') : t('force')}
@@ -1200,7 +1203,7 @@ export function Card(props: CardProps) {
                     <button
                         type="button"
                         className="dsh-mf-force"
-                        disabled={!ready || busy !== null}
+                        disabled={!ready || configLocked}
                         onClick={onReset}
                     >
                         {busy === 'reset' ? t('resetBusy') : t('reset')}
@@ -1208,7 +1211,7 @@ export function Card(props: CardProps) {
                     <button
                         type="button"
                         className="dsh-mf-discard"
-                        disabled={!ready || busy !== null}
+                        disabled={!ready || configLocked}
                         onClick={onRestore}
                     >
                         {busy === 'restore' ? t('restoreBusy') : t('restore')}
@@ -1218,7 +1221,7 @@ export function Card(props: CardProps) {
                     <button
                         type="button"
                         className="dsh-mf-discard dsh-mf-warn"
-                        disabled={!ready || busy !== null}
+                        disabled={!ready || configLocked}
                         onClick={onVerify}
                     >
                         {t('verify')}
@@ -1228,7 +1231,7 @@ export function Card(props: CardProps) {
                     <button
                         type="button"
                         className="dsh-mf-discard dsh-mf-warn"
-                        disabled={!ready || busy !== null}
+                        disabled={!ready || configLocked}
                         onClick={onProbe}
                     >
                         {t('probe')}
