@@ -33,7 +33,6 @@ import type { TerminalBlockLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DecodedScope } from '@/client/scope'
 import { ensureStyles } from '@/client/card-styles'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import {
     VERSION_KEY,
     addExclude,
@@ -58,9 +57,10 @@ import { CardMeta } from '@/client/card-meta'
 import { ConfirmModal } from '@/client/confirm'
 import { VerifyDialog } from '@/client/verify-dialog'
 import { ProbeDialog } from '@/client/probe-dialog'
+import type { RpcCarrier } from '@/client/rpc-carrier'
 import { errorText } from '@/shared/errors'
 import { isProviderBlocking } from '@/shared/verify-progress'
-import type { UnsupportedEffort, ProbeOutcome, VerifyProbedFrame, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
+import type { UnsupportedEffort, ProbeOutcome, VerifyProbedFrame } from '@/shared/verify-progress'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 
 /** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
@@ -121,37 +121,12 @@ function verifyLineOf(frame: VerifyProbedFrame, t: TranslateNS<'settings.modelFi
     return frame.skipped === undefined ? line : `${line}${t('verifySkipped', { count: String(frame.skipped) })}`
 }
 
-/** 卡片组件 props（t 由 slots.register 的 locale 席位合成注入；scope/forceUpdate 由入口闭包传入） */
-export interface CardProps {
+/** 卡片组件 props（t 由 slots.register 的 locale 席位合成注入；scope/forceUpdate 由入口闭包传入）；六个调 Node 半的方法由 `RpcCarrier` 给出，入口整包递进来 */
+export interface CardProps extends RpcCarrier {
     t: TranslateNS<'settings.modelFix'>
     scope: DecodedScope<Flags>
     /** 宿主 llm-pi-ai 命名空间：只取 snapshot.user 的提供方 id，判定排除项是否命中 */
     providersScope: DecodedScope<readonly unknown[]>
-    /** 强制更新 RPC：channel 与端点在入口拼好，卡片只消费结果 */
-    forceUpdate: () => Promise<ConnectionRpcResult<unknown>>
-    /** 重置推理级别 RPC：仅剔除模型上的 reasoningEfforts（最大上下文 / 输出上限 / 图片模态可在模型页自行设置，不清除；excludes 命中跳过），配置段原样保留；返回受影响的模型数 */
-    resetModels: () => Promise<ConnectionRpcResult<unknown>>
-    /** 恢复备份 RPC：回退启动时备份（交集 provider+model）到当前配置；返回被恢复的模型数 */
-    restoreModels: () => Promise<ConnectionRpcResult<unknown>>
-    /** 验证模型：走进度流端点，对「模型 × 推理级别」各发一次最小请求（`needTest` 的模型另发一次不计数的探测作对照），逐条回调实时进度；整轮跑完回汇总，被中止（停止 / 关窗 / 断连）回 undefined */
-    verifyModels: (
-        models: readonly VerifyTarget[],
-        onFrame: (frame: VerifyProgressUpdate) => void,
-        signal: AbortSignal,
-    ) => Promise<VerifySummary | undefined>
-    /** 剔除不被支持的推理级别：入参是验证明细给出的「提供方 / 模型 / 档位」清单；返回实际剔掉的档位条数 */
-    pruneEfforts: (targets: readonly UnsupportedEffort[]) => Promise<ConnectionRpcResult<unknown>>
-    /**
-     * 探测式填充：走进度流端点，Node 半先把候选档位临时预声明进配置、再对每个模型逐档各发一次最小请求，
-     * 跑完按结论收敛写回（终帧的 `summary.fill` 带增删统计）。两个开关须与 Node 半的两次写回同值。
-     * 被中止（停止 / 关窗 / 断连）回 undefined——中止不发终帧，且未跑完的模型一律还原成预声明之前的形态。
-     */
-    probeEfforts: (
-        models: readonly VerifyTarget[],
-        flags: { ignoreExcludes: boolean; dropUnsupported: boolean },
-        onFrame: (frame: VerifyProgressUpdate) => void,
-        signal: AbortSignal,
-    ) => Promise<VerifySummary | undefined>
     /** 初始折叠态：插件详情页（plugins.bundle.config）、组件实例详情页（plugins.row.config）与「内置插件」选项卡（settings.plugins.tab）默认展开；模型页 footer 席不传即默认收起（与官方插件卡一致）。同时决定保存成功后是否自动收起——只在默认收起的席位上生效 */
     defaultOpen?: boolean
 }

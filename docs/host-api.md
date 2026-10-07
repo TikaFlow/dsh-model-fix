@@ -182,8 +182,8 @@
 | `node:http` | `IncomingMessage`、`ServerResponse` | type-only | `src/rpc-route.ts` |
 | `@deepseek-ai/dsh-client-ui-primitives` | `import * as primitives`、`TerminalBlockLabels` | **值导入** + type-only | `src/client/card.tsx`、`src/client/tile.tsx`、`src/client/confirm.tsx`、`src/client/verify-dialog.tsx`、`src/client/probe-dialog.tsx`（浏览器半唯一的运行期宿主 UI 依赖） |
 | `@deepseek-ai/dsh-client-ui-settings/client` | `ConfigForm`、`ConfigFormSnapshot` | type-only | `src/client/index.tsx`、`src/client/scope.ts` |
-| `@deepseek-ai/dsh-client-connection/client` | `ClientConnectionRpc` | type-only | `src/client/index.tsx` |
-| `@deepseek-ai/dsh-client-connection` | `ConnectionRpcResult` | type-only | `src/client/card.tsx` |
+| `@deepseek-ai/dsh-client-connection/client` | `ClientConnectionRpc` | type-only | `src/client/rpc-carrier.ts` |
+| `@deepseek-ai/dsh-client-connection` | `ConnectionRpcResult` | type-only | `src/client/rpc-carrier.ts` |
 | `@deepseek-ai/dsh-client-ui-slots` | `TranslateNS` + 合并（`LocaleNamespaceMap` 纳入 `CARD_NS`） | type-only | `TranslateNS`：`src/client/card.tsx` `src/client/tile.tsx` `src/client/card-meta.tsx` `src/client/verify-dialog.tsx` `src/client/probe-dialog.tsx`；合并：`src/client/locale-keys.ts`（`declare module` 扩充 `LocaleNamespaceMap`） |
 | `@deepseek-ai/dsh-api-session-controller/client` | 合并（`ctx.sessions`） | 合并 | `src/client/index.tsx` |
 | `@deepseek-ai/dsh-api-session-controller/types` | `ModelSelection`、`ModelSelectionProjection`、`ModelProviderGroup` | type-only | `src/client/index.tsx`、`src/client/effort.ts` |
