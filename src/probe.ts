@@ -14,8 +14,10 @@
  * 请求形态、受理判据、失败分类、两级短路判据、并发与中止语义全在 `@/probe-engine`（与「验证模型」共用），
  * 本模块只留两处验证没有的东西：**「只否定这一档」的对照怎么取**与**收敛口径**。
  *
- * 两级短路（判据在 `@/probe-engine` 的 `shouldSkipModelTail` 与 `isProviderBlocking`，两功能逐字共用）：
- * - **provider 级**：端点不通 / 凭据无效即短整组——同一提供方共用同一 url 与同一把 key，后面同样过不去。
+ * 两级短路（判据在 `@/probe-engine` 的 `shouldSkipModelTail` 与 `providerBlockReason`，两功能逐字共用）：
+ * - **provider 级**：端点不通 / 凭据无效即短整组——同一提供方共用同一 url 与同一把 key，后面同样过不去；
+ *   外加**本组首个请求超时**：首条就等满 30 秒多半是端点压根连不上，再逐条等下去只是把同样的 30 秒
+ *   乘上几十遍，一条结果都拿不到。首个之后的超时不算不可达，那时链路已经跑通过，只是这一次慢。
  * - **模型级**：某档的失败**与档位无关**时短该模型剩余档位，**额度耗尽是其中最要紧的一种**：
  *   同一把 key 的额度已经见底，换多少档、换哪个模型都是同样结果，继续逐档试纯属烧额度和时间，
  *   用户要的「这一档行不行」在第一次就没了答案。
@@ -34,7 +36,7 @@
  * - 档位表 = `可用 ∪ 原有`，开「剔除不支持」时改为 `可用 ∪ (原有 − 明确判不支持)`。
  * - **档位表算空即整个 `reasoningEfforts` 键删掉**（空对象等同未声明），故「全档不可用」的结果是字段消失，
  *   模型回到未声明态，与剔除路径同一形态。
- * - 该模型没跑完（被 provider 级短路连带）即**原样还原**预声明之前的档位表：半截结论不足以动用户配置。
+ * - 该模型没跑完（被 provider 级或模型级短路连带）即**原样还原**预声明之前的档位表：半截结论不足以动用户配置。
  * - 本轮被中止即**整轮**还原，一个模型都不补、不剔：必须完全跑完才谈补全。
  * - `ignoreExcludes` 同时作用于探测范围与两次写回（用户在本功能里显式要覆盖排除语义）；
  *   `dropUnsupported` 只影响收敛口径。两者都由浏览器半声明，Node 半不替它反推。
@@ -43,10 +45,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { EFFORT_LEVELS, PLUGIN_NAME } from '@/shared/constants'
 import { isPlainObject } from '@/shared/types'
-import { isProviderBlocking } from '@/shared/verify-progress'
 import type { ProviderBlockReason, ProviderProbeOutcome, VerifyProbeResult, VerifySummary } from '@/shared/verify-progress'
 import type { GroupRunner, ProbeEmitter, ProbeRunOptions, ProviderProbeGroup } from '@/probe-engine'
-import { PROBE_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, runProbeGroups, sameModelTail, shouldSkipModelTail } from '@/probe-engine'
+import { PROBE_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, providerBlockReason, runProbeGroups, sameModelTail, shouldSkipModelTail } from '@/probe-engine'
 import type { EffortApply } from '@/fill'
 import { convergeProbeEfforts, declareProbeEfforts } from '@/fill'
 import { clearProbeBackup, saveProbeBackup } from '@/probe-backup'
@@ -60,7 +61,7 @@ function targetKey(provider: string, model: string): string {
     return JSON.stringify([provider, model])
 }
 
-/** 顺序跑完一组的探测请求（组内零并发）：逐档各发一次，provider 级失败短整组、其余按共用判据短到模型尾 */
+/** 顺序跑完一组的探测请求（组内零并发）：逐档各发一次，provider 级失败（含首个请求超时）短整组、其余按共用判据短到模型尾 */
 const runProbeGroup: GroupRunner = async (
     llm: Pick<LlmRuntime, 'stream'>,
     group: ProviderProbeGroup,
@@ -71,11 +72,14 @@ const runProbeGroup: GroupRunner = async (
     // 已跑通至少一档的模型：判「某档不被支持」的第二条件用它替代验证那边的基线对照
     const usable = new Set<string>()
     let blockedBy: ProviderBlockReason | undefined
+    // 本组已发出的请求数：provider 级短路要区分「首个请求就超时」与「链路已跑通、只是这一次慢」
+    let sent = 0
     for (let index = 0; index < group.probes.length; index++) {
         // 外部中止在此早停：只断在途请求而不停循环，后续请求会带着已中止的信号跑出一串假失败
         if (signal.aborted) break
         const probe = group.probes[index]
         const verdict = await probeOnce(llm, probe, signal)
+        sent += 1
         if (verdict.outcome === 'usable') usable.add(probe.model)
         // 判「这一档不被支持」要两个条件：宿主判为「参数不正确」，且该模型已有更低档跑通
         // （更低的档已跑通 ⇒ 端点、凭据、额度、网络与模型名都无碍，唯一剩下的变量就是这一档）。
@@ -93,8 +97,9 @@ const runProbeGroup: GroupRunner = async (
         // 两级短路的「剩余未发出的条数」在此一并算出：provider 级断到组尾，模型级只断到该模型自己的档位尾。
         // 消费方据此交代「还剩几条没探」，被跳过的请求不进 results，故该模型的 probed 少于 planned
         let skipped = 0
-        if (isProviderBlocking(outcome)) {
-            blockedBy = outcome
+        const blockReason = providerBlockReason(outcome, sent === 1)
+        if (blockReason !== undefined) {
+            blockedBy = blockReason
             skipped = group.probes.length - index - 1
         } else if (shouldSkipModelTail(outcome, verdict.failure, outcome === 'unsupported-effort' || isEffortRejection(verdict.failure))) {
             // 参数不正确但还没有对照（更低档还没探到）时**不**短：那一档仍可能是唯一能用的档位，

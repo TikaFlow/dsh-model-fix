@@ -24,10 +24,9 @@
 
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { PLUGIN_NAME } from '@/shared/constants'
-import { isProviderBlocking } from '@/shared/verify-progress'
 import type { ProviderBlockReason, ProviderProbeOutcome, VerifyProbeResult, VerifySummary } from '@/shared/verify-progress'
 import type { GroupRunner, ProbeEmitter, ProbeRunOptions, ProviderProbeGroup } from '@/probe-engine'
-import { VERIFY_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, runProbeGroups, sameModelTail, shouldSkipModelTail } from '@/probe-engine'
+import { VERIFY_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, providerBlockReason, runProbeGroups, sameModelTail, shouldSkipModelTail } from '@/probe-engine'
 
 /** 验证请求不合法时的报错文案（入参来自浏览器半，一律按不可信输入校验） */
 const VERIFY_REJECT_MESSAGE = `${PLUGIN_NAME}: 验证请求不合法（模型条目或推理级别取值越界）`
@@ -44,6 +43,9 @@ const VERIFY_REJECT_MESSAGE = `${PLUGIN_NAME}: 验证请求不合法（模型条
  *
  * 两级短路（基线与验证请求一视同仁）：
  * - **provider 级**：同一提供方共用同一 url 与同一把 key，这次过不了后面同样过不了，没必要再花额度。
+ *   判据是 `@/probe-engine` 的 `providerBlockReason`（与「探测式填充」共用）：端点不通 / 凭据无效，
+ *   外加**本组首个请求超时**——首条就等满 30 秒多半是端点压根连不上，再逐条等下去只是把同样的
+ *   30 秒乘上几十遍。基线探测也算「本组的请求」，故首个请求常常正是它。
  * - **模型级**：某次请求**报错**且不是「只否定这一档」时，同模型的后续档位换过去也是同样结果，同样不必再花额度。
  *   「只否定这一档」恰是唯一值得继续验的结论——换个档位可能就通了，那正是逐档位验的意义。
  *   判据是 `@/probe-engine` 的 `shouldSkipModelTail`（与「探测式填充」共用），本模块只给它的对照：
@@ -62,6 +64,8 @@ const runGroup: GroupRunner = async (
     // 基线结论单列：它真发出去过，能证伪端点与凭据；但它不是被验对象，不混进明细与计数
     const tests: VerifyProbeResult[] = []
     let blockedBy: ProviderBlockReason | undefined
+    // 本组已发出的请求数（含基线）：provider 级短路要区分「首个请求就超时」与「链路已跑通、只是这一次慢」
+    let sent = 0
     // 本组内已发过基线的模型（每模型至多一次）与基线已通过的模型（它们的档位请求失败即判该档位不支持）
     const probed = new Set<string>()
     const baselineOk = new Set<string>()
@@ -74,6 +78,7 @@ const runGroup: GroupRunner = async (
         if (probe.needTest && !probed.has(probe.model)) {
             probed.add(probe.model)
             const testVerdict = await probeOnce(llm, { provider: probe.provider, model: probe.model }, signal)
+            sent += 1
             tests.push({
                 provider: probe.provider,
                 model: probe.model,
@@ -81,17 +86,19 @@ const runGroup: GroupRunner = async (
                 outcome: testVerdict.outcome,
                 failure: testVerdict.failure,
             })
+            const blockReason = testVerdict.outcome === 'usable' ? undefined : providerBlockReason(testVerdict.outcome, sent === 1)
             if (testVerdict.outcome === 'usable') {
                 baselineOk.add(probe.model)
-            } else if (isProviderBlocking(testVerdict.outcome)) {
-                // 端点不通 / 凭据无效：同一提供方共用同一 url 与同一把 key，整组都过不去
-                blockedBy = testVerdict.outcome
+            } else if (blockReason !== undefined) {
+                // 端点不通 / 凭据无效（以及本组首个请求就超时）：同一提供方共用同一 url 与同一把 key，整组都过不去
+                blockedBy = blockReason
                 // 未发出的条数含当前这条：它同样因基线不通而没发出去
                 emitProbe({ provider: probe.provider, model: probe.model }, testVerdict, group.probes.length - index)
                 break
             } else {
                 // 基线都没跑通，换任何档位也是同样结果，不必再逐档位烧额度；
                 // 瞬态失败（限流 / 超时）同理：这次没跑成不代表下次也跑不通，但重试同一模型也只是烧额度
+                // （本组首个请求的超时已由上面那条 provider 级规则接走，落到这里的都是链路已跑通过的）
                 // 短路必须留一条记录（模型级，不带档位——没有哪一档被验过）：否则该模型在记录区彻底消失，
                 // 用户只看到别的模型的结果，无从知道它为什么没出现
                 emitProbe({ provider: probe.provider, model: probe.model }, testVerdict, tail + 1)
@@ -100,6 +107,7 @@ const runGroup: GroupRunner = async (
             }
         }
         const verdict = await probeOnce(llm, probe, signal)
+        sent += 1
         // 基线已通过、且该档位的失败指明了「就是它」时，才判该档位不支持。判据见 isEffortRejection
         const outcome = probe.effort !== undefined && baselineOk.has(probe.model) && isEffortRejection(verdict.failure)
             ? 'unsupported-effort'
@@ -114,8 +122,9 @@ const runGroup: GroupRunner = async (
         // 两级短路的「剩余未发出的条数」在此一并算出：provider 级断到组尾，模型级只断到该模型自己的档位尾。
         // 消费方据此交代「还剩几条没验」，被跳过的请求不进 results，故 probed 少于 planned
         let skipped: number
-        if (isProviderBlocking(outcome)) {
-            blockedBy = outcome
+        const blockReason = providerBlockReason(outcome, sent === 1)
+        if (blockReason !== undefined) {
+            blockedBy = blockReason
             skipped = group.probes.length - index - 1
         } else if (shouldSkipModelTail(outcome, verdict.failure, outcome === 'unsupported-effort')) {
             skipped = tail

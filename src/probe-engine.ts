@@ -4,7 +4,7 @@
  * 两个功能要发的是同一形态的请求（同一把提示词、同一个受理判据、同一种失败分类、同样的
  * provider 间并发 / provider 内串行 / 中止早停 / 进度帧），把它们各写一份必然随演进漂移，
  * 故本模块只留**共用的那一半**：入参校验与计划、分组、单次请求与判定、汇总与汇报、并发编排与进度帧。
- * 两级短路的判据也共用：provider 级是 `isProviderBlocking`（端点不通 / 凭据无效即短整组），
+ * 两级短路的判据也共用：provider 级是 `providerBlockReason`（端点不通 / 凭据无效 / **首个请求超时**，短整组），
  * 模型级是 `shouldSkipModelTail`（失败与档位无关即短到该模型自己的档位尾，额度耗尽是其中最要紧的一种）。
  * 真正不同的只有「一组里怎么逐条跑」——验证按 `needTest` 先发一次不带档位的基线探测，
  * 探测式填充逐档各发一次——故该部分由调用方以 `runGroup` 注入，而「这次失败是否只否定这一档」
@@ -27,9 +27,9 @@ import type { LlmRuntime, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 // LlmFailure 定义在 types 子路径（包根只 import 未再导出）；仅取类型，擦除后不落运行期依赖
 import type { LlmFailure } from '@deepseek-ai/dsh-llm/types'
 import { LEVELS } from '@/constants'
-import type { ProbeOutcome, ProviderProbeOutcome, UnsupportedEffort, UsableEffort, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
+import type { ProbeOutcome, ProviderBlockReason, ProviderProbeOutcome, UnsupportedEffort, UsableEffort, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
 import { isPlainObject } from '@/shared/types'
-import { isTransientOutcome } from '@/shared/verify-progress'
+import { isProviderBlocking, isTransientOutcome } from '@/shared/verify-progress'
 
 /** 探测提示词：只要一句应答，最省 token */
 const PROBE_PROMPT = 'Just say OK'
@@ -244,6 +244,23 @@ export function sameModelTail(probes: readonly VerifyProbe[], from: number): num
     let count = 0
     for (let index = from + 1; index < probes.length && probes[index]?.model === probes[from]?.model; index++) count++
     return count
+}
+
+/**
+ * 该失败是否足以否定**整个提供方**（provider 级短路的唯一判据，验证与探测式填充共用）。
+ *
+ * 返回短路原因，不短路即 `undefined`：
+ * - **端点不通 / 凭据无效**（`isProviderBlocking`）：同一提供方共用同一 url 与同一把 key，一条不通整组都不通。
+ * - **该提供方的首个请求超时**：首条请求就等满 `PROBE_TIMEOUT_MS`，多半是端点压根连不上（域名不通、
+ *   代理挂起、端口没人听）；后面每个模型、每档位再等一次，只会把同样的 30 秒乘上几十遍，
+ *   用户等的却是一条都拿不到的结果。故首个超时即按「不可达」断整组。
+ *   首个之后的超时不当不可达：那时已经跑通过请求，链路是活的，只是这一次慢——仍按瞬态处理。
+ *
+ * `firstRequest` 由各功能按「本组已发出几条请求」给出，验证那边要把它额外的基线探测请求算进去。
+ */
+export function providerBlockReason(outcome: ProbeOutcome, firstRequest: boolean): ProviderBlockReason | undefined {
+    if (isProviderBlocking(outcome)) return outcome
+    return firstRequest && outcome === 'timeout' ? 'unreachable' : undefined
 }
 
 /**

@@ -1,7 +1,7 @@
 // src/verify.ts 与 src/probe-engine.ts 用例：请求计划展开（逐模型逐档位 / needTest 声明 / 入参校验与配额）、按提供方分组、失败分类、逐组汇报、
-// 汇总求和，以及带桩跑通的整条执行链（基线探测现发 + 分组串行 + provider 级失败短路）
+// 汇总求和，以及带桩跑通的整条执行链（基线探测现发 + 分组串行 + provider 级失败短路，含「首个请求超时即按不可达短路」）
 import { verifyModels } from '@/verify'
-import { classifyFailure, groupProbesByProvider, planProbes, reportProvider, summarizeProviders } from '@/probe-engine'
+import { classifyFailure, groupProbesByProvider, planProbes, providerBlockReason, reportProvider, summarizeProviders } from '@/probe-engine'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm/types'
 import { decodeProgressFrame, encodeProgressFrame, isProviderBlocking, isTransientOutcome } from '@/shared/verify-progress'
@@ -123,6 +123,14 @@ export async function run(): Promise<void> {
     check('isProviderBlocking 其它失败不短路', isProviderBlocking('other') === false)
     check('isProviderBlocking 可用不短路', isProviderBlocking('usable') === false)
     check('isProviderBlocking 限流不短路（换个时间可能就通）', isProviderBlocking('rate-limit') === false)
+
+    // ---------- providerBlockReason：上面三类之外，只补一条「本组首个请求就超时」 ----------
+    check('providerBlockReason 端点不通与凭据无效照旧短路', providerBlockReason('unreachable', false) === 'unreachable' && providerBlockReason('credential', true) === 'credential')
+    check('providerBlockReason 首个请求超时按不可达短整组', providerBlockReason('timeout', true) === 'unreachable')
+    check('providerBlockReason 首个之后的超时不短路（链路已经跑通过，只是这一次慢）', providerBlockReason('timeout', false) === undefined)
+    check('providerBlockReason 首个请求限流不当不可达（端点明明有应答）', providerBlockReason('rate-limit', true) === undefined)
+    check('providerBlockReason 额度耗尽即便首个也不短整组（额度可能只覆盖其中某个模型）', providerBlockReason('quota', true) === undefined)
+    check('providerBlockReason 可用不短路', providerBlockReason('usable', true) === undefined)
 
     // ---------- isTransientOutcome：瞬态既不算不可用，也不能用来短该模型的后续档位 ----------
     check('isTransientOutcome 限流', isTransientOutcome('rate-limit') === true)
@@ -546,6 +554,37 @@ export async function run(): Promise<void> {
                 type: 'probed', provider: 'a', model: 'm1', effort: undefined, outcome: 'unreachable', skipped: 3, done: 1, total: 3,
             }) && frames[2].type === 'done',
             { calls, summary, frames },
+        )
+    }
+    {
+        // 本组首个请求就超时（这里正是那条基线探测）：多半是端点压根连不上，
+        // 后面每个模型、每档位再等一次只是把同样的 30 秒乘上几十遍，故按不可达短整组
+        const frames: VerifyProgressFrame[] = []
+        const { llm, calls } = stub({ 'm1': [finishError('TIMEOUT')] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high', 'max'])] }, {
+            onProgress: (frame) => { frames.push(frame) },
+        })
+        check(
+            'verifyModels 首个请求超时按不可达短整组（基线也算本组的请求），blockedBy 为 unreachable',
+            calls.length === 1 && summary.probed === 0 && summary.planned === 3 && summary.tested === 1
+            // 短路理由记「不可达」，但 reachable 不翻假：超时只是没等到受理，不是传输层失败的证据
+            && summary.providers[0].blockedBy === 'unreachable' && summary.providers[0].reachable
+            && stable(frames[1]) === stable({
+                type: 'probed', provider: 'a', model: 'm1', effort: undefined, outcome: 'timeout', skipped: 3, done: 1, total: 3,
+            }) && frames[2].type === 'done',
+            { calls, summary, frames },
+        )
+    }
+    {
+        // 首个之后的超时：链路已经跑通过，只是这一次慢——照旧瞬态处理，既不短整组也不短该模型的档位尾
+        const { llm, calls } = stub({ 'm1@high': [finishError('TIMEOUT')] })
+        const summary = await verifyModels(llm, { models: [entry('a', 'm1', ['off', 'high']), entry('a', 'm2', ['low'])] })
+        check(
+            'verifyModels 首个之后的超时不当不可达：后面的档位与模型照验',
+            calls.length === 5 && summary.probed === 3 && summary.planned === 3
+            && summary.providers[0].blockedBy === undefined && summary.providers[0].reachable
+            && summary.models === 2 && summary.efforts === 2,
+            { calls, summary },
         )
     }
     {

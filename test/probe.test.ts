@@ -1,5 +1,5 @@
 // src/probe.ts 与 src/fill.ts 用例：预声明 → 逐档探测 → 收敛写回的整条链（档位不支持的两条件判据、
-// 与档位无关的失败短到模型尾而「参数不正确」不短、provider 级短路、未跑完即还原、剔除不支持、忽略排除、帧序列与终帧里的写回统计）
+// 与档位无关的失败短到模型尾而「参数不正确」不短、provider 级短路（含首个请求超时即按不可达）、未跑完即还原、剔除不支持、忽略排除、帧序列与终帧里的写回统计）
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm/types'
@@ -246,6 +246,45 @@ export async function run(): Promise<void> {
             { m1: effortsOf(ctx, 'acme', 'm1'), m2: effortsOf(ctx, 'acme', 'm2') },
         )
         check('全组被短路时零写入（还原后与原值相同）', summary.fill?.models === 0 && apiWrites(ctx).length === 2, summary.fill)
+    }
+    {
+        // 本组首个请求就超时：多半是端点压根连不上，再逐条等下去只是把同样的 30 秒乘上几十遍，
+        // 故按不可达短整组（本功能没有基线，首个请求就是该模型的第一档）
+        const ctx = ctxOf()
+        const { llm, calls } = stub({ 'm1@off': [finishError('TIMEOUT')] })
+        const summary = await probeAndFill(ctx as unknown as Context, llm, { models: [target('acme', 'm1'), target('acme', 'm2')] })
+        check(
+            '首个请求超时按不可达短整组：只发第一条、blockedBy 为 unreachable',
+            calls.length === 1 && summary.probed === 1 && summary.planned === 14
+            // 短路理由记「不可达」，但 reachable 不翻假：超时只是没等到受理，不是传输层失败的证据
+            && summary.providers[0].blockedBy === 'unreachable' && summary.providers[0].reachable,
+            { calls, report: summary.providers[0] },
+        )
+        check(
+            '首个超时的两个模型都算没跑完：原样还原（m1 无字段、m2 回到预声明之前的两档）',
+            effortsOf(ctx, 'acme', 'm1') === undefined
+            && stable(effortsOf(ctx, 'acme', 'm2')) === stable({ off: null, high: 'high' }),
+            { m1: effortsOf(ctx, 'acme', 'm1'), m2: effortsOf(ctx, 'acme', 'm2') },
+        )
+    }
+    {
+        // 首个之后的超时：链路已经跑通过，只是这一次慢——照旧瞬态处理，不短整组也不短该模型的档位尾
+        const ctx = ctxOf()
+        const { llm, calls } = stub({ 'm1@minimal': [finishError('TIMEOUT')] })
+        const summary = await probeAndFill(ctx as unknown as Context, llm, { models: [target('acme', 'm1'), target('acme', 'm2')] })
+        check(
+            '首个之后的超时不当不可达：整组照发满十四条，blockedBy 为空',
+            calls.length === 14 && summary.probed === 14 && summary.planned === 14
+            && summary.providers[0].blockedBy === undefined && summary.providers[0].reachable
+            && summary.usableEfforts.length === 13,
+            { calls, report: summary.providers[0] },
+        )
+        // 超时那一档算「这次没跑成」，既不算可用也不算不支持：不开剔除时档位表就是可用 ∪ 原有
+        check(
+            '超时那一档不补进档位表，其余六档照补',
+            stable(Object.keys(effortsOf(ctx, 'acme', 'm1') as Record<string, unknown>)) === stable(EFFORT_LEVELS.filter((level) => level !== 'minimal')),
+            effortsOf(ctx, 'acme', 'm1'),
+        )
     }
     {
         // 中止：整轮还原——已跑完的那个模型也不补（必须完全跑完才谈补全），且中止不发 done 帧
