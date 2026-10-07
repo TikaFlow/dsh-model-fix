@@ -9,6 +9,10 @@
  *   事件流守卫全程打开，避免写回触发填充。
  * - 「验证模型」不在此列：它要回一个持续多帧的进度流，走独立的 `connection.fetch` 路由（见文末）。
  *   只读、不写 settings，故**不占事件流守卫**，也不与三个写回端点互斥。
+ * - 「探测式填充」同样走独立流路由，但它**要写 settings**：一轮之内先把候选档位临时预声明进配置
+ *   （宿主按配置里的声明校验档位，不先声明就出不了网）、跑完再收敛写回，故与写回端点同样以守卫互斥，
+ *   且守卫持有整轮（理由见 `src/probe.ts`）。因此它入口也要先查守卫：别在别的写回在途时插进来，
+ *   那样对方的 finally 会提前解掉它的守卫。
  * - 「剔除推理级别」→ pruneUnsupportedEfforts(ctx, targets) 按验证明细给出的档位清单剔除，
  *   同样经守卫与 `queueTask` 写回。守卫在这里不可省：浏览器半直写绕不过去，
  *   守卫一开，写回触发的 settings 事件就不会让事件链的 `fix` 把刚剔掉的档位又填回来。
@@ -22,9 +26,11 @@
  * 路由由本插件自注册而不走宿主 `connection.rpc.handle`：后者在**服务自己的 ctx** 上求值
  * `owner.webServer`，而 connection 插件自 0.1.5 起不再注入 webServer，故它必然抛错（详见 rpc-route.ts）。
  *
- * 验证进度另开一条 `connection.fetch` 的 exact 路由（`VERIFY_STREAM_ROUTE`）：一次调用要回一个持续多帧的
- * 响应，而 RPC 的「一次调用 = 一个 JSON 结果」形状装不下。走 Connection 的 Fetch 面还白拿信任围栏、
- * 浏览器认证与「客户端断开 → `request.signal`」——据此中止执行，不在用户已经离开之后继续烧他的额度。
+ * 验证与探测式填充的进度各开一条 `connection.fetch` 的 exact 路由（`VERIFY_STREAM_ROUTE` / `PROBE_STREAM_ROUTE`）：
+ * 一次调用要回一个持续多帧的响应，而 RPC 的「一次调用 = 一个 JSON 结果」形状装不下。走 Connection 的
+ * Fetch 面还白拿信任围栏、浏览器认证与「客户端断开 → `request.signal`」——据此中止执行，
+ * 不在用户已经离开之后继续烧他的额度。
+ * 两条流共用同一份 Fetch 实现：线上形状逐字段同形，差别的只有执行器与措辞。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -32,17 +38,22 @@ import type { ConnectionRpcResult, HostConnectionService } from '@deepseek-ai/ds
 // ctx.llm 服务面声明合并（仅 type-only，不引运行期依赖；LLM 服务是插件 inject 依赖，装载即在）
 import type {} from '@deepseek-ai/dsh-llm'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
-import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
-import { PLUGIN_NAME, PLUGIN_NS, VERIFY_STREAM_ROUTE } from '@/shared/constants'
+import { PLUGIN_NAME, PLUGIN_NS, PROBE_STREAM_ROUTE, VERIFY_STREAM_ROUTE } from '@/shared/constants'
 import { encodeProgressFrame } from '@/shared/verify-progress'
+import type { VerifySummary } from '@/shared/verify-progress'
+import type { ProbeRunOptions } from '@/probe-engine'
 import { fix } from '@/fix'
 import { endIgnoreAll, isIgnoreAll, startIgnoreAll } from '@/guard'
 import { parsePruneTargets, pruneUnsupportedEfforts } from '@/prune'
+import { probeAndFill } from '@/probe'
 import { resetModels } from '@/reset'
 import { restoreModels } from '@/restore'
 import { verifyModels } from '@/verify'
 import { createChannelRoute } from '@/rpc-route'
 import type { EndpointHandler } from '@/rpc-route'
+
+/** 一轮执行的入口：载荷 → 进度帧 → 终帧。验证与探测式填充同型，只有执行器与措辞不同 */
+type ProgressRunner = (payload: unknown, options: ProbeRunOptions) => Promise<VerifySummary>
 
 /** 卡片「强制更新」按钮调用的 endpoint 名 */
 const ENDPOINT_FORCE_UPDATE = 'forceUpdate'
@@ -137,33 +148,54 @@ export function installRpc(ctx: Context): void {
                 return { ok: false, error: { code: 'model-fix/unknown-endpoint', message: `未知端点：${endpoint}`, details: {} } }
             }
             const disposeChannel = webServer.register({ kind: 'prefix', path: channel, handler: createChannelRoute(connection, channel, handler) })
-            // 验证进度流走 connection.fetch 的 exact 路由而非 channel：它要的是一个持续多帧的响应，
+            // 两条进度流走 connection.fetch 的 exact 路由而非 channel：它们要的是一个持续多帧的响应，
             // 而 RPC 的一次调用只对应一个 JSON 结果
             const disposeStream = connection.fetch.register({
                 path: VERIFY_STREAM_ROUTE,
                 methods: ['POST'],
                 requestBody: 'buffered',
-                fetch: verifyStreamFetch(ctx.llm),
+                fetch: progressStreamFetch((payload, options) => verifyModels(ctx.llm, payload, options), '验证'),
+            })
+            // 探测式填充的流多带一个 ctx：它一轮之内要写两次配置（预声明 + 收敛），都在守卫内完成
+            const disposeProbe = connection.fetch.register({
+                path: PROBE_STREAM_ROUTE,
+                methods: ['POST'],
+                requestBody: 'buffered',
+                fetch: progressStreamFetch((payload, options) => probeAndFill(ctx, ctx.llm, payload, options), '探测', true),
             })
             return () => {
                 disposeChannel()
                 // fetch.register 的 disposer 是异步的；effect 只负责同步调用它
                 void disposeStream()
+                void disposeProbe()
             }
         }, `${PLUGIN_NAME}: rpc`)
     })
 }
 
 /**
- * 验证进度流的 Fetch 实现：请求体是勾选清单，响应是以 SSE 分帧的进度。
+ * 进度流的 Fetch 实现：请求体是模型清单，响应是以 SSE 分帧的进度。
  *
  * 走 `connection.fetch.register` 而非 `webServer.register` 是刻意的：前者由 Connection 代管信任围栏、
  * 浏览器认证与**客户端断开 → `request.signal`**，后者这些都得自己再搭一遍（见本文件头记的
  * connection 自 0.1.5 起不再注入 webServer 那个坑）。
+ *
+ * 验证与探测式填充共用这一份实现：两者的线上形状逐字段同形（同一批帧类型、同一编解码），
+ * 差别的只有执行器与报错措辞，故那两样由调用方给。
+ *
+ * `needsIdleGuard` 只给会写配置的那条流用：它与写回端点共用事件流守卫做互斥，
+ * 故入口先查守卫，已开即拒（409，文案即给前端展示，故不是裸状态码）。
  */
-function verifyStreamFetch(llm: LlmRuntime): (request: Request) => Promise<Response> {
+function progressStreamFetch(
+    run: ProgressRunner,
+    label: string,
+    needsIdleGuard = false,
+): (request: Request) => Promise<Response> {
     const encoder = new TextEncoder()
     return async (request) => {
+        // 写配置的流（探测式填充）入口先查守卫：别在别的写回在途时插进来，
+        // 那样对方的 finally 会提前解掉本轮的守卫，预声明写回就失去事件链的短路保护
+        if (needsIdleGuard && isIgnoreAll()) return new Response('另一操作进行中，请稍后重试', { status: 409 })
         let payload: unknown
         try {
             payload = await request.json()
@@ -179,9 +211,9 @@ function verifyStreamFetch(llm: LlmRuntime): (request: Request) => Promise<Respo
                         // 客户端已断开，控制器随之失效；无可挽回，也不必上报
                     }
                 }
-                verifyModels(llm, payload, {
+                run(payload, {
                     // 客户端断开时 request.signal 会中止，据此让执行循环早停——
-                    // 验证是即用即弃的诊断，用户已经不在之后继续跑等于白烧他的额度
+                    // 这一轮是即用即弃的诊断，用户已经不在之后继续跑等于白烧他的额度
                     signal: request.signal,
                     onProgress: (frame) => {
                         try {
@@ -192,7 +224,7 @@ function verifyStreamFetch(llm: LlmRuntime): (request: Request) => Promise<Respo
                     },
                 }).then(settle, (error: unknown) => {
                     // 入参非法之类跑不到一帧的情形：只收尾，消费方见「流结束却没等到 done」即知没跑完
-                    console.error(`[${PLUGIN_NAME}] 验证流异常终止`, error)
+                    console.error(`[${PLUGIN_NAME}] ${label}流异常终止`, error)
                     settle()
                 })
             },

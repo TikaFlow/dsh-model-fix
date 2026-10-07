@@ -1,13 +1,13 @@
 /**
-  * fix 编排测试的 ctx 桩：内存 settings 文档 + revision 围栏 + queueTask 降级路径。
+  * fix / probeAndFill 编排测试的 ctx 桩：内存 settings 文档 + revision 围栏 + queueTask 降级路径。
   *
-  * 仅覆盖 fix 实际消费的 ctx 面：
+  * 仅覆盖这两个编排体实际消费的 ctx 面：
   *   - settings.describe() → [{ns, user, revision}]（user 为可变段值，每次 describe 返回实时引用与最新 revision）
   *   - settings.mutate(ns, ops, revision) → 校验 revision 围栏（陈旧即抛 SETTINGS_CONFLICT）、应用 path op、bump revision
   *   - get('hmr') → undefined（使 src/host.ts 的 queueTask 走 task() 降级路径，不依赖 AsyncLocalStorage）
   *   - logger.{info,warn,error} → 空实现
   *
-  * 不实现事件发射（settings/document-updated）：fix 本身不订阅事件，
+  * 不实现事件发射（settings/document-updated）：编排体本身不订阅事件，
   * 事件链守卫由 src/guard.ts 与 test/guard.test.ts 单独覆盖。
   */
 
@@ -29,6 +29,8 @@ export interface StubCtxOpts {
     api?: Record<string, unknown>
     /** tikaflow-model-fix 段值（版本快照容器，需存在以使 efforts 写回的 revision 围栏可用） */
     plugin?: Record<string, unknown>
+    /** 不登记自有段（模拟「自有段还没被 Loader 登记」）：读不到时依赖 excludes 的写回路径必须显式失败 */
+    noPlugin?: boolean
     /** 前 N 次 mutate 调用抛 SETTINGS_CONFLICT（测试 fix 的冲突重试环）；默认 0 */
     conflictFirst?: number
 }
@@ -71,8 +73,8 @@ function applyOp(doc: Record<string, unknown>, op: SettingsPathOp): void {
 export function makeStubCtx(opts: StubCtxOpts = {}): StubCtx {
     const sections = new Map<string, StubSection>([
         [API_NS, { user: structuredClone(opts.api ?? {}), revision: 0 }],
-        [PLUGIN_NS, { user: structuredClone(opts.plugin ?? {}), revision: 0 }],
     ])
+    if (opts.noPlugin !== true) sections.set(PLUGIN_NS, { user: structuredClone(opts.plugin ?? {}), revision: 0 })
     let conflictsLeft = opts.conflictFirst ?? 0
     const mutateCalls: StubCtx['mutateCalls'] = []
 

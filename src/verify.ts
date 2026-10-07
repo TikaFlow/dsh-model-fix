@@ -9,7 +9,7 @@
  * 并发模型：**同一提供方恒为 1 并发**（一个 provider 一条串行链，前一次返回后才发下一次，规避 429），
  * 跨提供方最多 `PROBE_PROVIDER_CONCURRENCY` 路；单次失败即计不可用，不重试不退避（避免在已判定不可用的端点上继续消耗额度与时间）。
  *
- * 判定口径、短路规则、进度帧与中止语义全在 `@/probe-engine`（那处是共用引擎，见其模块注释），
+ * 判定口径、短路规则、进度帧与中止语义全在 `@/probe-engine`（与「探测式填充」共用，见那处的说明），
  * 本模块只留验证独有的一段：**每个模型至多一次不带档位的基线探测**，以及据此判「某档位不被支持」。
  *
  * 中止与进度：接受外部 `signal`（客户端断开或用户点停止 / 关窗）与 `onProgress` 出口。中止同时断掉在途请求
@@ -27,7 +27,7 @@ import { PLUGIN_NAME } from '@/shared/constants'
 import { isProviderBlocking, isTransientOutcome } from '@/shared/verify-progress'
 import type { ProviderBlockReason, ProviderProbeOutcome, VerifyProbeResult, VerifySummary } from '@/shared/verify-progress'
 import type { GroupRunner, ProbeEmitter, ProbeRunOptions, ProviderProbeGroup } from '@/probe-engine'
-import { isEffortRejection, probeOnce, runProbePlan, sameModelTail } from '@/probe-engine'
+import { VERIFY_LIMITS, finishRun, isEffortRejection, planProbeGroups, probeOnce, runProbeGroups, sameModelTail } from '@/probe-engine'
 
 /** 验证请求不合法时的报错文案（入参来自浏览器半，一律按不可信输入校验） */
 const VERIFY_REJECT_MESSAGE = `${PLUGIN_NAME}: 验证请求不合法（模型条目或推理级别取值越界）`
@@ -151,10 +151,13 @@ export type VerifyOptions = ProbeRunOptions
  * 执行一次验证：按用户勾选展开成清单、按提供方分组、逐组跑、逐组汇报并求和。
  * 返回逐提供方结论（可达 / 凭据 / 可用数 / 是否短路）与全局计数；入参非法即抛出，由调用方转 RPC 失败结果。
  */
-export function verifyModels(
+export async function verifyModels(
     llm: Pick<LlmRuntime, 'stream'>,
     payload: unknown,
     options: VerifyOptions = {},
 ): Promise<VerifySummary> {
-    return runProbePlan(llm, payload, VERIFY_REJECT_MESSAGE, runGroup, options)
+    const groups = planProbeGroups(payload, VERIFY_LIMITS, VERIFY_REJECT_MESSAGE)
+    const summary = await runProbeGroups(llm, groups, runGroup, options)
+    finishRun(summary, options)
+    return summary
 }

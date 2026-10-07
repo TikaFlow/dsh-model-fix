@@ -45,6 +45,7 @@
 - **`INVALID_CREDENTIAL` 与 `AUTH` 是两个码**（`src/error.ts` 的注释明确区分：前者是「给了但不能用」，该改值；后者是上游鉴权失败），本仓凭据无效只认 `INVALID_CREDENTIAL` / `MISSING_CREDENTIAL`，不认 `AUTH`。
 - **`ReasoningEffortId`**：`@deepseek-ai/dsh-llm` 的 `src/brand.ts` 里是 `Branded<'ReasoningEffortId'>`，同时有运行期工厂 `ReasoningEffortId(id)`（**不做任何校验**）。本仓**只 type-only 引用类型、用 `as ReasoningEffortId` 断言**，不引运行期构造器（值面不落运行期依赖）。
 - **档位 id 取值由适配器自定**（宿主类型面 `src/types.ts` 的 `LlmReasoningEffortInfo{ id, name, description? }` 与 `LlmModelReasoningInfo{ efforts, defaultEffort? }`）；本仓的档位名来自 models.dev 目录（`src/lookup.ts` 的 `toReasoningEfforts`），不是宿主枚举。不传 `reasoningEffort` 时宿主按 `defaultEffort` 物化（`src/index.ts` 的 `stream` 实现内）——这正是「关档位 = 不发该字段，而不是取最低档」的宿主理由。
+- **宿主按模型公告的档位本地校验显式档位，未公告即拒绝、请求不出网**：`resolveCallWithInfo(config, info)`（`lib/index.js:2174-2188`）里 `info.reasoning === undefined` 时只要带 `reasoningEffort` 就抛 `UNSUPPORTED_REASONING_EFFORT`，否则该档位不在 `reasoning.efforts` 里同样抛（`requested ?? reasoning.defaultEffort` 物化后比对）。**这条决定「探测式填充」整个形态**：带档位的探测只可能落在配置里已声明的档位上，故 `src/probe.ts` 必须先把候选档位**临时预声明**进模型配置（否则七档全被本地拒绝、探测不到任何东西），并在同一轮结束时收敛写回。`info.reasoning` 来自适配器的 `resolveModel`（`resolveModelInfoFor`），每次请求现取。
 
 ### hmr：`executing`（私有面）
 
@@ -58,7 +59,7 @@
 - **`HostConnectionHandle` 关键成员**（`@deepseek-ai/dsh-client-connection` 的 `src/rpc.ts` 的接口声明）：`rpc: HostConnectionRpc`、`fetch: HostConnectionFetch`、`operator: PeerScope`、`createSharedFetchHandler('/api')`、`requestRejection(request)`、`admit(request)`、`authorizeIndex`、`authenticatedUrl`。本插件只读 `requestRejection` 与 `fetch`（`src/rpc.ts` 的 `Pick<HostConnectionService,'requestRejection'|'fetch'>`）。
 - **`requestRejection`**：返回 `401 | 403 | undefined`（接口在 `src/rpc.ts`，实现在同包 `src/rpc-host.ts`）：先 Host/Origin 围栏不过 ⇒ `403`，再浏览器认证不过 ⇒ `401`，否则 `undefined`。宿主自己的 RPC 路由在拒绝时 `res.writeHead(rejection); res.end(rejection === 401 ? 'unauthorized' : 'forbidden')`——`src/rpc-route.ts` 的围栏段逐字照抄了这对文案。
 - **`connection.fetch.register(route)`**：`ConnectionFetchRoute{ path, methods, requestBody, fetch }`（`src/rpc.ts`），`methods` 取 `'GET'|'HEAD'|'POST'`、`requestBody` 取 `'buffered'|'streaming'`，`path` 必须是 `/api` 下的绝对路径（`src/rpc-host.ts` 的 `assertFetchRoute`），重复注册抛 `connection: exact Fetch route ${JSON.stringify(route.path)} is already registered`。**返回异步 disposer**（接口里就是 `() => Promise<void>`）⇒ `src/rpc.ts` 的 disposer 里 `void disposeStream()`。
-- **fetch 回调收到标准 WHATWG `Request`**：`@deepseek-ai/dsh-client-connection` 的 `src/http-bridge.ts`（buffered 走 `new Request(url,{method,headers,body})`，streaming 走 `Readable.toWeb(req)` + `duplex:'half'`）。**`request.signal` 在客户端断开时 abort**（同文件，`res.on('close', () => { if (!res.writableEnded) abort.abort() })`）——这是「关窗/断连即中止验证执行」的宿主机制，本仓把它接到 `verifyModels` 的外部 `signal`。
+- **fetch 回调收到标准 WHATWG `Request`**：`@deepseek-ai/dsh-client-connection` 的 `src/http-bridge.ts`（buffered 走 `new Request(url,{method,headers,body})`，streaming 走 `Readable.toWeb(req)` + `duplex:'half'`）。**`request.signal` 在客户端断开时 abort**（同文件，`res.on('close', () => { if (!res.writableEnded) abort.abort() })`）——这是「关窗/断连即中止验证执行」的宿主机制，本仓把它接到 `verifyModels` / `probeAndFill` 的外部 `signal`。
 - **`buffered` 受配置的 JSON 体上限约束**（`src/rpc-host.ts` 的 `requestBodyMode`：命中 exact route 且 method 匹配才取其 mode，否则一律 `buffered`）；共享 `/api` 分发顺序为 exact routes → interceptor → `404`（同文件）。
 - **RPC 信封与结果类型**（本插件在 `src/rpc-route.ts` 手搓的那套，类型面全在 `@deepseek-ai/dsh-client-connection` 的 `src/rpc.ts`）：
   - `ClientRequest{ type:'client-request'; rpcId; method; payload }`、`ServerResponse{ type:'server-response'; rpcId; result }`、`RpcMessage` 判别联合。宿主落地响应体（`src/rpc-host.ts`）正是 `{ type:'server-response', rpcId, result }`。
@@ -202,7 +203,7 @@
 改这些字面量必须确认宿主侧同名同值；它们散落在常量与内联处，AGENTS.md 只点名了 `PLUGIN_NS` 一处。
 
 - **settings 命名空间**：`PLUGIN_NS = 'tikaflow-model-fix'`（= `cordis.patch.yml` 的 `id`，浏览器半 `configForms.get(ns)` 与 Node 半写回 NS 同一字面量）、`API_NS = 'llm-pi-ai'`（宿主自带段，本插件只读 user 层并在同段写 `providers.<id>.models` 与路由 `compat`）。
-- **RPC channel 与流路由**：`channel = '/tikaflow-model-fix'`、`VERIFY_STREAM_ROUTE = '/api/tikaflow-model-fix/verify'`（`connection.fetch` 的 exact 路由，须落在 `/api` 之下）、`VERIFY_STREAM_URL = VERIFY_STREAM_ROUTE.slice(1)`（浏览器 `fetch` 用文档相对路径）。
+- **RPC channel 与流路由**：`channel = '/tikaflow-model-fix'`、`VERIFY_STREAM_ROUTE = '/api/tikaflow-model-fix/verify'`、`PROBE_STREAM_ROUTE = '/api/tikaflow-model-fix/probe'`（两条都是 `connection.fetch` 的 exact 路由，须落在 `/api` 之下）、`VERIFY_STREAM_URL` / `PROBE_STREAM_URL = 对应 ROUTE.slice(1)`（浏览器 `fetch` 用文档相对路径）。两条流共用 `src/rpc.ts` 的 `progressStreamFetch`（同形状，只差执行器与措辞）；探测那条入口先查事件流守卫（它一轮之内要写两次配置），已开即回 409 + 中文文案。
 - **RPC endpoint 名**：`forceUpdate` / `resetModels` / `restoreModels` / `pruneEfforts`；结果信封 `{ ok: true, value: { changed } }` 或 `{ ok: true, value: { pruned } }`。
 - **本插件错误码**（`ConnectionRpcResult` 的 `error.code`）：`model-fix/write-in-progress`、`model-fix/force-update-failed`、`model-fix/reset-models-failed`、`model-fix/restore-models-failed`、`model-fix/prune-efforts-invalid`、`model-fix/prune-efforts-failed`、`model-fix/unknown-endpoint`。
 - **宿主错误码**：settings 冲突 `SETTINGS_CONFLICT`；信封层 `gateway/bad-request`；宿主自复刻的非法 rpcId 哨兵 `invalid-request`（`INVALID_RPC_ID`，非宿主常量）。

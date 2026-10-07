@@ -208,14 +208,14 @@ export async function run(): Promise<void> {
     check(
         'summarizeProviders 求和（短路组的计划数计入、实测数只计已发出的、tested 取自各组计划）',
         stable(summarizeProviders([ok, blocked], details)) === stable({
-            providers: [ok, blocked], results: details, unsupportedEfforts: [], tested: 5, models: 2, efforts: 3, unsupported: 1, planned: 8, plannedEfforts: 7, probed: 4,
+            providers: [ok, blocked], results: details, unsupportedEfforts: [], usableEfforts: [{ provider: 'a', model: 'm1', effort: 'off' }], tested: 5, models: 2, efforts: 3, unsupported: 1, planned: 8, plannedEfforts: 7, probed: 4,
         }),
         summarizeProviders([ok, blocked], details),
     )
     check(
         'summarizeProviders 空输入',
         stable(summarizeProviders([], [])) === stable({
-            providers: [], results: [], unsupportedEfforts: [], tested: 0, models: 0, efforts: 0, unsupported: 0, planned: 0, plannedEfforts: 0, probed: 0,
+            providers: [], results: [], unsupportedEfforts: [], usableEfforts: [], tested: 0, models: 0, efforts: 0, unsupported: 0, planned: 0, plannedEfforts: 0, probed: 0,
         }),
     )
     // 不支持档位明细由结果派生：剔除要写配置就得逐条定位，聚合与明细同源、不另立口径
@@ -227,6 +227,18 @@ export async function run(): Promise<void> {
         stable(summarizeProviders([], unsupportedDetail).unsupportedEfforts)
         === stable([{ provider: 'a', model: 'm1', effort: 'high' }]),
         summarizeProviders([], unsupportedDetail).unsupportedEfforts,
+    )
+    // 可用档位明细与不支持明细同源同构：探测式填充据此写回补全，两处各筛一遍必然分叉
+    const usableDetail = [
+        { provider: 'a', model: 'm1', effort: 'high', outcome: 'usable', failure: undefined },
+        // 不带档位的请求验的是模型本身，没有「哪一档可用」可言，不进这两只明细
+        { provider: 'a', model: 'm2', effort: undefined, outcome: 'usable', failure: undefined },
+    ] as VerifyProbeResult[]
+    check(
+        'summarizeProviders 可用档位明细逐条给出，且不含不带档位的条目',
+        stable(summarizeProviders([], usableDetail).usableEfforts)
+        === stable([{ provider: 'a', model: 'm1', effort: 'high' }]),
+        summarizeProviders([], usableDetail).usableEfforts,
     )
     // tested 记「计划里探过的模型」而非「可用的模型」：全档位被短路的模型也要计入，否则开档位模式下总数小于用户勾选数。
     // 它取自各组汇报的 tested，故与明细是否为空无关

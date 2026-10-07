@@ -23,6 +23,14 @@ export const VERIFY_STREAM_ROUTE = `/api/${PLUGIN_NS}/verify`
 /** 同一路由的文档相对形式（去掉前导斜杠），供浏览器半 `fetch` 直接使用 */
 export const VERIFY_STREAM_URL = VERIFY_STREAM_ROUTE.slice(1)
 
+/**
+ * 「探测式填充」进度流的路由：与验证流同型（同一 exact 注册面、同样的 `buffered` 请求体、同样的 SSE 回包），
+ * 只是执行器与用途不同——逐档试出哪些推理级别真能用，随后写回补全。
+ */
+export const PROBE_STREAM_ROUTE = `/api/${PLUGIN_NS}/probe`
+/** 同一路由的文档相对形式（去掉前导斜杠），供浏览器半 `fetch` 直接使用 */
+export const PROBE_STREAM_URL = PROBE_STREAM_ROUTE.slice(1)
+
 /** 推理级别取值，与 harness 的 ModelThinkingLevel 一致（由低到高：浏览器半取「最低档位」即取首个命中项） */
 export const EFFORT_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 

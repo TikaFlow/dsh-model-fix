@@ -1,9 +1,13 @@
 /**
- * 「验证模型」的跨半契约：探测明细、逐提供方汇报、进度帧。
+ * 「验证模型」与「探测式填充」共用的跨半契约：探测明细、逐提供方汇报、进度帧。
  *
  * 放在共享层而非 Node 半，是因为浏览器半要解析回传的结果与进度帧——浏览器半不能反向 import Node 半
  * （`tsdown.config.ts` 的跨半纯度门禁），而复制一份类型必然随演进漂移。
  * 本文件只有类型与纯谓词：零 Node 依赖、零 schemastery、零宿主值导入。
+ *
+ * 两个功能共用同一份形状而不另立一套：探测的请求维度与验证完全一致（同样是「模型 × 推理级别」各一次最小请求，
+ * 同样按 `block-start` 判受理、同样只按 `code` 分类、同样 provider 间并发 / provider 内串行），
+ * 故进度帧与汇总逐字段同形，浏览器半也只需一个 SSE 读取器。真正的分岔在「每组怎么跑」那一步（Node 半的执行器）。
  */
 
 import { isPlainObject } from '@/shared/types'
@@ -156,6 +160,36 @@ export interface UnsupportedEffort {
     effort: string
 }
 
+/**
+ * 一个「提供方 / 模型」下的某个推理级别被判为**确实可用**（收到 `block-start`）。
+ *
+ * 与 `UnsupportedEffort` 对称的一只：探测式填充要把可用档位**写回配置**，那就得逐条定位，
+ * 与剔除同理——只给聚合数字的话，浏览器半就得自己从 `results` 里重筛一遍，
+ * 筛选口径一旦与执行器分叉就会漏填或多填。
+ * 只收带档位的条目：不带档位的那次请求验的是模型本身，没有「哪一档可用」可言。
+ */
+export interface UsableEffort {
+    provider: string
+    model: string
+    effort: string
+}
+
+/**
+ * 探测式填充「收敛写回」的结果（相对本轮开始前的配置）：浏览器半直接拿去显示，不再自己算。
+ *
+ * 三个数字的口径都以**本轮开始前**的档位表为基线，而不是以临时预声明的表为基线——
+ * 预声明只是为了让请求出得去（宿主按配置里的声明校验档位），它不是用户配置的一部分，
+ * 把它算进「新增」会虚报成凭空多出来的档位。
+ */
+export interface ProbeFillResult {
+    /** 实际改写了档位表的模型数 */
+    models: number
+    /** 新增的档位条数（原来没声明、这轮验出能用） */
+    added: number
+    /** 删掉的档位条数（原来声明了、这轮判为不能用，或只是临时预声明后收回的——后者不计入） */
+    removed: number
+}
+
 /** 验证结果汇总：逐提供方汇报 + 逐条明细 + 不支持档位明细 + 全局计数 */
 export interface VerifySummary {
     providers: readonly VerifyProviderReport[]
@@ -167,6 +201,17 @@ export interface VerifySummary {
      * 筛选口径一旦与执行器分叉就会漏剔或多剔。
      */
     unsupportedEfforts: readonly UnsupportedEffort[]
+    /**
+     * 判为可用的档位明细（`usableEfforts` 与上面的 `unsupportedEfforts` 同源同构，一对「确实可用 / 确实不支持」的明确状态）。
+     * 探测式填充据此写回补全档位；验证侧也能直接用它（不必从 `results` 里自己筛）。
+     */
+    usableEfforts: readonly UsableEffort[]
+    /**
+     * 收敛写回的结果：**只有探测式填充给出**（验证只读、不碰配置，故此字段恒缺省）。
+     * 它随终帧一起回到浏览器半，因为写回发生在整轮探测之后、终帧之前——
+     * 消费方拿到终帧时看到的已经是写完之后的配置。
+     */
+    fill?: ProbeFillResult
     /** 本次验证的模型数（按「提供方 / 模型」去重），即用户勾了几个；取自计划而非明细，故被短路的模型也在内 */
     tested: number
     /**

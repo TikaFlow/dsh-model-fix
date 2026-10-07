@@ -1,14 +1,16 @@
 /**
- * 「模型 × 推理级别」最小请求的执行引擎：计划展开与校验、按提供方分组、单次请求与判定、
- * 失败分类、逐组汇报与全局汇总、跨提供方并发、进度帧与中止早停。
+ * 「模型 × 推理级别」最小请求的执行引擎：验证与探测式填充共用。
  *
- * 从「验证模型」里抽出成独立模块：验证特有的部分只剩「一组里怎么逐条跑」（基线探测与两级短路），
- * 以 `runGroup` 注入，本模块只负责它之外的共用的那一半。同形态的其它诊断功能可复用同一套编排。
+ * 两个功能要发的是同一形态的请求（同一把提示词、同一个受理判据、同一种失败分类、同样的
+ * provider 间并发 / provider 内串行 / 中止早停 / 进度帧），把它们各写一份必然随演进漂移，
+ * 故本模块只留**共用的那一半**：入参校验与计划、分组、单次请求与判定、汇总与汇报、并发编排与进度帧。
+ * 真正不同的只有「一组里怎么逐条跑」——验证按 `needTest` 先发一次不带档位的基线探测，
+ * 探测式填充逐档各发一次——故该部分由调用方以 `runGroup` 注入。
  *
- * 判定口径：
+ * 判定口径（与本文件同生共死，两功能一致）：
  * - 收到首个 `block-start` 即判该「模型 × 档位」可用，随即中断、不再消耗生成额度；
  *   `usage` 不含受理信息，只判「非 finish 块」会把额度耗尽的 key 误判成可用。
- * - 失败只按宿主 `LlmFailure.code` 分类（宿主明令 route on `code`，不比对文案、也不看 `status`）。
+ * - 失败只按宿主 `LlmFailure.code` 分类（宿主明令 route on `code`），不看 `status`（pi-ai 侧恒缺）、不比对文案。
  * - 限流与超时单列为瞬态：它们只否定这一次，既不算不可用、也不能用来短该模型的后续档位。
  * - 每 provider 单并发（分组即结构保证）、跨 provider 至多 `PROBE_PROVIDER_CONCURRENCY` 路、无退避重试。
  * - 中止同时断在途请求并让执行循环早停；**中止不发 `done` 帧**，消费方见「流自然结束却没等到 done」
@@ -22,7 +24,7 @@ import type { LlmRuntime, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 // LlmFailure 定义在 types 子路径（包根只 import 未再导出）；仅取类型，擦除后不落运行期依赖
 import type { LlmFailure } from '@deepseek-ai/dsh-llm/types'
 import { LEVELS } from '@/constants'
-import type { ProbeOutcome, ProviderProbeOutcome, UnsupportedEffort, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
+import type { ProbeOutcome, ProviderProbeOutcome, UnsupportedEffort, UsableEffort, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
 import { isPlainObject } from '@/shared/types'
 
 /** 探测提示词：只要一句应答，最省 token */
@@ -31,8 +33,6 @@ const PROBE_PROMPT = 'Just say OK'
 const PROBE_TIMEOUT_MS = 30_000
 /** 同时在跑的**提供方**数（不是单提供方并发数——后者恒为 1，由分组串行保证） */
 const PROBE_PROVIDER_CONCURRENCY = 5
-/** 单轮验证的请求总数上限：逐模型逐档位展开会累积条目（基线探测也算一次请求），超出即拒绝而非静默截断 */
-const MAX_VERIFY_PROBES = 200
 
 /** 宿主规范码：额度 / 余额耗尽（`ACCOUNT_QUOTA` 是宿主给「账户余额不足」定的字面量，不是 `ACCOUNT_QUOTA_EXCEEDED`） */
 const QUOTA_CODES: ReadonlySet<string> = new Set(['QUOTA', 'ACCOUNT_QUOTA'])
@@ -87,19 +87,39 @@ export function classifyFailure(failure: LlmFailure): Exclude<ProbeOutcome, 'usa
 }
 
 /**
- * 该失败是否指明「就是这个推理级别不被支持」。两个条件缺一不可：
+ * 该失败是否指明「就是这个推理级别不被支持」的第一个条件：宿主判为「请求参数不正确」
+ * （`INVALID_REQUEST`）。
  *
- * - **宿主判为「请求参数不正确」**（`INVALID_REQUEST`）：不支持必然落在客户端错误里；5xx、限流、
- *   超时、传输中断都是别的问题，不能算到档位头上。该码是宿主 `classifyPiAiError` 用
- *   `/\b400\b|invalid.?request/i` 从报错文案里认出来的，`status` 在 pi-ai 侧恒缺、我们看不到，
- *   故只能取宿主已经归一好的结论，**不再自己比对文案**——上游措辞千差万别（实测有只列可用档位的、
- *   也有原样回显的），还有些网关在 4xx 里回显请求体，按文案匹配只会多出误判面。
- * - **该模型的基线（不带档位）已通过**，由调用方保证，见 `runGroup`。基线已排除端点、凭据、额度、
- *   网络与模型名，唯一剩下的变量就是档位。
+ * 不支持必然落在客户端错误里；5xx、限流、超时、传输中断都是别的问题，不能算到档位头上。该码是宿主
+ * `classifyPiAiError` 用 `/\b400\b|invalid.?request/i` 从报错文案里认出来的，`status` 在 pi-ai 侧恒缺、
+ * 我们看不到，故只能取宿主已经归一好的结论，**不再自己比对文案**——上游措辞千差万别（实测有只列可用档位的、
+ * 也有原样回显的），还有些网关在 4xx 里回显请求体，按文案匹配只会多出误判面。
+ *
+ * 第二个条件是「除档位外别无变量」，两个功能各用自己的对照（验证用不带档位的基线探测，
+ * 探测式填充用同模型已跑通的更低档位），由 `runGroup` 保证后才落「档位不支持」这个结论。
  */
 export function isEffortRejection(failure: VerifyFailureFacts | undefined): boolean {
     return failure?.code === INVALID_REQUEST_CODE
 }
+
+/**
+ * 一轮请求的两条硬闸：真正会发出的**请求数**与计划里的**模型数**。
+ *
+ * 上限约束的是烧掉的额度，故超出即拒绝而非静默截断——截断会让用户以为「全查过了」。
+ * 验证按用户勾选展开（档位累加），探测式填充按模型展开（固定 7 档/模型），量级差一个数量级，
+ * 故两者各给一份配额；入参校验本身共用一份实现（`planProbes`），只有上限不同。
+ */
+export interface ProbeLimits {
+    /** 真正会发出的请求数上限（含不带档位的基线探测） */
+    maxProbes: number
+    /** 计划模型数上限（按「提供方 / 模型」去重） */
+    maxModels: number
+}
+
+/** 验证的配额：勾选展开，请求数封顶 200（超出即拒绝，用户可减少勾选重来） */
+export const VERIFY_LIMITS: ProbeLimits = { maxProbes: 200, maxModels: Number.POSITIVE_INFINITY }
+/** 探测式填充的配额：全量展开为「模型数 × 7 档」，故模型数封顶 200（至多 1400 次最小请求） */
+export const PROBE_LIMITS: ProbeLimits = { maxProbes: 1400, maxModels: 200 }
 
 /**
  * 校验并展开请求载荷为清单：按模型序遍历，每个模型带上它自己要试的那些档位。
@@ -107,9 +127,9 @@ export function isEffortRejection(failure: VerifyFailureFacts | undefined): bool
  * 清单里只有**被验对象**：每个档位一条请求；模型没有档位可验时，那一条不带 `reasoningEffort` 的请求
  * 本身就是被验对象。`needTest` 为真的模型另需一次不带档位的**基线探测**作对照（判「某档位不被支持」全靠它，
  * 上游对这类报错的格式千差万别），但基线不进清单——它在执行阶段按需现发，不被统计、也不产出记录。
- * 任何非法条目或超出 MAX_VERIFY_PROBES 一律拒绝（返回 undefined）。
+ * 任何非法条目或超出 `limits` 一律拒绝（返回 undefined）。
  */
-export function planProbes(payload: unknown): VerifyProbe[] | undefined {
+export function planProbes(payload: unknown, limits: ProbeLimits = VERIFY_LIMITS): VerifyProbe[] | undefined {
     if (!isPlainObject(payload)) return
     const models = payload.models
     if (!Array.isArray(models) || models.length === 0) return
@@ -133,16 +153,15 @@ export function planProbes(payload: unknown): VerifyProbe[] | undefined {
     }
     // 请求数算的是真正会发出的那些（含基线）：它约束的是烧掉的额度，清单长度只是它的一部分。
     // 基线每模型至多一条，故按模型去重后再计数（同一模型的若干档位只多算一条）
-    let requested = probes.length
-    const tested = new Set<string>()
+    const plannedModels = new Set<string>()
+    let requests = probes.length
     for (const probe of probes) {
-        if (!probe.needTest) continue
         const key = JSON.stringify([probe.provider, probe.model])
-        if (tested.has(key)) continue
-        tested.add(key)
-        requested++
+        if (plannedModels.has(key)) continue
+        plannedModels.add(key)
+        if (probe.needTest) requests++
     }
-    return requested > MAX_VERIFY_PROBES ? undefined : probes
+    return requests > limits.maxProbes || plannedModels.size > limits.maxModels ? undefined : probes
 }
 
 /** 按 provider 分组，组内保持探测原序；组序为提供方首次出现序 */
@@ -290,18 +309,21 @@ export function summarizeProviders(
         probed += report.probed
         tested += report.tested
     }
-    // 不支持档位明细：只认明确判为不支持、且确实带档位的条目（不带档位的请求走不到那个结论）。
-    // 与上面的聚合同源，不另算一套口径，免得两处分叉。
+    // 两种明确状态的档位明细（可用 / 不支持）：只认带档位的条目（不带档位的请求走不到这两个结论），
+    // 且与上面的聚合同源，不另算一套口径，免得两处分叉。带档位的逐条明细才是要写回配置的那份——
+    // 浏览器半不自己从 results 里重筛一遍。
+    const usableEfforts: UsableEffort[] = []
     const unsupportedEfforts: UnsupportedEffort[] = []
     for (const item of results) {
-        if (item.outcome === 'unsupported-effort' && item.effort !== undefined) {
-            unsupportedEfforts.push({ provider: item.provider, model: item.model, effort: item.effort })
-        }
+        if (item.effort === undefined) continue
+        if (item.outcome === 'usable') usableEfforts.push({ provider: item.provider, model: item.model, effort: item.effort })
+        else if (item.outcome === 'unsupported-effort') unsupportedEfforts.push({ provider: item.provider, model: item.model, effort: item.effort })
     }
     return {
         providers: reports,
         results,
         unsupportedEfforts,
+        usableEfforts,
         tested,
         models,
         efforts,
@@ -322,7 +344,7 @@ export type ProbeEmitter = (
     skipped: number | undefined,
 ) => void
 
-/** 一组怎么逐条跑：调用方特有的部分全在这个回调里（基线探测、两级短路……） */
+/** 一组怎么逐条跑：两个功能的全部差异都在这个回调里（验证带基线探测，探测式填充逐档平推） */
 export type GroupRunner = (
     llm: Pick<LlmRuntime, 'stream'>,
     group: ProviderProbeGroup,
@@ -339,25 +361,36 @@ export interface ProbeRunOptions {
 }
 
 /**
- * 执行一轮请求：入参校验 → 按提供方分组 → 逐组跑（组内零并发、组间最多五路）→ 逐组汇报并求和。
+ * 校验并展开未信任载荷，按提供方分组返回待跑清单；入参非法即抛出。
+ *
+ * 与执行拆成两步是有原因的：`done` 帧必须等**整轮**结束才发，而探测式填充的「整轮」含收敛写回——
+ * 写回结果要随终帧一起交回浏览器半，故计划得先交到调用方手里（它还要拿模型清单去写配置）。
  *
  * @param payload 未信任的请求载荷（浏览器半发的模型清单）
- * @param rejectMessage 入参非法时的报错文案（由调用方给出，转 RPC 失败结果或流内结束）
- * @param runGroup 一组怎么逐条跑
- * @returns 逐提供方结论（可达 / 凭据 / 可用数 / 是否短路）与全局计数；入参非法即抛出
+ * @param limits 本轮的两条硬闸（请求数 / 模型数），验证与探测式填充各用一份
+ * @param rejectMessage 入参非法时的报错文案：两个功能说法不同，由调用方给出
  */
-export async function runProbePlan(
+export function planProbeGroups(payload: unknown, limits: ProbeLimits, rejectMessage: string): ProviderProbeGroup[] {
+    const probes = planProbes(payload, limits)
+    if (probes === undefined) throw new Error(rejectMessage)
+    return groupProbesByProvider(probes)
+}
+
+/**
+ * 跑完一组清单（组内零并发、组间最多五路）并汇总；**不发 `done` 帧**——终帧由调用方在收尾时发。
+ *
+ * 中止的处理在这里已经定型：已中止即不再开新组，从未开跑的组保持 undefined 并被排除在汇报之外
+ * （把它们报成「全可用」或「全不可用」都是撒谎）。
+ */
+export async function runProbeGroups(
     llm: Pick<LlmRuntime, 'stream'>,
-    payload: unknown,
-    rejectMessage: string,
+    groups: readonly ProviderProbeGroup[],
     runGroup: GroupRunner,
     options: ProbeRunOptions = {},
 ): Promise<VerifySummary> {
-    const probes = planProbes(payload)
-    if (probes === undefined) throw new Error(rejectMessage)
     const signal = options.signal ?? NEVER_ABORTED
-    const groups = groupProbesByProvider(probes)
-    // 稀疏数组：中止时从未开跑的组保持 undefined，汇报时据实排除——把它们报成「全可用」或「全不可用」都是撒谎
+    const total = groups.reduce((sum, group) => sum + group.probes.length, 0)
+    // 稀疏数组：中止时从未开跑的组保持 undefined，汇报时据实排除
     const outcomes = new Array<ProviderProbeOutcome>(groups.length)
     let completed = 0
     const emitProbe: ProbeEmitter = (probe, verdict, skipped): void => {
@@ -371,10 +404,10 @@ export async function runProbePlan(
             outcome: verdict.outcome,
             ...(skipped === undefined ? {} : { skipped }),
             done: completed,
-            total: probes.length,
+            total,
         })
     }
-    options.onProgress?.({ type: 'opened', total: probes.length })
+    options.onProgress?.({ type: 'opened', total })
     // 第 w 个 worker 只跑下标 ≡ w (mod workers) 的组：一个普通 for 即可切分，无需共享游标，
     // 各 worker 拿到的组数相差至多一个；组内逐条 await 即「同一 provider 零并发」
     const workers = Math.min(PROBE_PROVIDER_CONCURRENCY, groups.length)
@@ -392,8 +425,15 @@ export async function runProbePlan(
         reports.push(reportProvider(outcome))
         details.push(...outcome.results)
     }
-    const summary = summarizeProviders(reports, details)
-    // 中止不发 done：消费方见「流自然结束却没等到 done」即知这轮没跑完，据此保留进度而不是报成功
-    if (!signal.aborted) options.onProgress?.({ type: 'done', summary })
-    return summary
+    return summarizeProviders(reports, details)
+}
+
+/**
+ * 收尾发终帧：**中止不发 `done`**——消费方见「流自然结束却没等到 done」即知这轮没跑完，
+ * 据此保留进度而不是报成功。由调用方在全部收尾动作（探测式填充的收敛写回）之后调用，
+ * 故终帧里的汇总已是最终形态。
+ */
+export function finishRun(summary: VerifySummary, options: ProbeRunOptions = {}): void {
+    if (options.signal?.aborted) return
+    options.onProgress?.({ type: 'done', summary })
 }
