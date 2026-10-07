@@ -55,6 +55,7 @@ import type { Flags, Group, RowKey, VerifyCandidate, VerifyTarget } from '@/clie
 import type { CardKey } from '@/client/locales'
 import { ExcludesTile, GroupTile, TILE_ORDER } from '@/client/tile'
 import { CardMeta } from '@/client/card-meta'
+import { ConfirmModal } from '@/client/confirm'
 import { errorText } from '@/shared/errors'
 import { isProviderBlocking } from '@/shared/verify-progress'
 import type { UnsupportedEffort, ProbeOutcome, VerifyProbedFrame, VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
@@ -859,67 +860,68 @@ export function Card(props: CardProps) {
             <CardMeta t={t} />
         </>
     )
-    // 二次确认弹层：宿主 Modal + Button 原语（官方同页删除 provider 同款）；取消键标 data-modal-autofocus——焦点落在可安全退出的一侧（React autoFocus 抢在宿主模态层存触发控件之前，会毁掉关闭后的回焦）
+    // 五层二次确认同形，差异只有标题 / 说明 / 两键文案与红 tint 语义：都归 confirm.tsx 的 ConfirmModal
     const confirms = (
         <>
-            <Modal
+            <ConfirmModal
                 open={confirmOpen}
                 onClose={() => { setConfirmOpen(false) }}
                 title={t('force')}
                 closeLabel={t('close')}
                 description={t('forceConfirm')}
-                footer={<>
-                    <Button variant="outline" data-modal-autofocus onClick={() => { setConfirmOpen(false) }}>{t('cancel')}</Button>
-                    <Button variant="outline" className="dsh-mf-confirmDanger" onClick={runForce}>{t('forceGo')}</Button>
-                </>}
+                cancelLabel={t('cancel')}
+                confirmLabel={t('forceGo')}
+                onConfirm={runForce}
+                danger
             />
-            <Modal
+            <ConfirmModal
                 open={resetConfirmOpen}
                 onClose={() => { setResetConfirmOpen(false) }}
                 title={t('reset')}
                 closeLabel={t('close')}
                 description={t('resetConfirm')}
-                footer={<>
-                    <Button variant="outline" data-modal-autofocus onClick={() => { setResetConfirmOpen(false) }}>{t('cancel')}</Button>
-                    <Button variant="outline" className="dsh-mf-confirmDanger" onClick={runReset}>{t('resetGo')}</Button>
-                </>}
+                cancelLabel={t('cancel')}
+                confirmLabel={t('resetGo')}
+                onConfirm={runReset}
+                danger
             />
-            {/* 恢复确认键不上红 tint：操作不删用户任何东西，红色与语义不符 */}
-            <Modal
+            {/* 恢复不上 danger：操作不删用户任何东西，红色与语义不符 */}
+            <ConfirmModal
                 open={restoreConfirmOpen}
                 onClose={() => { setRestoreConfirmOpen(false) }}
                 title={t('restore')}
                 closeLabel={t('close')}
                 description={t('restoreConfirm')}
-                footer={<>
-                    <Button variant="outline" data-modal-autofocus onClick={() => { setRestoreConfirmOpen(false) }}>{t('cancel')}</Button>
-                    <Button variant="outline" onClick={runRestore}>{t('restoreGo')}</Button>
-                </>}
+                cancelLabel={t('cancel')}
+                confirmLabel={t('restoreGo')}
+                onConfirm={runRestore}
             />
-            {/* 清空记忆确认：只问记忆去留（开关此时已转关）；确认键上红 tint——清空即删除类操作 */}
-            <Modal
+            {/* 清空记忆确认：只问记忆去留（开关此时已转关）；清空即删除类操作，故 danger */}
+            <ConfirmModal
                 open={clearConfirmOpen}
                 onClose={() => { setClearConfirmOpen(false) }}
                 title={t('clearEffortsTitle')}
                 closeLabel={t('close')}
                 description={t('clearEffortsConfirm')}
-                footer={<>
-                    <Button variant="outline" data-modal-autofocus onClick={() => { setClearConfirmOpen(false) }}>{t('clearEffortsKeep')}</Button>
-                    <Button variant="outline" className="dsh-mf-confirmDanger" disabled={busy !== null} onClick={clearEfforts}>{t('clearEffortsGo')}</Button>
-                </>}
+                cancelLabel={t('clearEffortsKeep')}
+                confirmLabel={t('clearEffortsGo')}
+                onConfirm={clearEfforts}
+                danger
+                confirmDisabled={busy !== null}
             />
             {/* 剔除确认：结构照「清空推理级别记忆」那层二次确认，只把两键文案换成「剔除」。
                 出现与否只看 pruneTargets 是否为空——中止、出错、或没有明确判为档位不支持的结论时都不弹 */}
-            <Modal
+            <ConfirmModal
                 open={pruneTargets.length > 0}
                 onClose={closePrune}
                 title={t('pruneTitle')}
                 closeLabel={t('close')}
                 description={t('pruneConfirm', { count: String(pruneTargets.length) })}
-                footer={<>
-                    <Button variant="outline" data-modal-autofocus onClick={closePrune}>{t('cancel')}</Button>
-                    <Button variant="outline" className="dsh-mf-confirmDanger" disabled={busy !== null} onClick={pruneEfforts}>{t('pruneGo')}</Button>
-                </>}
+                cancelLabel={t('cancel')}
+                confirmLabel={t('pruneGo')}
+                onConfirm={pruneEfforts}
+                danger
+                confirmDisabled={busy !== null}
             />
             {/* 「验证模型」弹层：结构逐条照官方 models 页「获取可用模型」的候选框（title / desc / 候选列表 / 底部取消 + 采用），
                 按需求去掉其「搜索 — 全选」工具条一行；改为列表下方一条 warn 额度提示，底部左侧加「验证所有推理级别」开关。
