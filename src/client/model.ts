@@ -45,15 +45,6 @@ export function decodeSection(section: unknown): Flags {
     return isPlainObject(section) ? parseSnapshot(section[VERSION_KEY]) ?? DEFAULT_CONFIG : DEFAULT_CONFIG
 }
 
-/**
- * 解码宿主 `subagent-model-selection-settings` 命名空间整段，取其「允许 Agent 为子智能体选择
- * 模型」开关：它决定「用户体验」组里的「跟随父智能体」是否生效，故只取这一个布尔。
- * 段非法或缺失一律按关闭。永不返回 undefined——那会让宿主 scope 永挂 loading。
- */
-export function decodeSubagentSelection(section: unknown): boolean {
-    return isPlainObject(section) && section.enabled === true
-}
-
 /** 组内布尔对象的视图：组的值类型是 union，类型收窄只在此处发生一次 */
 function rowsOf(flags: Flags, group: Group): Record<string, boolean> {
     return flags[group] as unknown as Record<string, boolean>

@@ -8,7 +8,6 @@ import {
     addExclude,
     applyGroup,
     decodeSection,
-    decodeSubagentSelection,
     groupAllPicked,
     groupValue,
     isDirty,
@@ -283,14 +282,6 @@ export function run(): void {
     check('isDirty efforts 变化不标脏', isDirty({ ...DEFAULT_FLAGS, efforts: { a: { m: 'high' } } }, DEFAULT_FLAGS) === false)
     // followParent 是「用户体验」组的一行，随 GROUPS 遍历一并比较
     check('isDirty userExperience.followParent 不同即为脏', isDirty({ ...DEFAULT_FLAGS, userExperience: { ...DEFAULT_FLAGS.userExperience, followParent: true } }, DEFAULT_FLAGS) === true)
-    // ---------- 宿主「允许 Agent 为子智能体选择模型」段：只认那一个布尔，其余一律按关闭 ----------
-    check('decodeSubagentSelection enabled true 为开', decodeSubagentSelection({ enabled: true }) === true)
-    check('decodeSubagentSelection enabled false / 缺键 / 非布尔 / 非对象为关', decodeSubagentSelection({ enabled: false }) === false
-        && decodeSubagentSelection({}) === false
-        && decodeSubagentSelection({ enabled: 'yes' }) === false
-        && decodeSubagentSelection(undefined) === false
-        && decodeSubagentSelection('x') === false
-        && decodeSubagentSelection([]) === false)
     // ---------- 验证候选：与 providerIdsOf 同源，档位取 reasoningEfforts 的键并按 EFFORT_LEVELS 归一 ----------
     const verifyUser = {
         providers: {

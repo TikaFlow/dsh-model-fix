@@ -77,12 +77,6 @@ const { Tag } = primitives
  */
 const PROBE_CLOSE_DELAY_MS = 2_500
 
-/**
- * 「用户体验」组里因宿主那条设置而不生效的行：宿主「允许 Agent 为子智能体选择模型」开着时，
- * 子智能体的路由由模型自己在授权范围内挑，「跟随父智能体」这一行按下去也不会生效，故只置灰它。
- */
-const FOLLOW_PARENT_DISABLED_ROWS: ReadonlySet<RowKey> = new Set(['followParent'])
-
 /** 宿主 TerminalBlock 的展示文案：该包无语言回退，字段缺一即类型报错，故整份照官方 terminalLabels(t) 提供 */
 function terminalLabelsOf(t: TranslateNS<'settings.modelFix'>): TerminalBlockLabels {
     return {
@@ -136,11 +130,6 @@ export interface CardProps extends RpcCarrier {
     scope: DecodedScope<Flags>
     /** 宿主 llm-pi-ai 命名空间：只取 snapshot.user 的提供方 id，判定排除项是否命中 */
     providersScope: DecodedScope<readonly unknown[]>
-    /**
-     * 宿主「允许 Agent 为子智能体选择模型」命名空间：只取那一个布尔，决定子智能体瓦片里
-     * 两条互斥策略哪一条生效。命名空间缺席（非 Web 组合）时为 undefined，卡片不置灰任何一行。
-     */
-    hostSelectionScope?: DecodedScope<boolean>
     /** 初始折叠态：插件详情页（plugins.bundle.config）、组件实例详情页（plugins.row.config）与「内置插件」选项卡（settings.plugins.tab）默认展开；模型页 footer 席不传即默认收起（与官方插件卡一致）。同时决定保存成功后是否自动收起——只在默认收起的席位上生效 */
     defaultOpen?: boolean
 }
@@ -174,17 +163,6 @@ export function Card(props: CardProps) {
     const providerIds = useMemo(
         () => providerIdsOf(providersSnap.status === 'ready' ? providersSnap.user : undefined),
         [providersSnap],
-    )
-    // 宿主「允许 Agent 为子智能体选择模型」开关：命名空间缺席时订阅退化为空转，值恒 undefined
-    const hostScope = props.hostSelectionScope
-    const hostSelection = useSyncExternalStore(
-        (listener) => hostScope?.subscribe(listener) ?? (() => {}),
-        () => hostScope?.getSnapshot().value,
-    )
-    // 宿主开着那条设置时，路由由模型自己在授权范围内挑，「跟随父智能体」这一行不生效，故只置灰它
-    const userExperienceDisabledRows = useMemo(
-        () => (hostSelection === true ? FOLLOW_PARENT_DISABLED_ROWS : undefined),
-        [hostSelection],
     )
     // 验证候选与提供方 id 同源（同一份 llm-pi-ai user 层），故列表里出现的正是 fix 会遍历的那些模型
     const verifyCandidates = useMemo(
@@ -730,7 +708,6 @@ export function Card(props: CardProps) {
                         flags={shown}
                         open={tileOpen === tile}
                         disabled={!canWrite}
-                        disabledRows={tile === 'userExperience' ? userExperienceDisabledRows : undefined}
                         onToggle={() => { onTileToggle(tile) }}
                         onMaster={() => { onMaster(tile) }}
                         onCell={(key) => { onCell(tile, key) }}

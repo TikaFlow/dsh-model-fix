@@ -29,16 +29,13 @@ export const TILE_ORDER: readonly (Group | 'excludes')[] = ['autoFill', 'allowUp
 
 /** 配置组瓦片（官方「插件列表」项卡同款）：summary 为组名 + 整组开关 + 折叠箭头，展开体为组释义 + 子开关行
  * （每行标题旁带一个说明键，气泡给该设置项释义）；
- * 整行可点由 .dsh-mf-itemToggle 覆盖层承担（无 button 嵌套），可访问名用 aria-labelledby 指向可见标题。
- * `disabledRows` 让卡片按单行的生效条件把个别行置灰（整组仍可用），瓦片自己不判语义。 */
+ * 整行可点由 .dsh-mf-itemToggle 覆盖层承担（无 button 嵌套），可访问名用 aria-labelledby 指向可见标题。 */
 export function GroupTile(props: {
     group: Group
     t: TileTranslate
     flags: Flags
     open: boolean
     disabled: boolean
-    /** 展开体内需单独置灰的行键集合（与整组 `disabled` 或运算） */
-    disabledRows?: ReadonlySet<RowKey>
     onToggle: () => void
     onMaster: () => void
     onCell: (key: RowKey) => void
@@ -74,7 +71,6 @@ export function GroupTile(props: {
                     <p className="dsh-mf-itemHint">{t(HINT_KEYS[group])}</p>
                     {GROUP_KEYS[group].map((key) => {
                         const tip = t(TIP_KEYS[key])
-                        const cellDisabled = props.disabled || props.disabledRows?.has(key) === true
                         return (
                             <div key={key} className="dsh-mf-itemRow">
                                 <span className="dsh-mf-itemLabelGroup">
@@ -90,7 +86,7 @@ export function GroupTile(props: {
                                 </span>
                                 <Switch
                                     checked={groupValue(props.flags, group, key)}
-                                    disabled={cellDisabled}
+                                    disabled={props.disabled}
                                     label={`${t(ROW_KEYS[key])} ${title}`}
                                     onChange={() => { props.onCell(key) }}
                                 />

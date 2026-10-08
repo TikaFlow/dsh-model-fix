@@ -219,7 +219,7 @@
 改这些字面量必须确认宿主侧同名同值；它们散落在常量与内联处，AGENTS.md 只点名了 `PLUGIN_NS` 一处。
 
 - **settings 命名空间**：`PLUGIN_NS = 'tikaflow-model-fix'`（= `cordis.patch.yml` 的 `id`，浏览器半 `configForms.get(ns)` 与 Node 半写回 NS 同一字面量）、`API_NS = 'llm-pi-ai'`（宿主自带段，本插件只读 user 层并在同段写 `providers.<id>.models` 与路由 `compat`）。
-- **子智能体相关的宿主字面量**：`SUBAGENT_MODEL_SELECTION_NS = 'subagent-model-selection-settings'`（宿主 `cordis.patch.yml` 里那条 patch 的 `id`，同时是 settings 命名空间名；浏览器半 `configForms.get(ns)` 读它、Node 半 `ctx.get('subagentModelSelection')` 读同一设置，**该命名空间/服务在 CLI/TUI 组合缺席 ⇒ 一律按关闭处理**）、cordis 服务名 `subagentModelSelection`、`SessionHeader.origin = 'subagent'`。
+- **子智能体相关的宿主字面量**：cordis 服务名 `subagentModelSelection`（宿主「允许 Agent 为子智能体选择模型」设置服务，**该服务在 CLI/TUI 组合缺席 ⇒ 一律按关闭处理**）、`SessionHeader.origin = 'subagent'`。同一设置在浏览器半的对应 settings 命名空间（`subagent-model-selection-settings`）**本仓不读**：卡片不判该开关的生效条件（见 `docs/decisions.md`），故该命名空间不是本仓的依赖面，CLI/TUI 缺席与否也不影响 UI。
 - **RPC channel 与流路由**：`channel = '/tikaflow-model-fix'`、`VERIFY_STREAM_ROUTE = '/api/tikaflow-model-fix/verify'`、`PROBE_STREAM_ROUTE = '/api/tikaflow-model-fix/probe'`（两条都是 `connection.fetch` 的 exact 路由，须落在 `/api` 之下）、`VERIFY_STREAM_URL` / `PROBE_STREAM_URL = 对应 ROUTE.slice(1)`（浏览器 `fetch` 用文档相对路径）。两条流共用 `src/rpc.ts` 的 `progressStreamFetch`（同形状，只差执行器与措辞）；探测那条入口先查事件流守卫（它一轮之内要写两次配置），已开即回 409 + 中文文案。
 - **RPC endpoint 名**：`forceUpdate` / `resetModels` / `restoreModels` / `pruneEfforts`；结果信封 `{ ok: true, value: { changed } }` 或 `{ ok: true, value: { pruned } }`。
 - **本插件错误码**（`ConnectionRpcResult` 的 `error.code`）：`model-fix/write-in-progress`、`model-fix/force-update-failed`、`model-fix/reset-models-failed`、`model-fix/restore-models-failed`、`model-fix/prune-efforts-invalid`、`model-fix/prune-efforts-failed`、`model-fix/unknown-endpoint`。
