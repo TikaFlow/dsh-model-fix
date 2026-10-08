@@ -37,7 +37,7 @@ export const FIELD_KEYS = ['reasoning', 'context', 'image'] as const
 /** 兼容性规则键（compat 组的行）；后续同组新增兼容性配置在此追加即可，不需要递增 CONFIG_VERSION */
 export const COMPAT_KEYS = ['disableDeveloper'] as const
 
-/** 用户体验组的行键；同组新增行键在此追加即可（新增顶层组才需递增 CONFIG_VERSION；已随 v6 / v7 落地的键见 migrate.ts 的升级台阶） */
+/** 用户体验组的行键；同组新增行键在此追加即可（新增顶层组才需递增 CONFIG_VERSION；已随 v6 / v7 落地的键见 upgrade.ts 的升级台阶） */
 export const USER_EXPERIENCE_KEYS = ['rememberEfforts', 'defaultHigh', 'forgetRemoved'] as const
 
 /** 解析版本快照键 version-N；非法返回 undefined。严格匹配规范键（重建键名需与实际键一致，禁宽泛归一） */

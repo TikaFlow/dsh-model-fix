@@ -25,7 +25,7 @@ export const GROUP_KEYS: Record<Group, readonly RowKey[]> = {
     userExperience: USER_EXPERIENCE_KEYS,
 }
 
-/** 全部布尔配置组（脏检测遍历用；瓦片渲染顺序见 card.tsx 的 TILE_ORDER，排除提供方夹在 compat 与 userExperience 之间） */
+/** 全部布尔配置组（脏检测遍历用；瓦片渲染顺序见 tile.tsx 的 TILE_ORDER，排除提供方夹在 compat 与 userExperience 之间） */
 const GROUPS: readonly Group[] = ['autoFill', 'allowUpdate', 'compat', 'userExperience']
 
 /** 组内行键全集（词典键映射与各组行表的类型） */

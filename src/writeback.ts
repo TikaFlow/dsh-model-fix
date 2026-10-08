@@ -61,15 +61,16 @@ export interface ApiWritebackSpec<R extends ApiWritebackPlan> {
 export async function writebackApi<R extends ApiWritebackPlan>(ctx: Context, spec: ApiWritebackSpec<R>): Promise<R> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         const descriptor = descriptorOf(ctx, API_NS)
+        const revision = descriptor?.revision || 0
         const providers = providersOf(descriptor?.user)
         if (!providers) return spec.unreadableProviders()
-        const result = spec.plan({ providers, revision: descriptor?.revision || 0 })
+        const result = spec.plan({ providers, revision })
         if (result.modelOps.length === 0) {
             ctx.logger.info(`${PLUGIN_NAME}: ${spec.noChange}`)
             return result
         }
         try {
-            await queueTask(ctx, () => ctx.settings.mutate(API_NS, result.modelOps, descriptor?.revision || 0))
+            await queueTask(ctx, () => ctx.settings.mutate(API_NS, result.modelOps, revision))
             ctx.logger.info(`${PLUGIN_NAME}: ${spec.done(result)}`)
             return result
         } catch (error) {

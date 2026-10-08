@@ -175,8 +175,8 @@ export function planFill(
  * 返回变更模型数（不含路由 compat 计数与记忆清理，保持 RPC 契约）。
  *
  * 本函数**不走** `src/writeback.ts` 的写回外壳：它是「先写自有段的记忆清理、再写 llm-pi-ai」的两段式，
- * 且守卫不由它托管，与四个写回端点的单段骨架不同形（理由见该文件的文件头注释）；只复用其中的
- * `isSettingsConflict` 与 `errorText` 两个判定函数。
+ * 且守卫不由它托管，与四个写回端点的单段骨架不同形（理由见该文件的文件头注释）；只复用
+ * `isSettingsConflict`（`src/writeback.ts`）与 `errorText`（`src/shared/errors.ts`）两个判定函数。
  */
 export async function fix(ctx: Context, force = false): Promise<number> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
