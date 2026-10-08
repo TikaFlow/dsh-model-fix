@@ -226,7 +226,7 @@
 ## 已知漂移与观察项
 
 - **查阅到的宿主源码可能比本仓 devDep 新**（本仓 devDep/engines 为 `0.1.7-rc.2`）：本文引用的宿主签名以本仓 devDep 声明为准，翻阅时看到的更新版差异记在此处，不顺手改代码。
-- **settings 路径 op 的数组下标中间段**：较新版本的 `applyPathOp`（`@deepseek-ai/dsh-settings` 的 `src/index.ts`）**已支持**数组下标中间段（`/^(0|[1-9][0-9]*)$/` 校验，越界抛 `Config array index "${head}" is out of range`），与本仓 `AGENTS.md` / `decisions.md` 记录的「不支持数组下标中间段」相反。本仓写法（按 provider 整段 `set` 覆盖 `models`）在两种语义下都成立，属安全子集，**不需要改代码**；但升宿主到 `0.2.x` 后若要改用下标写法，须先在本仓 devDep 版本上实测。
+- **settings 路径 op 的数组下标中间段**：较新版本的 `applyPathOp`（`@deepseek-ai/dsh-settings` 的 `src/index.ts`）**已支持**数组下标中间段（`/^(0|[1-9][0-9]*)$/` 校验，越界抛 `Config array index "${head}" is out of range`），与本仓早期文档把「不支持数组下标中间段」当成前提的写法相反。本仓写法（按 provider 整段 `set` 覆盖 `models`）在两种语义下都成立，属安全子集，**不需要改代码**；`AGENTS.md` 的「宿主 settings 的脾气」已相应改写成「整段覆盖，两侧都成立」。升宿主到 `0.2.x` 后若要改用下标写法，须先在本仓 devDep 版本上实测。
 - **`unset` 不折叠空父对象**：本仓 devDep 与较新版本一致（只 `Reflect.deleteProperty(result, head)`）。若宿主将来改为折叠，本仓「删空壳必须整段 unset」的写法仍然安全（整段 unset 不依赖折叠）。
 - **平台模块表已扩**：`tsdown.config.ts` 的 `PLATFORM_MODULES` 副本比宿主 `@deepseek-ai/dsh-client-web` 的 `src/platform.ts` 少一项 `'@deepseek-ai/dsh-client-ui-dockkit'`（宿主另有 `PRELOADED_CLIENT_EXTERNALS = []`）。当前无碍（外置项越多宿主提供越多，本仓不引 dockkit 即可），但**宿主若反过来把本仓在用的模块移出表**，该模块就会被打进浏览器包而运行期拿不到宿主实例。升宿主时逐位比对。
 - **`connection` 不注入 `webServer`**：较新版本确认 `inject = ['credentials']`，webServer 是 apply 内二次注入（`@deepseek-ai/dsh-client-connection` 的 `src/index.ts`），与本仓「必须自己 inject 两个服务」的写法一致。
