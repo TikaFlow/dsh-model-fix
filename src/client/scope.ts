@@ -11,11 +11,16 @@
  *
  * 类型面：ConfigForm/ConfigFormSnapshot 直引 devDep 的
  * @deepseek-ai/dsh-client-ui-settings/client（type-only）；写路径 ops 经 devDep 的
- * @deepseek-ai/dsh-settings 的 SettingsPathOp 传参（与 Node 半 fix.ts 同源），转发时
- * 逐字段浅拷贝为宿主 mutate 的入参形态（value: unknown → JsonValue 的收敛见转发处断言）。
+ * @deepseek-ai/dsh-settings 的 SettingsPathOp 传参（与 Node 半 fix.ts 同源），转发时逐字段
+ * 浅拷贝为宿主线面 op（SettingsPathOpView，同样直引 dsh-settings 的 /types 子路径）。
+ * 唯一收敛处是 `value`：`unknown → JsonValue`，本仓写回链路的取值恒为配置段里的 JSON 值
+ * （宿主 schema 与 JSON.parse 两端都管着），故只作断言而不运行时校验——浏览器半不许引宿主
+ * 值导入（宿主 client 打包纯度门禁禁跨插件值导入），用不了 dsh-util-values 的 isJsonValue。
  */
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
+import type { SettingsPathOpView } from '@deepseek-ai/dsh-settings/types'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
 /** decode 后的段视图：快照 value 为解析结果，set 返回 void、mutate 返回宿主裁决，另附订阅释放。 */
 export interface DecodedScope<T> {
@@ -62,7 +67,11 @@ export function makeScope<T>(form: ConfigForm<unknown>, decode: (raw: unknown) =
         },
         set: (field, value) => form.set(field, value).then(() => undefined),
         mutate: (ops, expectedRevision) => form.mutate(
-            ops.map((op) => ({ op: op.op, path: [...op.path], ...(op.op === 'set' ? { value: op.value } : {})})) as Parameters<ConfigForm<unknown>['mutate']>[0],
+            ops.map((op): SettingsPathOpView => (
+                op.op === 'set'
+                    ? { op: 'set', path: [...op.path], value: op.value as JsonValue }
+                    : { op: 'unset', path: [...op.path] }
+            )),
             expectedRevision,
         ),
         dispose: () => {
