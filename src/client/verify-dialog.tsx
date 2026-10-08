@@ -9,7 +9,8 @@
  * 抽出来的理由：弹层是一块自足的展示，它的所有状态与动作都由卡片经 props 递进来
  * （勾选集、档位开关、记录区内容、发跑与中止的回调），自己不碰 Connection 也不发起探测。
  * 留在卡片里只会让那个已经很长的组件再长一百行，且弹层的形态改动（列表密度、选项卡分页）
- * 与卡片的状态机毫无关系。关窗（遮罩 / Escape / ×）即中止在途验证这条纪律记在 props 上。
+ * 与卡片的状态机毫无关系。关窗即中止在途验证这条纪律记在 props 上：取消键、遮罩、Escape、×
+ * 四者走的是同一个回调，故四者在途都不禁用。
  */
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -42,7 +43,8 @@ export interface VerifyGroup {
 export interface VerifyDialogProps {
     t: TranslateNS<'settings.modelFix'>
     open: boolean
-    /** 关窗即中止在途验证：连接一断，Node 半的执行循环随即早停，不会在用户离开之后继续烧额度 */
+    /** 关窗即中止在途验证：连接一断，Node 半的执行循环随即早停，不会在用户离开之后继续烧额度。
+     *  取消键 / 遮罩 / Escape / × 都落到这一个回调上，故在途也照常可点 */
     onClose: () => void
     /** 在途（卡片 busy 判为 verify）：键就地变「停止」，列表与开关全禁 */
     running: boolean
@@ -124,7 +126,10 @@ export function VerifyDialog(props: VerifyDialogProps) {
                         </Tooltip>
                     </span>
                     <div className="dsh-mf-verifyButtons">
-                        <Button variant="outline" data-modal-autofocus disabled={props.running} onClick={props.onClose}>{t('cancel')}</Button>
+                        {/* 在途不禁用：遮罩 / Escape / × 本就任何时刻都能关窗并中止（宿主 Modal 只管调 onClose），
+                            键若在途禁用，它反成唯一关不掉的出口。点它与那三者同一条路径：
+                            props.onClose → 卡片的 closeVerify 先 abort 再清勾选与记录 */}
+                        <Button variant="outline" data-modal-autofocus onClick={props.onClose}>{t('cancel')}</Button>
                         <Button
                             variant="outline"
                             className="dsh-mf-warn"

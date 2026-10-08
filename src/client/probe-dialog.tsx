@@ -76,9 +76,10 @@ export function ProbeDialog(props: ProbeDialogProps) {
             description={t('probeDesc')}
             className="dsh-mf-verifyDialog"
             footer={<div className="dsh-mf-verifyButtons">
-                {/* 关闭键在途不禁用：它是本弹层唯一的常驻出口，遮罩 / Escape / × 也都中止，
-                    键却禁着就只剩「干等」一条路（验证那边有「停止」键顶替，故那边禁） */}
-                <Button variant="outline" data-modal-autofocus onClick={props.onClose}>{t('close')}</Button>
+                {/* 取消键在途不禁用：它是本弹层唯一的常驻出口，遮罩 / Escape / × 也都中止，
+                    键却禁着就只剩「干等」一条路。键面文案取「取消」而非「关闭」——与验证弹层、卡片底部
+                    的取消键同一个词，两个弹层的退出动作在用户眼里就是同一件事 */}
+                <Button variant="outline" data-modal-autofocus onClick={props.onClose}>{t('cancel')}</Button>
                 {/* 由宽到窄：先「全部」后「未填充」，两个键各带自己的模型数，
                     从大到小读下来就是这一轮的范围由大到小的收窄 */}
                 {probeButton('all', props.allCount)}
@@ -113,7 +114,7 @@ export function ProbeDialog(props: ProbeDialogProps) {
                     />
                 ) : null}
             {/* 两个开关放正文末尾而非 footer：它们是这一轮的参数（探测范围与收敛口径），
-                    与正文里正在发生的事同处一屏，改动即刻可见；footer 因此只剩「关闭 / 探测」，
+                    与正文里正在发生的事同处一屏，改动即刻可见；footer 因此只剩「取消 / 探测」，
                     与其余弹层「footer 只放取消与确认」的形态一致 */}
                 <div className="dsh-mf-verifyOptions">
                     <span className="dsh-mf-verifyOption">
