@@ -59,7 +59,10 @@ const STYLE_TEXT = [
     '.dsh-mf-itemToggle{position:absolute;inset:0;padding:0;border:none;border-radius:14px;background:none;cursor:pointer}',
     // 整行折叠钮照官方 .cardContent:focus-visible 补环：覆盖层 inset:0 与官方卡头按钮同范围，offset -2px 画行内缘（不被瓦片 overflow:hidden 裁剪）
     '.dsh-mf-itemToggle:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,rgb(65,118,230)));outline-offset:-2px}',
-    '.dsh-mf-itemTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:20px;font-weight:600}',
+    // 标题偏离官方的省略号截断（用户裁定）：瓦片是两列栅格，官方那套 nowrap+ellipsis 在窄列里会把组名砍掉半截。
+    // 改为可换行——overflow-wrap:anywhere 让连续英文/长 id 也能断行（它同时压低 min-content，故窄列里不再横向溢出）；
+    // 标题 min-width:0 可收缩、尾区 .dsh-mf-itemTrailing 是 flex:none，故开关与箭头恒定尺寸并由行内 align-items:center 与文案居中对齐
+    '.dsh-mf-itemTitle{min-width:0;overflow-wrap:anywhere;font-size:14px;line-height:20px;font-weight:600}',
     '.dsh-mf-itemTrailing{position:relative;z-index:1;display:inline-flex;flex:none;align-items:center;gap:7px;pointer-events:none;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-itemSwitch{pointer-events:auto}',
     '.dsh-mf-itemChevron{flex:none;transition:transform 140ms var(--ds-ease-in-out,ease)}',
@@ -68,9 +71,10 @@ const STYLE_TEXT = [
     '.dsh-mf-itemBody{border-top:0.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));padding:10px 14px 12px;display:grid;gap:6px;background:var(--dsw-alias-bg-module-platform,#f5f6f7)}',
     '.dsh-mf-itemHint{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-itemRow{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,#0f1115)}',
-    // 行内标签组：照官方 settings-form .labelGroup（inline-flex、gap 4px、min-width:0），标签过长时省略号截断
+    // 行内标签组：照官方 settings-form .labelGroup（inline-flex、gap 4px、min-width:0）；标签过长时换行（裁定同瓦片标题），
+    // align-items:center 让说明键与换行后的整块文案居中对齐
     '.dsh-mf-itemLabelGroup{display:inline-flex;align-items:center;gap:4px;min-width:0}',
-    '.dsh-mf-itemLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.dsh-mf-itemLabel{min-width:0;overflow-wrap:anywhere}',
     // 说明键：度量与形态照官方 settings-form .helpButton（24×24 无边框图标钮），hover 底色改取本卡 header 同款
     // interactive-bg-hover（官方写的 bg-layer-4 主题未定义，见本表抬头）
     '.dsh-mf-help{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;padding:0;border:0;border-radius:var(--dsw-radius-sm,8px);background:none;color:var(--dsw-alias-label-tertiary,#81858c);cursor:pointer}',
@@ -84,7 +88,11 @@ const STYLE_TEXT = [
     '.dsh-mf-fieldError{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#ec1313)}',
     // 一行一项：状态点在胶囊外（官方 trailing 同为 [点][胶囊] 兄弟节点）；删除钮 margin-left:auto 贴右成列
     '.dsh-mf-tagRow{position:relative;display:flex;align-items:center;gap:7px;min-width:0}',
-    '.dsh-mf-tagText{min-width:0;overflow:hidden;text-overflow:ellipsis}',
+    // 排除项胶囊：宿主 .tag 是 inline-flex 且带 white-space:nowrap，作为 flex 项默认 min-width:auto 不收缩，
+    // 长 id 会把删除钮顶出行尾、再被瓦片 overflow:hidden 裁掉。给 min-width:0 让它可收缩，行内文字改为换行（裁定同瓦片标题），
+    // 删除钮自身 flex:none + margin-left:auto，恒定尺寸并贴住行尾
+    '.dsh-mf-tag{min-width:0}',
+    '.dsh-mf-tagText{white-space:normal;overflow-wrap:anywhere}',
     '.dsh-mf-remove{box-sizing:border-box;flex:none;width:28px;height:28px;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;padding:0;border:none;border-radius:var(--dsw-radius-sm,8px);background:0 0;color:var(--dsw-alias-label-tertiary,#81858c);cursor:pointer}',
     '.dsh-mf-remove:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger,rgba(236,19,19,.05));color:var(--dsw-alias-state-error-primary,#ec1313)}',
     '.dsh-mf-remove:disabled{cursor:default;opacity:.4}',

@@ -194,7 +194,7 @@ export function ExcludesTile(props: {
                             <div key={excluded} className="dsh-mf-tagRow">
                                 {/* 官方结构：trailing 是 [状态点][状态胶囊] 两个兄弟节点，点在胶囊外面不进底色 */}
                                 {hit ? <StateDot state="done" size={7} /> : null}
-                                <Tag tone={hit ? 'success' : 'neutral'}>
+                                <Tag tone={hit ? 'success' : 'neutral'} className="dsh-mf-tag">
                                     <span className="dsh-mf-tagText">{excluded}</span>
                                 </Tag>
                                 {/* 命中状态不能只靠颜色传达：StateDot 恒 aria-hidden，行内另留一份读屏状态文案 */}

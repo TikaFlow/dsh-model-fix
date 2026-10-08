@@ -7,6 +7,7 @@
 - 颜色只用宿主 `--dsw-alias-*` 令牌，字面量仅作令牌缺失时的浅色守卫且须取宿主主题真值；无主题真值的令牌（如官方引用的 `label-error`、`bg-layer-4`）不加字面兜底。
 - 取值基准是"同一类组件"而非"同一页面"：外层卡照「内置插件」的插件卡，内层配置组瓦片照「插件列表」的插件行卡。**具体数值一律以 `card-styles.ts` 的 `STYLE_TEXT` 为准。**
 - 瓦片 summary 行要同时容纳整组开关与整行可点：透明空 `<button>` 绝对覆盖整行 + `aria-labelledby` 指向可见标题，开关所在尾区抬层分配点击权；**禁止把 `role="switch"` 嵌进 `<button>`**（非法 HTML）。
+- **瓦片文案过长一律换行、不照官方截断**（用户裁定）：瓦片是两列栅格，官方那套 `nowrap + text-overflow:ellipsis` 在窄列里会把组名与行标签砍掉半截，故标题 / 行标签 / 排除项 id 文本一律 `overflow-wrap:anywhere`。右控件恒定尺寸、行内 `align-items:center` 保证与换行后的文案纵向居中：尾区 `.dsh-mf-itemTrailing` 与删除钮 `.dsh-mf-remove` 是 `flex:none`，开关自身宿主 `.switch` 已 `flex:0 0 auto`；排除项胶囊另需 `min-width:0`——宿主 `.tag` 是 `inline-flex` + `white-space:nowrap`，作为 flex 项默认不收缩，长 id 会把删除钮顶出行尾、再被瓦片 `overflow:hidden` 裁掉。
 - 设置项释义走宿主 `Tooltip`，锚点复刻官方 settings-form `.helpButton`（信息图标键，`aria-label` 取释义全文）；**必须 `portal`**（瓦片 `overflow:hidden` + `box-shadow` 层叠上下文会裁掉定位于锚点的气泡），并用 `maxWidth` 收窄，否则气泡盖住同行开关。
 - **有限取值一律不用原生 `<select>`**：宿主设置页的「语言」一行就是 `Menu` 包一个按钮锚点，`Menu` 亦是 `ui-primitives` 的导出原语 ⇒ 将来出现枚举型设置项时按总纲直接用同一组件，锚点按钮的样式逐字复刻官方 `LanguageRow.module.css` 的 `.selector`（**不复刻它的 `.row`**——那是设置页单列布局专有，带 `border-bottom`）。同理，**瓦片形状按语义选**：布尔矩阵组有组总控开关，动态集合用输入框；一张瓦片只有一种形状，不为「某些行当下不生效」另立置灰态——那要让浏览器半额外部一段宿主设置段的订阅，而该段在 CLI/TUI 组合里缺席，缺席与「确实开着」在 UI 上会长得一模一样。生效条件写进该行的说明气泡（`TIP_KEYS`）即可。
 - 宿主 Modal 的初始焦点控件标 `data-modal-autofocus`，不用 React `autoFocus`（模态层先存触发控件再移焦点，`autoFocus` 抢在前面会毁掉关闭后的回焦）。
