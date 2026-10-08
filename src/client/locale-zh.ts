@@ -74,6 +74,8 @@ export const zh: Record<CardKey, string> = {
     verify: '验证模型',
     verifyTitle: '选择要验证的模型',
     verifyDesc: '对选中的模型发起请求，确认模型/推理级别是否可用；验证所耗时间随模型数量增加。',
+    verifyTabModels: '模型列表',
+    verifyTabRecords: '验证记录',
     verifyQuota: '验证会发起真实请求，可能消耗少量额度。',
     verifyEfforts: '验证推理级别',
     // 关档位不等于端点不推理——它可能有自己的默认级别，故措辞要说清「不发参数」而非「不验证」
@@ -152,6 +154,7 @@ export const zh: Record<CardKey, string> = {
     terminalExpandAria: '展开其余 {n} 行输出',
     terminalExpand: '… 其余 {n} 行',
     verifyEmpty: '暂无模型，请先在「模型」设置中添加模型。',
+    verifyRecordEmpty: '尚未发起验证，点「验证」后结果会逐条显示在这里。',
     clearEffortsTitle: '清空推理级别记忆',
     clearEffortsConfirm: '关闭后不再记住新的推理级别，已记住的仍会自动恢复。是否现在清空这些已记住的级别？',
     clearEffortsKeep: '保留',

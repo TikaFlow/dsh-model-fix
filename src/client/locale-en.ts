@@ -71,6 +71,8 @@ export const en: Record<CardKey, string> = {
     verify: 'Verify models',
     verifyTitle: 'Choose models to verify',
     verifyDesc: 'Each selected model gets a request to confirm the model / reasoning level is usable; verification takes longer with more models.',
+    verifyTabModels: 'Model list',
+    verifyTabRecords: 'Verification log',
     verifyQuota: 'Verification sends real requests and may use a small amount of your quota.',
     verifyEfforts: 'Verify reasoning efforts',
     // Turning the switch off means "send no parameter", not "the endpoint will not reason"
@@ -81,6 +83,7 @@ export const en: Record<CardKey, string> = {
     verifySelectAll: 'Select all',
     verifyDeselectAll: 'Deselect all',
     verifyEmpty: 'No models yet. Add models on the Models settings page first.',
+    verifyRecordEmpty: 'No verification has been run yet. After you click "Verify", each result appears here.',
     // Per-line log copy: provider-level failures carry no model/effort (not a per-model issue).
     // Levels are colon-separated rather than slash-separated — model ids themselves contain slashes (e.g. z-ai/glm-5)
     verifyCommand: 'Verify {total} item(s)',
