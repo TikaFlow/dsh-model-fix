@@ -29,6 +29,8 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 // primitives 由宿主模块表注入
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TerminalBlockLabels } from '@deepseek-ai/dsh-client-ui-primitives'
+// RPC 返回信封：写回结果的读取走 reportWriteback
+import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 // scope 类型来自本项目的 ConfigForm decode 包装层
 import type { DecodedScope } from '@/client/scope'
 import { ensureStyles } from '@/client/card-styles'
@@ -276,6 +278,37 @@ export function Card(props: CardProps) {
         )
     }
 
+    /**
+     * 四个写回动作的结果汇报同形：成功按条数出一句、失败取原因出一句、传输层 reject 与 `ok:false` 走同一条展示路径、
+     * 收尾一律清占用态。差异只有文案键与那条数怎么插值，故收在一处，各动作只给文案。
+     *
+     * @param call - 已经发出去的那次 RPC
+     * @param ok - 成功回调，入参是 Node 半回的条数（强制更新 / 重置 / 恢复给 `changed`，剔除给 `pruned`）
+     * @param failed - 失败回调，入参是原因原文（截断与插值由调用点的文案键决定）
+     * @param settled - 收尾额外做的事（剔除那条还要关掉两层弹层，否则结果写在状态行上用户看不到）
+     */
+    const reportWriteback = (
+        call: Promise<ConnectionRpcResult<unknown>>,
+        ok: (count: number) => void,
+        failed: (message: string) => void,
+        settled?: () => void,
+    ): void => {
+        call.then((result) => {
+            if (result.ok) {
+                const value = result.value as { changed?: number; pruned?: number } | undefined
+                ok(value?.changed ?? value?.pruned ?? 0)
+            } else {
+                failed(result.error.message)
+            }
+        })
+            .catch((error: unknown) => {
+                failed(errorText(error))
+            })
+            .finally(() => {
+                setBusy(null)
+                settled?.()
+            })
+    }
     // 落草稿；「记住推理级别」由开转关且仍有记忆时立即弹确认。记忆判据取实时值（草稿不拥有 efforts）
     const commitDraft = (next: Flags) => {
         setDraft(next)
@@ -347,25 +380,11 @@ export function Card(props: CardProps) {
     const runForce = () => {
         setConfirmOpen(false)
         setBusy('force')
-        props.forceUpdate()
-            .then((result) => {
-                if (result.ok) {
-                    const changed = (result.value as { changed?: number } | undefined)?.changed ?? 0
-                    setNotice({ text: changed > 0 ? t('forceDone', { count: changed }) : t('forceNone'), tone: 'success' })
-                } else {
-                    setNotice({ text: t('forceFailed', { message: truncateMessage(result.error.message) }), tone: 'error' })
-                }
-            })
-            .catch((error: unknown) => {
-                // 传输层失败（HTTP 非 2xx 等）call 直接 reject，与 ok:false 同一路径展示
-                setNotice({
-                    text: t('forceFailed', { message: truncateMessage(errorText(error)) }),
-                    tone: 'error',
-                })
-            })
-            .finally(() => {
-                setBusy(null)
-            })
+        reportWriteback(
+            props.forceUpdate(),
+            (count) => setNotice({ text: count > 0 ? t('forceDone', { count }) : t('forceNone'), tone: 'success' }),
+            (message) => setNotice({ text: t('forceFailed', { message: truncateMessage(message) }), tone: 'error' }),
+        )
     }
     // 重置推理级别：与强制更新同形（危险键 + 二次确认）；配置段零写入（开关不变），竞态防护由 Node 半事件流守卫负责
     const onReset = () => {
@@ -376,24 +395,11 @@ export function Card(props: CardProps) {
     const runReset = () => {
         setResetConfirmOpen(false)
         setBusy('reset')
-        props.resetModels()
-            .then((result) => {
-                if (result.ok) {
-                    const changed = (result.value as { changed?: number } | undefined)?.changed ?? 0
-                    setNotice({ text: t('resetDone', { count: changed }), tone: 'success' })
-                } else {
-                    setNotice({ text: t('resetFailed', { message: truncateMessage(result.error.message) }), tone: 'error' })
-                }
-            })
-            .catch((error: unknown) => {
-                setNotice({
-                    text: t('resetFailed', { message: truncateMessage(errorText(error)) }),
-                    tone: 'error',
-                })
-            })
-            .finally(() => {
-                setBusy(null)
-            })
+        reportWriteback(
+            props.resetModels(),
+            (count) => setNotice({ text: t('resetDone', { count }), tone: 'success' }),
+            (message) => setNotice({ text: t('resetFailed', { message: truncateMessage(message) }), tone: 'error' }),
+        )
     }
     // 恢复备份：与重置同形（次级样式 + 二次确认），仅回退「备份与当前都存在」的 provider+model
     const onRestore = () => {
@@ -404,24 +410,11 @@ export function Card(props: CardProps) {
     const runRestore = () => {
         setRestoreConfirmOpen(false)
         setBusy('restore')
-        props.restoreModels()
-            .then((result) => {
-                if (result.ok) {
-                    const changed = (result.value as { changed?: number } | undefined)?.changed ?? 0
-                    setNotice({ text: t('restoreDone', { count: changed }), tone: 'success' })
-                } else {
-                    setNotice({ text: t('restoreFailed', { message: truncateMessage(result.error.message) }), tone: 'error' })
-                }
-            })
-            .catch((error: unknown) => {
-                setNotice({
-                    text: t('restoreFailed', { message: truncateMessage(errorText(error)) }),
-                    tone: 'error',
-                })
-            })
-            .finally(() => {
-                setBusy(null)
-            })
+        reportWriteback(
+            props.restoreModels(),
+            (count) => setNotice({ text: t('restoreDone', { count }), tone: 'success' }),
+            (message) => setNotice({ text: t('restoreFailed', { message: truncateMessage(message) }), tone: 'error' }),
+        )
     }
     // 验证模型：弹层自身已含 warn 提示与 warn 语义的确认键，构成自确认，故不再叠加二次确认弹层。
     // 只清掉上一次操作的结果、结果本身留在弹层内（那行挂在条件展开体之外，折叠不丢在途结果）
@@ -642,26 +635,15 @@ export function Card(props: CardProps) {
     const pruneEfforts = () => {
         if (busy) return
         setBusy('prune')
-        props.pruneEfforts(pruneTargets)
-            .then((result) => {
-                if (result.ok) {
-                    const pruned = (result.value as { pruned?: number } | undefined)?.pruned ?? 0
-                    setNotice({ text: t('pruneDone', { count: String(pruned) }), tone: 'success' })
-                } else {
-                    setNotice({ text: t('pruneFailed', { message: truncateMessage(result.error.message) }), tone: 'error' })
-                }
-            })
-            .catch((error: unknown) => {
-                setNotice({
-                    text: t('pruneFailed', { message: truncateMessage(errorText(error)) }),
-                    tone: 'error',
-                })
-            })
-            .finally(() => {
-                setBusy(null)
+        reportWriteback(
+            props.pruneEfforts(pruneTargets),
+            (count) => setNotice({ text: t('pruneDone', { count: String(count) }), tone: 'success' }),
+            (message) => setNotice({ text: t('pruneFailed', { message: truncateMessage(message) }), tone: 'error' }),
+            () => {
                 closePrune()
                 closeVerify()
-            })
+            },
+        )
     }
     const toggleVerifyPick = (key: string) => {
         setVerifyPicked((current) => {
