@@ -221,7 +221,7 @@
 - **宿主 `ObservableSnapshot.subscribe` 一律不推首值**（`@deepseek-ai/dsh-client-store` 的 `src/index.ts` 的 `createSnapshotStore` 无 `fireImmediately`；`ctx.locale`、`sessions.retainInfo` 同语义）⇒ 本仓所有订阅都要手动补跑一次。
 - **`Config` 是实时引用**：`apply(ctx, config)` 第二参是冻结的 `Volatile<T>`，读值必须每次 `config.get()`，禁止缓存解引用结果（详见「cordis：config 的实时引用」）。
 - 浏览器半样式经模块级幂等 `<style>` 注入并带 `data-plugin` 标记供宿主 HMR 认领；`ctx.locale.register` 重复注册会抛错，disposer 必须经 `ctx.effect` 挂。
-- 卡片样式与文案的宿主同款来源写在 `docs/decisions.md` 与 `AGENTS.md`「UI 无痕融合纪律」，本文不重复。
+- 卡片样式与文案的宿主同款来源写在 `docs/decisions.md` 与 `docs/ui-fusion.md`，本文不重复。
 
 ## 已知漂移与观察项
 

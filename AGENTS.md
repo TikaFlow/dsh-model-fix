@@ -8,37 +8,22 @@ DSH 插件：按 [models.dev](https://models.dev) 为非官方（自定义）提
 
 Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Node 半 + 浏览器半，clean 只由 Node 半承担）；TS 严格模式，产物不带 sourcemap；ESLint 10 扁平配置。
 
-| 路径 | 职责（只写非显而易见的部分） |
+| 路径 | 职责（一句；完整版见 [`docs/architecture.md`](docs/architecture.md)） |
 | --- | --- |
-| `src/index.ts` | Node 半入口：`Config`（宿主经 `entry.fiber.runtime.Config` 取用）+ 单一 `apply` 编排体（备份 → 配置源与段变更接线 → installRpc → 启动链） |
-| `src/shared/` | 跨半共享层（零 Node 依赖 / 零 schemastery / 零非基线 `@deepseek-ai/*`）：常量、异常文案取法 `errorText`（两个半都要）、`isPlainObject`/`providersOf`、当前版本配置的解析与物化与各组行键表、**验证与探测式填充共用**的探测契约（明细 / 汇报 / 进度帧 / 可用与不支持档位明细 / 写回统计，浏览器半须据此解析回传，禁反向 import Node 半） |
-| `src/config.ts` `src/migrate.ts` `src/upgrade.ts` `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 配置解析与配置源 / 当前版本侧的启动迁移、旧快照清理与自愈（`migrateConfig`；选迁移源时才调 `upgradeConfig`）/ **冻结的升级台阶链** `upgradeTo4..7`（历史形态的堆栈，**刻意不引用 `CONFIG_VERSION` 或当前版本默认值**，新增台阶只改这里）/ 缓存读写与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
-| `src/fix.ts` | 填充与写回：两层遍历是**纯计划函数 `planFill`**（零 ctx，出 `FillPlan`：模型参数 op、路由 compat op、重建后的 `efforts`），`fix` 只做编排（`force` 供强制更新单次绕过；读最新段 → 出计划 → 记忆清理与模型写回两次提交 → 冲突重试时重读）；模型参数与路由 compat 同批提交；`excludes` 命中者在 provider 循环入口整条跳过；重建记忆与填充共用同一两层循环 |
-| `src/empty.ts` | 空壳字段的唯一判据 `stripEmptyFields`：`reasoningEfforts` / `input` / `compat` 的空形态一律等同「未声明」，**五条写回路径（`fix` 填充、`reset`、`restore`、`prune` 剔除、`fill` 探测式填充的预声明与收敛）统一过它**，不在各模块另写一份；无空壳时返回原引用，调用方以引用相等判「无需重建」。注意它只清**空形态**：把某个键整个删掉得由调用方显式 `delete` |
-| `src/reset.ts` `src/restore.ts` `src/guard.ts` `src/host.ts` `src/section.ts` `src/writeback.ts` `src/prune.ts` | 重置推理级别（仅剔除 `reasoningEfforts`，配置段零写入）/ 启动备份捕获与交集恢复 / 事件流守卫（写回期间短路整条事件链）/ 全部 settings 写回必经的 `queueTask` / **settings 节读取的唯一收口**（`descriptorOf` 取描述、`sectionOf` 把 `user` 收窄成整段、`ownSection` 读自有段；读不到一律返回 `undefined`，「显式失败还是静默早退」留给调用方决定，不在读取层替它选）/ **写回 `llm-pi-ai` 段的统一外壳**（读最新段 → 纯函数出计划 → 经 `queueTask` 写回 → `SETTINGS_CONFLICT` 限次重试；各端点只给「段不可读怎么办、计划怎么算、日志报什么」，文案一字不改。`guardedWritebackApi` 自带守卫、给守卫只覆盖本轮的端点用，`writebackApi` 给守卫持有整轮的探测式填充。`fix` 与探测兜底回退**刻意留在原处不套壳**，理由见该文件头）/ 剔除验证明细中**明确不支持**的档位（写入前判空壳、`excludes` 跳过、幂等） |
-| `src/probe-verdict.ts` | **验证与探测式填充共用的判定层**（零 ctx、不触网的纯函数，判定口径与执行、汇报分开才便于逐条钉住）：失败**只按** `LlmFailure` 的 `code` 分类（限流与超时单列瞬态，只否定这一次）、`isEffortRejection`（`INVALID_REQUEST`，判「档位不支持」的第一条件）、**两级短路的判据**（只有一条：**能断定后续必然失败才短**。`providerBlockReason`：端点不通 / 凭据无效 / **本组首个请求超时**；`shouldSkipModelTail`：档位请求上只有额度耗尽够格；`shouldSkipModelTailAfterBaseline`：基线不带档位、失败天生与档位无关，故多认「被厂商确定性拒绝」）、`sameModelTail`（该模型档位尾还剩几条，供进度帧记 `skipped`） |
-| `src/probe-plan.ts` | **验证与探测式填充共用的计划层**（判定归 `probe-verdict.ts`、执行归 `probe-engine.ts`）：把浏览器半发来的未信任载荷校验并展开成待跑清单（`planProbes`：按模型逐档展开，清单里只有**被验对象**，基线探测不进计划）、两条硬闸配额 `ProbeLimits`（真正发出的请求数含基线 + 计划模型数，超出即拒绝而非静默截断；两个功能各给一份 `VERIFY_LIMITS`/`PROBE_LIMITS`）、按 provider 分组（`groupProbesByProvider`，分组即「每 provider 单并发」的结构保证）、`planProbeGroups`（校验失败按各功能自己的文案抛出，故与执行拆两步：探测式填充的 `done` 帧要含收敛写回结果） |
-| `src/probe-report.ts` | **验证与探测式填充共用的汇报层**（判定归 `probe-verdict.ts`、计划归 `probe-plan.ts`、执行归 `probe-engine.ts`）：`reportProvider`（单组结论折一份汇报：可用模型按「提供方 / 模型」去重、档位不可用单列、**可达与凭据取自全程**含基线探测而非首个，且只认能否定整个提供方的失败，额度耗尽两者都不翻）与 `summarizeProviders`（全局求和并同源产出 `usableEfforts` / `unsupportedEfforts` 两种明确状态的档位明细，浏览器半不自己重筛）。纯函数、零 ctx、不触网 |
-| `src/probe-engine.ts` | **验证与探测式填充共用的执行引擎**（判定归 `probe-verdict.ts`、计划归 `probe-plan.ts`、汇报归 `probe-report.ts`）：`probeOnce`（只认 `block-start`、30s 超时、`AbortSignal.any` 合成外部中止，失败分类转交判定层）、`runProbeGroups`（跨 provider ≤5 路并发与进度帧；已中止即不再开新组，从未开跑的组保持 `undefined` 并被排除在汇报之外）、`finishRun`（中止不发 `done`）。两个功能只差注入的 `runGroup` |
-| `src/verify.ts` | 「验证模型」执行器，只留验证独有的一段：`needTest` 为真的模型现发一次不带 `reasoningEffort` 的**基线探测**（不进计划/明细/统计，跑通不发帧，不通则发一条模型级记录并参与 `reachable`/`keyValid` 记账：够格的失败据此短该模型，限流与超时则只记录、照常逐档验下去），以及两级短路（判据共用，见 `probe-verdict.ts`）：provider 级（端点不可达只认传输层失败码 / 凭据无效 / 本组首个请求超时即短路整组）与模型级（只有**额度耗尽**够格短该模型剩余档位，判据用 `shouldSkipModelTailAfterBaseline`——基线不带档位，故失败天生与档位无关，多认「被厂商确定性拒绝」；限流、超时、上游 5xx 一律不短） |
-| `src/probe.ts` `src/fill.ts` `src/probe-backup.ts` | 「探测式填充」执行器、两次写回与崩溃兜底：`probeAndFill(ctx, llm, payload, options)` = 校验两个开关 → 展开七档计划 → **兜底备份**（`probe-backup` 把整段 providers deflate+base64 存进自有段顶层键 `probeBackup`，与 `version-N` 同级、故不进快照也**不动 `CONFIG_VERSION`**；存不下即整轮中止，没有退路就不动用户配置）→ **预声明**（`fill.ts` 按 `EFFORT_LEVELS` 排序写进配置并返回预声明之前的原有档位表）→ 逐档探测 → **收敛**（口径见「设计裁决」）→ 清备份 → 统计随终帧回传（`VerifySummary.fill`）。守卫**持有整轮**；两次写回共用 `planEffortApply`，`modelOps` 按当前值比对、增删统计按传入基线（预声明之前那份）比对 |
-| `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个 channel RPC 写回端点（以守卫互斥、验证只读不参与）+ **两条进度流**（`connection.fetch` 的 exact 路由，SSE 分帧，客户端断开即中止执行）：两者共用 `progressStreamFetch`，探测那条因一轮之内要写两次配置而**入口先查守卫**（已开回 409 + 中文文案）/ 保鲜刷新 |
-| `src/client/index.tsx` | 浏览器半入口：四个卡片刻位注册（共用一份 `cardProps` 展开）、词典注册、调用面接线、scope 释放、记忆监听子 fiber（本体见 `memory-listener.ts`） |
-| `src/client/memory-listener.ts` | 浏览器半的推理级别记忆监听（`applyEffortMemoryListener`，与卡片零共享状态）：订阅会话 `modelSelection` 投影，按 `classifyTransition` 翻译成「换模型恢复记忆」与「换级别存回记忆 + `defaultHigh` 自动设置」，记忆经自有 NS 的 scope 直写。与卡片分居两处是因为一个管用户在设置页看见的配置、一个管所有活着会话的后台行为 |
-| `src/client/rpc-carrier.ts` | 浏览器半调 Node 半的**唯一出口**（`makeRpcCarrier`）：四个写回端点的 channel RPC 与**两条进度流的读流**（共用 `streamSummary`，非 2xx 取响应体文案作报错）。`RpcCarrier` 是卡片调用面的单一来源（`CardProps extends RpcCarrier`），故卡片只管状态与编排、不认 Connection |
-| `src/client/card-styles.ts` | 卡片的样式层（**全部样式数值的唯一出处**）：`STYLE_TEXT` 内嵌样式表（类名 `dsh-mf-` 前缀防撞、取值逐条照官方同类组件）、`ensureStyles` 幂等注入（带 `data-plugin` 标记供宿主 HMR 认领）、说明气泡宽度上限 `TIP_MAX_WIDTH` |
-| `src/client/tile.tsx` | 卡片的瓦片层（五张瓦片的两种形态，顺序由 `TILE_ORDER` 单一分发）：`GroupTile` 布尔矩阵配置组瓦片（组开关 + 子开关行 + 行内说明气泡）、`ExcludesTile` 动态集合瓦片（手填 id、「N 命中」徽标常驻，输入文本与校验反馈是留在本地的纯 UI 暂态）。**瓦片只管自己的 summary 与展开体**，展开态 / 启用态 / 写回回调全由卡片经 props 传入，故不碰 Connection |
-| `src/client/confirm.tsx` | 二次确认层的唯一外壳 `ConfirmModal`（宿主 Modal + Button 原语）：卡片里的五层二次确认（强制更新 / 重置推理级别 / 恢复备份 / 清空记忆 / 剔除不支持）差异只有标题、说明、两键文案与**红 tint 语义**（恢复不删用户任何东西故不上红），把这五处差异显式列成 props，别再复制粘贴五份 JSX |
-| `src/client/verify-dialog.tsx` | 「验证模型」弹层的自足外壳 `VerifyDialog`（宿主 Modal 原语 + `TerminalBlock` 记录区）：候选列表（按提供方归组、组开关与行开关全在本层自算）、推理级别开关组、实时记录区、底部 发跑 / 停止 行。**状态与动作全由卡片经 props 递进来**（勾选集、档位开关、记录区内容、发跑与中止回调），自己不碰 Connection 也不发起探测；**关窗即中止在途验证**这条纪律记在 `onClose` 上。正文同样套一层 `.dsh-mf-verifyBody`，与探测弹层同序：列表 → 记录区 → 开关 → footer |
-| `src/client/probe-dialog.tsx` | 「探测式填充」弹层的自足外壳 `ProbeDialog`（宿主 Modal 原语 + `TerminalBlock` 记录区）：无候选列表，正文依次是「范围一句 → 额度提示 → 记录区 → 忽略排除 / 剔除不支持 两个开关」，**记录区一律排在提示之下、开关之上**，与验证弹层同序；footer 只留 关闭 / 探测所有 / 探测未填充（由宽到窄），在途那个范围键就地变「停止」（弹层内自算，不回卡片）。**状态与动作全由卡片经 props 递进来**，自己不碰 Connection 也不发起探测；**关窗即中止在途探测**这条纪律记在 `onClose` 上。关闭键在途不禁用（唯一常驻出口，遮罩 / Escape / × 也都中止） |
-| `src/client/card-meta.tsx` | 卡片末尾的联系行（自成一体：三个常量 + 四个 Octicons 图标 + 一次 issue 正文合成，除翻译函数外不外泄）：`REPO_URL`/`ISSUES_URL`/`REPO_LABEL` 与 README「安装 / 问题反馈」同源、`__PLUGIN_VERSION__`（构建期 define 内联，声明随本文件搬过来，配置见 `tsdown.config.ts`）、仓库 / 版本 / star / 反馈四个小片（版本标记只读不做成链接） |
-| `src/client/card.tsx` | 四席共用的可折叠卡片（三席 `defaultOpen`）、五张瓦片的编排（瓦片本体见 `tile.tsx`）、验证弹层的编排（弹层本体见 `verify-dialog.tsx`：候选列表 + 实时记录区 + 停止）、**探测式填充弹层的编排**（弹层本体见 `probe-dialog.tsx`：两个范围键 + 记录区 + 两个开关，**键文本保持短**不挂计数，跑完延迟 `PROBE_CLOSE_DELAY_MS` 再关窗，本文件只递范围 / 开关 / 记录区内容与发跑回调）、验证跑完后的剔除确认层、footer（末尾联系行见 `card-meta.tsx`，样式数值全在 `card-styles.ts`，组件里不写死） |
-| `src/client/model.ts` / `effort.ts` / `scope.ts` | 快照↔配置纯映射（验证与探测候选拍取、两种目标收敛、探测的「未填充 = 无档位或只有 off」判据）/ 记忆纯逻辑 / ConfigForm 的 decode 包装 |
-| `src/client/locale-keys.ts` / `locale-zh.ts` / `locale-en.ts` | 卡片文案的键与词典分居三处：`locale-keys.ts` 只管键契约（`CARD_NS` 并入宿主 `LocaleNamespaceMap`、`CardKey` 联合、四张「配置项 → 文案键」映射——按用途分表，同轴上标题与释义本是两句话），两种语言各一文件 `locale-zh.ts` / `locale-en.ts`（都标注 `Record<CardKey, string>`，漏改一侧 typecheck 即报） |
-| `public/models-cache.json` | 构建期平铺复制到 `lib/` 根：models.dev 拍平缓存（首启离线可用） |
-| `docs/decisions.md` | 「设计裁决」全文（AGENTS.md 同节只留提纲）；仅供开发查阅，不进 `files` |
-| `docs/host-api.md` | 「宿主 API 与类型契约」全文：本插件实际在用的宿主服务调用、宿主类型导入面、依赖宿主字面量的键与码、宿主运行时行为假设（全文见同节「宿主契约文档纪律」）；仅供开发查阅，不进 `files` |
-| `icon.svg` / `cordis.patch.yml` / `locale/*.json` | 包根静态资源，不经 tsdown，`files` 单列；补丁行的 `id` 即 settings 命名空间键 |
+| `src/index.ts` | Node 半入口：`Config` + 单一 `apply` 编排体 |
+| `src/shared/` | 跨半共享层：常量、`errorText`、探测契约（禁反向 import Node 半） |
+| `src/config.ts` `src/migrate.ts` `src/upgrade.ts` | 配置解析与配置源 / 当前版本侧迁移与自愈 / 冻结的升级台阶链 |
+| `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 缓存与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
+| `src/fix.ts` `src/empty.ts` | 填充（计划函数 `planFill` + 编排）/ 空壳字段唯一判据 `stripEmptyFields` |
+| `src/reset.ts` `src/restore.ts` `src/prune.ts` | 重置推理级别 / 启动备份与交集恢复 / 剔除不支持档位 |
+| `src/guard.ts` `src/host.ts` `src/section.ts` `src/writeback.ts` | 事件流守卫 / `queueTask` / settings 段读取收口 / 写回 `llm-pi-ai` 段的统一外壳 |
+| `src/probe-verdict.ts` `src/probe-plan.ts` `src/probe-report.ts` `src/probe-engine.ts` | 验证与探测式填充共用的判定 / 计划 / 汇报 / 执行四层 |
+| `src/verify.ts` `src/probe.ts` `src/fill.ts` `src/probe-backup.ts` | 验证执行器 / 探测式填充执行器与两次写回 / 崩溃兜底备份 |
+| `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个写回端点 / 两条进度流 / 保鲜刷新 |
+| `src/client/index.tsx` `src/client/memory-listener.ts` `src/client/rpc-carrier.ts` | 席位注册与编排 / 推理级别记忆监听 / 调 Node 半的唯一出口 |
+| `src/client/card.tsx` 与同目录的 `tile.tsx` `confirm.tsx` `verify-dialog.tsx` `probe-dialog.tsx` `card-styles.ts` `card-meta.tsx` | 卡片的编排 / 瓦片 / 二次确认 / 两个弹层 / 样式 / 末尾联系行 |
+| `src/client/model.ts` `effort.ts` `scope.ts` `locale-keys.ts` `locale-zh.ts` `locale-en.ts` | 快照↔配置映射 / 记忆纯逻辑 / decode 包装 / 键契约与两种语言 |
+| `public/models-cache.json` `icon.svg` `cordis.patch.yml` `locale/*.json` | 缓存副本与包根静态资源，不经 tsdown |
 
 ## 硬约束（违反即坏）
 
@@ -68,28 +53,15 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 
 ### 版本快照与冻结形态
 
-- 新增**顶层配置组**算形态变化，必须递增 `CONFIG_VERSION` 并加升级台阶；只往 `compat` 组内加键不算（新键须有 schema 默认，旧快照解析后即获得默认）。
-- `src/types.ts` 的 `V3`–`V6` 与 `src/upgrade.ts` 的 `upgradeTo4`–`upgradeTo7` 是历史形态，**不随当前类型演进**（否则历史语义会被当前类型改写，破坏无损回退）。台阶按目标版本命名 `upgradeToN`：每级先 `fromVersion < N-1 ? upgradeToN-1(...) : 输入` 接力，再按 vN-1 冻结 schema 解析、补新增字段落默认，产物版本号写固定字面量；`upgradeConfig` 只调最新一级。台阶链与当前版本侧分居两个文件（`src/upgrade.ts` 只管「把某个旧版本升上来」，`src/migrate.ts` 只管当前版本与段内多版本共存），加台阶不许顺手改当前版本侧的默认值，反之亦然。
-- 提升 `MIN_SUPPORTED_VERSION` 到 M 时，低于 M 的冻结类型与台阶一并移除（其输入下限已被守卫拒绝），输入下限恰为 M 的一级转为最低一级、自持全链唯一的 `fromVersion < MIN_SUPPORTED_VERSION` 守卫。
+全文见 [`docs/versioning.md`](docs/versioning.md)。三条：形态变化的判据与台阶命名（新增顶层配置组 ⇒ 递增 `CONFIG_VERSION` 并加台阶，只往 `compat` 组内加键不算）；冻结类型 `V3`–`V6` 与台阶链**不随当前版本演进**，台阶链与当前版本侧分居两文件，互不顺手改；提升 `MIN_SUPPORTED_VERSION` 时连带移除已无输入的冻结类型与台阶。
 
 ### 工具链陷阱
 
-- `pnpm test` 走专用单对象配置 `tsdown.test.config.ts`；**禁止指回数组主配置**（CLI 参数会合并进每一项、浏览器半的工厂 banner 会污染测试产物）。
-- **TS 7 与 ESLint 并存靠 npm 别名**：TS 7 原生版无 JS API，typescript-eslint 见之即抛错。故 `typescript` = `npm:@typescript/typescript6@^6.0.2`（bin 为 `tsc6`），TS 7 挂别名 `@typescript/native`。
-- `pnpm lint` 走 `eslint.config.js`：忽略 `lib/`、`dist/`、`.test-dist/`、`public/`、`.tmp-dsh/`；除官方 recommended 外只加两条硬约束（禁相对导入、`consistent-type-imports`）。
-- 宿主包本地依赖全走 devDeps 且须与宿主 latest 同号；一律用 `pnpm add` 变更（`-E` 保精确、`--save-peer` 写 peer）。**升级只能写具体版本号**（各子包的 `latest` tag 陈旧）。
+全文见 [`docs/workflow.md`](docs/workflow.md) 的「工具链陷阱」。最容易踩的一条：`pnpm test` 走专用单对象配置 `tsdown.test.config.ts`，禁止指回数组主配置。
 
 ## UI 无痕融合纪律
 
-总纲：**官方用导出组件就用同一组件；官方自绘且无同款导出原语（或不导出）就在本地逐字复刻其源码——数值零自造**，只有数据、文本与业务逻辑属于我们。**运行时值导入宿主原语是有意选择**（符号漂移由 typecheck 在构建期拦下）；风险是宿主改名后运行期拿到 `undefined` ⇒ React #130 打空该 slot 条目，缓释是 devDep 类型面 + 升宿主时复核全部宿主值导入的符号面。
-
-- 颜色只用宿主 `--dsw-alias-*` 令牌，字面量仅作令牌缺失时的浅色守卫且须取宿主主题真值；无主题真值的令牌（如官方引用的 `label-error`、`bg-layer-4`）不加字面兜底。
-- 取值基准是"同一类组件"而非"同一页面"：外层卡照「内置插件」的插件卡，内层配置组瓦片照「插件列表」的插件行卡。**具体数值一律以 `card-styles.ts` 的 `STYLE_TEXT` 为准。**
-- 瓦片 summary 行要同时容纳整组开关与整行可点：透明空 `<button>` 绝对覆盖整行 + `aria-labelledby` 指向可见标题，开关所在尾区抬层分配点击权；**禁止把 `role="switch"` 嵌进 `<button>`**（非法 HTML）。
-- 设置项释义走宿主 `Tooltip`，锚点复刻官方 settings-form `.helpButton`（信息图标键，`aria-label` 取释义全文）；**必须 `portal`**（瓦片 `overflow:hidden` + `box-shadow` 层叠上下文会裁掉定位于锚点的气泡），并用 `maxWidth` 收窄，否则气泡盖住同行开关。
-- 宿主 Modal 的初始焦点控件标 `data-modal-autofocus`，不用 React `autoFocus`（模态层先存触发控件再移焦点，`autoFocus` 抢在前面会毁掉关闭后的回焦）。
-- 卡片外壳不写 `max-width`（宽度由所在 section 约束，官方同样不写）。宿主的 `expand`/`collapse` 文案只用于 `aria-label`，不要当死代码删。
-- UI 称谓跟随官方：provider-id 叫「提供方 / Provider ID」，功能名是「排除提供方」（en: Excluded providers），文案 / README / 注释一致。「取消」全卡片只留一个 `cancel` 键（弹层与 footer 同义：不想执行当前操作），确认键保持动作化（确认更新 / 确认重置 / 确认恢复 / 清空 / 验证）。对外报告状态的文案（结果行、加载 / 只读提示、字段报错）一律以句号收尾。
+全文见 [`docs/ui-fusion.md`](docs/ui-fusion.md)。总纲一句：**官方用导出组件就用同一组件；官方自绘且无同款导出原语（或不导出）就在本地逐字复刻其源码——数值零自造**，只有数据、文本与业务逻辑属于我们。
 
 ## 设计裁决（提纲）
 
@@ -104,16 +76,25 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 - **探测式填充**：逐档试出可用的推理级别并**立即写回**（与验证共用执行引擎，只差注入的 `runGroup`）；**必须先把候选档位临时预声明进配置**（宿主按配置里声明的档位本地校验，未声明的档位不出网），同轮结束时收敛回收回、增删统计以预声明之前那份为基线；**两级短路与验证同一条判据**（`providerBlockReason`：端点不通 / 凭据无效 / **本组首个请求超时**即短整组；`shouldSkipModelTail`：模型级只有**额度耗尽**够格、短到该模型自己的档位尾，被短模型按「没跑完」还原），「不支持」的第二条件是「同模型已有更低档跑通」——比基线探测更紧且零成本，故**不发那次额外的基线请求**；收敛口径由「剔除不支持」开关选（关=`可用 ∪ 原有`，开=`可用 ∪ (原有 − 明确判不支持)`，**该开关只对「探测所有」有效**——未填充者无档位可剔，那一轮按关下发并在途禁掉），只认明确状态，档位表算空即删键，**没跑满结论的一律还原、本轮被中止则整轮还原**（必须完全跑完才谈补全，不做「探到多少补多少」）；「忽略排除」是**唯一**突破「排除约束一切写入」的地方且同时管探测与写回；守卫**持有整轮**；**开跑前先把整段 providers 压一份兜底备份**（自有段顶层键 `probeBackup`，与 `version-N` 同级故不进快照、也**不递增 `CONFIG_VERSION`**），收敛落盘后清掉，**启动链末尾（首轮 fix 之后）见键即回退**（交集语义复用 `planRestore`，回退后再补一轮 `fix`，否则被撤掉预声明的模型会停在未填充态）；存不下备份即整轮中止；收敛写回在流内完成、终帧最后发，故统计随 `VerifySummary.fill` 回来而无独立写回端点；跑完**延迟 2.5s 再关窗**。
 - **宿主与卡片**：RPC channel 自注册；按钮取「保存」不取「应用」；卡片末尾固定联系行；不引入 `failed` 态、不做「恢复默认」。**弹层正文内部纵向间距一律 12px**（两个弹层的正文各套一层 `.dsh-mf-verifyBody` 把节奏收在一处、各段自身 margin 归零——宿主 `.body` 无 gap 而 flex 里 margin 不叠加，逐处自给必算错；列表项用默认无 gap；两个弹层各在一文件：`verify-dialog.tsx` 与 `probe-dialog.tsx`），正文到 footer 交给宿主 `.dialog` 的 20px；卡片动作键行与瓦片的距离就是 `.dsh-mf-body` 的 `gap:12px`，`.dsh-mf-bar` 不再自带 padding。
 
-## 数据流骨架
+## 数据流与目录
 
-段变更按 ns 分流为两条链：自有段「自愈 → 填充」、llm-pi-ai 段「填充 → 保鲜刷新」，入口先判事件流守卫。浏览器半：`configForms` → `makeScope` → 四席共用同一张卡 + 记忆监听子 fiber。两条诊断链路：
-- **验证**（只读）：卡片弹层 → `verifyTargets` → 进度流端点（`fetch` 逐帧回调）→ `ctx.llm`。
-- **探测式填充**（写回）：卡片弹层（点开时冻结候选）→ `probeTargetsOf` → 探测进度流端点 → Node 半「兜底备份 → 预声明 → `ctx.llm` 逐档 → 收敛写回 → 清备份」→ 终帧带统计 → 卡片延迟关窗并落状态行；全程持事件流守卫。崩在中途则由**启动链末尾**的回退收拾（`restoreProbeBackup` → 补一轮 `fix`）。
+骨架与每个目录的完整职责见 [`docs/architecture.md`](docs/architecture.md)。两句话：段变更按 ns 分流为「自有段自愈→填充」与「llm-pi-ai 段填充→保鲜刷新」两条链，入口先判事件流守卫；浏览器半是 `configForms` → `makeScope` → 四席共用同一张卡 + 记忆监听子 fiber。
 
 ## 命令
 
-`pnpm build` / `typecheck` / `lint` / `test` / `pack:release`；提交前必跑。
+`pnpm build` / `typecheck` / `lint` / `test` / `pack:release`；提交前必跑。测试规范与工具链陷阱见 [`docs/workflow.md`](docs/workflow.md)。
 
-## 测试规范
+## 专题文档
 
-`test/` 只收不依赖 DSH 运行时的纯函数与零 ctx 编排（配置解析与迁移、目录拍平与缓存条目校验、id 匹配与档位转换、compat 计划、`planResetModels`/`planRestore`/`planPruneEfforts`/`parsePruneTargets`、`planProbes`/`groupProbesByProvider`/`classifyFailure`/`reportProvider`/`summarizeProviders`、`planEffortApply`/`declaredEffortsOf`、`verifyModels` 与 `probeAndFill` 带桩跑通短路与中止全链路（进度帧序列、`skipped`、早停不发 `done`、未开跑的组不进汇报、探测的预声明→收敛写回结果与终帧统计）、守卫、`rpc-route` 的纯信封逻辑 + node:http 桩、`fix`/`probeAndFill` 编排 + `test/ctx.ts` 的常驻内存 settings 桩（`noPlugin` 可模拟自有段未登记）、浏览器半纯映射层（含探测候选的未填充判据与七档展开）；浏览器组件与真实 fs / 网络不进 `test/`（两个执行器都只依赖注入的 `llm.stream`，故带桩即可，不触网）。`indexedCache` 与 `configSource` 是模块级单例，每个用例前调 `resetModules()`。
+`AGENTS.md` 只留索引与硬约束，大段细则各归一文件：
+
+| 文档 | 内容 |
+| --- | --- |
+| [`docs/decisions.md`](docs/decisions.md) | 设计裁决全文：代码里看不出动机的前提与理由 |
+| [`docs/host-api.md`](docs/host-api.md) | 宿主契约：Cordis / settings / llm / client 各面的实际用法与宿主源码引用 |
+| [`docs/architecture.md`](docs/architecture.md) | 目录职责表全文与数据流骨架 |
+| [`docs/ui-fusion.md`](docs/ui-fusion.md) | UI 无痕融合纪律全文 |
+| [`docs/versioning.md`](docs/versioning.md) | 版本快照与冻结形态全文 |
+| [`docs/workflow.md`](docs/workflow.md) | 命令、工具链陷阱与测试规范全文 |
+
+`docs/` 下这些文件都不是构建产物，一律不进 `files`。
