@@ -34,8 +34,8 @@ interface SubagentHost {
         readonly header: { readonly origin?: string; readonly parentSession?: SessionId }
         requestHeader(): { readonly config: LlmCallConfig; readonly adapterDefaults?: LlmCallConfigAdapterDefaults } | undefined
     }
-    /** 宿主 `AgentOptions` 的路由三项（provider/model 可缺，故逐项判后再用） */
-    readonly options: { readonly provider?: string; readonly model?: string; readonly reasoningEffort?: ReasoningEffortId }
+    /** 宿主 `AgentOptions` 的路由四项（provider/model 可缺，故逐项判后再用） */
+    readonly options: { readonly provider?: string; readonly model?: string; readonly reasoningEffort?: ReasoningEffortId; readonly maxTokens?: number }
 }
 
 /** 宿主 `AgentRegistry` 的只读面（按契约复制） */
@@ -107,11 +107,12 @@ function hostSelectionEnabled(ctx: Context): boolean {
 }
 
 /**
- * 父 Agent 当前生效的路由三件套：先取会话日志的请求头（最新一次请求的配置即当前生效值，
+ * 父 Agent 当前生效的路由四件套：先取会话日志的请求头（最新一次请求的配置即当前生效值，
  * 也是宿主委派时读取的那一份），无请求头则回落 Agent 自身的 options。取不到即 undefined。
  *
  * 请求头里被 `adapterDefaults.reasoningEffort` 标记的档位是适配器兜底值而非用户所选，
- * 视作「父当前未选档位」而丢弃，避免把兜底值当作父的选择复制给子智能体。
+ * 视作「父当前未选档位」而丢弃，避免把兜底值当作父的选择复制给子智能体。`maxTokens`
+ * 只作为「更小者的候选」带回（见 `applyFollow`），不是覆盖值。
  */
 function resolveFollow(ctx: Context, agent: SubagentHost): FollowRoute | undefined {
     const parentId = agent.session.header.parentSession
@@ -127,24 +128,40 @@ function resolveFollow(ctx: Context, agent: SubagentHost): FollowRoute | undefin
         provider: source.provider,
         model: source.model,
         ...effort === undefined ? {} : { reasoningEffort: effort },
+        ...typeof source.maxTokens === 'number' ? { maxTokens: source.maxTokens } : {},
     }
 }
 
-/** 跟随父 Agent 时取到的路由三件套（`reasoningEffort` 缺项表示父当前未选档位） */
+/** 跟随父 Agent 时取到的路由四件套（`reasoningEffort` / `maxTokens` 缺项表示父当前没有该值） */
 interface FollowRoute {
     provider: string
     model: string
     reasoningEffort?: ReasoningEffortId
+    maxTokens?: number
 }
 
-/** 整条覆盖为父的路由三件套；先丢旧档位再组新对象（父未选档位时子智能体也按其模型默认解析） */
+/**
+ * 两处输出预算取更小的一个：跟随是把父会话的收缩带给子智能体，不是把子智能体的上限抬到父的
+ * 水平——子智能体那一份可能来自工具侧声明的更小预算（它本来就是有意压低的一次性委派）。
+ * 缺项视作不限，故只有一方给出时即取那一方，两方都没有则不写该键。
+ */
+function smallerBudget(current: number | undefined, inherited: number | undefined): number | undefined {
+    if (current === undefined) return inherited
+    if (inherited === undefined) return current
+    return Math.min(current, inherited)
+}
+
+/** 整条覆盖为父的路由：provider / model / 档位照父的来，输出预算取两者更小的一个 */
 function applyFollow(config: LlmCallConfig, follow: FollowRoute): LlmCallConfig {
+    const budget = smallerBudget(config.maxTokens, follow.maxTokens)
     const next = { ...config }
     delete next.reasoningEffort
+    delete next.maxTokens
     return {
         ...next,
         provider: follow.provider,
         model: follow.model,
         ...follow.reasoningEffort === undefined ? {} : { reasoningEffort: follow.reasoningEffort },
+        ...budget === undefined ? {} : { maxTokens: budget },
     }
 }

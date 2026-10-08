@@ -18,7 +18,7 @@ interface Agent {
         readonly header: { readonly origin?: string; readonly parentSession?: SessionId }
         requestHeader(): { readonly config: LlmCallConfig; readonly adapterDefaults?: LlmCallConfigAdapterDefaults } | undefined
     }
-    readonly options: { readonly provider?: string; readonly model?: string; readonly reasoningEffort?: ReasoningEffortId }
+    readonly options: { readonly provider?: string; readonly model?: string; readonly reasoningEffort?: ReasoningEffortId; readonly maxTokens?: number }
 }
 
 /** 瀑布监听签名（与宿主 `agent/request` 一致） */
@@ -28,7 +28,7 @@ type RequestListener = (payload: { agent: Agent }, next: () => Promise<LlmCallCo
 function makeAgent(init: {
     origin?: string
     parentSession?: string
-    options?: { provider: string; model: string; reasoningEffort?: string }
+    options?: { provider: string; model: string; reasoningEffort?: string; maxTokens?: number }
     header?: unknown
 }): Agent {
     return {
@@ -123,7 +123,7 @@ export async function run(): Promise<void> {
     check('resolveRequest: 非子智能体会话原样放行（跟随开关不碰主 Agent）',
         stable(top.result) === stable({ provider: 'pi', model: 'dsr' }))
 
-    // ---------- 宿主开关关闭：跟随父 Agent 的路由三件套 ----------
+    // ---------- 宿主开关关闭：跟随父 Agent 的当前路由（输出预算另按「取更小」处理） ----------
     const offIdle = await runOnce({
         agent: subagent,
         config: { followParent: false },
@@ -142,8 +142,44 @@ export async function run(): Promise<void> {
         }),
         host: { provider: 'pi', model: 'dsr', reasoningEffort: 'low', maxTokens: 4096 } as LlmCallConfig,
     })
-    check('resolveRequest: 开跟随 → 整条覆盖为父当前生效的路由三件套（其余字段原样保留）',
+    check('resolveRequest: 开跟随 → 整条覆盖为父当前生效的路由（档位照父的来，其余字段原样保留）',
         stable(offFollow.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'high', maxTokens: 4096 }))
+
+    const offParentTighter = await runOnce({
+        agent: subagent,
+        config: { followParent: true },
+        selection: OFF,
+        parentOf: () => makeAgent({
+            header: { config: { provider: 'pi', model: 'parent-model', reasoningEffort: 'high', maxTokens: 2048 } },
+        }),
+        host: { provider: 'pi', model: 'dsr', maxTokens: 4096 } as LlmCallConfig,
+    })
+    check('resolveRequest: 父的输出预算比子智能体自带的小 → 取父的（跟随即收缩）',
+        stable(offParentTighter.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'high', maxTokens: 2048 }))
+
+    const offParentLooser = await runOnce({
+        agent: subagent,
+        config: { followParent: true },
+        selection: OFF,
+        parentOf: () => makeAgent({
+            header: { config: { provider: 'pi', model: 'parent-model', reasoningEffort: 'high', maxTokens: 8192 } },
+        }),
+        host: { provider: 'pi', model: 'dsr', maxTokens: 4096 } as LlmCallConfig,
+    })
+    check('resolveRequest: 父的输出预算比子智能体自带的大 → 保持子智能体自己的（跟随不放宽上限）',
+        stable(offParentLooser.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'high', maxTokens: 4096 }))
+
+    const offNoBudget = await runOnce({
+        agent: subagent,
+        config: { followParent: true },
+        selection: OFF,
+        parentOf: () => makeAgent({
+            header: { config: { provider: 'pi', model: 'parent-model', reasoningEffort: 'high' } },
+        }),
+        host: { provider: 'pi', model: 'dsr' } as LlmCallConfig,
+    })
+    check('resolveRequest: 父与子都没有输出预算 → 不写该键，由子智能体的模型自己解析',
+        stable(offNoBudget.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'high' }))
 
     const offAdapterDefault = await runOnce({
         agent: subagent,
@@ -163,10 +199,10 @@ export async function run(): Promise<void> {
         agent: subagent,
         config: { followParent: true },
         selection: OFF,
-        parentOf: () => makeAgent({ options: { provider: 'pi', model: 'parent-model', reasoningEffort: 'medium' } }),
+        parentOf: () => makeAgent({ options: { provider: 'pi', model: 'parent-model', reasoningEffort: 'medium', maxTokens: 2048 } }),
     })
-    check('resolveRequest: 父尚无请求头 → 回落父 Agent 自身的 options',
-        stable(offNoHeader.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'medium' }))
+    check('resolveRequest: 父尚无请求头 → 回落父 Agent 自身的 options（输出预算同样跟过来）',
+        stable(offNoHeader.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'medium', maxTokens: 2048 }))
 
     const noParentId = await runOnce({ agent: subagent, config: { followParent: true }, selection: OFF })
     const orphan = await runOnce({
