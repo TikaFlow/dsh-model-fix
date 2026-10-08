@@ -3,6 +3,11 @@
  * 换模型时按记忆恢复级别（`userExperience.rememberEfforts`），换级别时存回记忆
  * （外加 `userExperience.defaultHigh` 的自动设置）。
  *
+ * 这里只管记忆的存取，不管整理：失效清理（`userExperience.forgetRemoved`）在 Node 半按
+ * 宿主的全量模型列表执行（`src/memory.ts`），本文件不读模型目录列表、也不剪任何条目。
+ * 存取覆盖面与 UI 选型一致——宿主模型目录里的全部模型（llm-pi-ai、官方提供方、插件
+ * adapter 注册的模型）都参与，与 Node 半只管 llm-pi-ai 参数的职责互不重叠。
+ *
  * 单独成文件是因为它与卡片不共享任何状态：卡片管的是用户点开设置页时看见的那份配置，
  * 本文件管的是所有活着的会话在后台发生了什么。留在入口里，入口就得同时承担
  * 「注册 UI」与「维持运行时行为」两种职责。
@@ -74,7 +79,7 @@ export function applyEffortMemoryListener(ctx: ClientContext, scope: DecodedScop
                 try {
                     dir = modelDirectories.directoryFor(id)
                 } catch {
-                    // 宿主对未知/未保留会话 fail loud（显式抛错），此处跳过本次变化即可
+                    // 宿主对未知会话 fail loud（显式抛错），此处跳过本次变化即可
                     return
                 }
                 const dirState = dir.store.getSnapshot()

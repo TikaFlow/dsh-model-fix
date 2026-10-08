@@ -1,4 +1,5 @@
 // effort.ts 纯逻辑测试：lookupEffort / applyEffort / advertisesEffort / classifyTransition / sameSelection
+// （记忆的失效清理不在浏览器半，见 test/memory.test.ts）
 import { check, stable } from '@test/helper'
 import {
     advertisesEffort,
@@ -223,4 +224,6 @@ export function run(): void {
         groupsWithM1,
         DH_ON,
     )) === stable({ kind: 'model-change', resolved: { provider: 'a', model: 'm1', reasoningEffort: 'high' } }))
+
+    // 失效清理不在本文件：见 test/memory.test.ts（Node 半按全量模型列表剪枝）
 }

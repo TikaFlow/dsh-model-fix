@@ -1,8 +1,9 @@
 /**
  * 每模型推理级别记忆的纯逻辑层：从会话模型选择投影的变化序列中区分「模型变化」
  * （应自动恢复记忆）与「级别变化」（应保存记忆），并计算写入后的记忆、校验目标模型
- * 是否公告该级别。零外部值依赖：宿主类型（type-only，构建期擦除）取自
- * dsh-api-session-controller 的公开类型面。
+ * 是否公告该级别。只管存取，不管整理——失效清理由 Node 半按全量模型列表执行
+ * （`src/memory.ts`）。零外部值依赖：宿主类型（type-only，构建期擦除）
+ * 取自 dsh-api-session-controller 的公开类型面。
  */
 
 import type { ModelProviderGroup, ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -55,7 +56,7 @@ export function advertisesEffort(groups: readonly ModelProviderGroup[], provider
  * - `{ kind: 'none' }` — 无变化（同模型同级别）
  */
 type Transition =
-    | { kind: 'model-change'; resolved: ModelSelection }
+    | { kind: 'model-change', resolved: ModelSelection }
     | { kind: 'effort-change' }
     | { kind: 'none' }
 

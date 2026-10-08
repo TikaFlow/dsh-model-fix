@@ -8,6 +8,7 @@ import { migrateConfig, selfHealConfig } from '@/migrate'
 import { cancelRefreshRetry, refreshIfStale } from '@/refresh'
 import { installRpc } from '@/rpc'
 import { fix } from '@/fix'
+import { updateMemory } from '@/memory'
 import { isIgnoreAll } from '@/guard'
 import { captureBackup } from '@/restore'
 import { restoreProbeBackup } from '@/probe-backup'
@@ -25,8 +26,19 @@ export const Config = z.any().volatile()
 /** 吞掉 fix 写回失败的 rejection（失败日志已在 fix 内告警，避免未处理拒绝） */
 const swallowFixError = (): void => {}
 
+/** 记忆剪枝的兜底吞错（`updateMemory` 内部已逐条告警，这里只防意外逃逸的 rejection） */
+const swallowMemoryError = (): void => {}
+
+/** 触发一次记忆失效清理：与填充解耦，故独立于 fix 调用 */
+function pruneMemory(ctx: Context): void {
+    void updateMemory(ctx).catch(swallowMemoryError)
+}
+
 /** 自有段变更：先自愈（排除列表去重，有重复才写，自愈写回再触发一轮零写入而收敛）再重新填充；
- * 插件写回（重置/恢复/强制更新）期间（守卫开启）整条链短路，防止把刚删的字段重新填回。 */
+ * 插件写回（重置/恢复/强制更新）期间（守卫开启）整条链短路，防止把刚删的字段重新填回。
+ * 用户改「用户体验」组（尤其实验性地开关 forgetRemoved）后在此补一次记忆整理：
+ * 开关一旦转开，被删模型留下的记忆当场归零，不必等下一个模型列表变更事件。
+ * 剪枝写回本身也走自有段，会再触发一轮——那轮整理已是零变更、不写回，故收敛。 */
 function refillAfterOwnChange(ctx: Context): void {
     if (isIgnoreAll()) return
     void selfHealConfig(ctx)
@@ -34,16 +46,22 @@ function refillAfterOwnChange(ctx: Context): void {
             ctx.logger.warn(`${PLUGIN_NAME}: 排除列表自愈失败（不影响后续填充）：${errorText(error)}`)
         })
         .then(() => fix(ctx))
+        .then(() => pruneMemory(ctx))
         .catch(swallowFixError)
 }
 
-/** llm-pi-ai 段变更：重新填充；距上次成功拉取超过保鲜窗口（如长期不重启）时再拉取（结算后再填充一次），无常驻定时器；守卫同上 */
+/** llm-pi-ai 段变更：重新填充；距上次成功拉取超过保鲜窗口（如长期不重启）时再拉取（结算后再填充一次），无常驻定时器；守卫同上。
+ * 填充写回会增删模型级条目，故结算后再按全量模型列表剪一次记忆（填充本身不碰记忆）。 */
 function refillAfterApiChange(ctx: Context, disposed: () => boolean): void {
     if (isIgnoreAll()) return
     fix(ctx)
         .finally(() => {
             if (disposed()) return
             refreshIfStale(ctx, disposed)
+        })
+        .then(() => {
+            if (disposed()) return
+            pruneMemory(ctx)
         })
         .catch(swallowFixError)
 }
@@ -95,6 +113,11 @@ function runStartupChain(ctx: Context, isDisposed: () => boolean): void {
                     if (isDisposed()) return
                     refreshIfStale(ctx, isDisposed)
                 })
+                .then(() => {
+                    // 首轮剪一次记忆：此时活路由已齐（llm-pi-ai 段装载早于 apply），
+                    // 上一轮运行中被删掉的提供方/模型在此归零
+                    if (!isDisposed()) pruneMemory(ctx)
+                })
                 .catch((error: unknown) => {
                     if (isDisposed()) return
                     ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${errorText(error)}`)
@@ -117,6 +140,9 @@ export function apply(ctx: Context, config?: unknown): void {
         if (ns === PLUGIN_NS) refillAfterOwnChange(ctx)
         else if (ns === API_NS) refillAfterApiChange(ctx, isDisposed)
     })
+    // provider 拓扑变化（adapter 注册/注销/替换、configurable-provider 目录增减）——宿主在 commit
+    // 之后统一发出，故此处读到的活路由已是最新；记忆失效清理跟着它走，与会话无关故不进子 fiber
+    ctx.on('llm/adapters-updated', () => pruneMemory(ctx))
     // 「跟随父智能体」（agent/request 瀑布最外层；每请求现算，只读 userExperience.followParent）
     installSubagentFollowParent(ctx)
     // 浏览器半「强制更新 / 重置推理级别 / 恢复备份」RPC channel（结果经 ConnectionRpcResult 回传卡片）

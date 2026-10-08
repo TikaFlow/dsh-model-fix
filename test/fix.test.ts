@@ -1,6 +1,6 @@
 /**
   * src/fix.ts 编排集成测试（stub ctx）：用内存 settings 文档驱动真实 fix()，
-  * 覆盖填充 / 覆盖 / force / excludes / compat 增删 / 空字段剔除 / 记忆重建（含 forgetRemoved 开关）/ 冲突重试。
+  * 覆盖填充 / 覆盖 / force / excludes / compat 增删 / 空字段剔除 / 记忆不归 fix 管（只写 llm-pi-ai 一段）/ 冲突重试。
   *
   * 不覆盖：事件链与守卫（src/guard.ts + test/guard.test.ts）、缓存读盘与网络拉取（readCache/fetchLatest）、
   * 浏览器半。这些需要真实宿主或 fs/mock，不在 stub ctx 的可达面内。
@@ -9,7 +9,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { IndexedCatalog } from '@/types'
 import type { PluginConfig } from '@/shared/types'
-import { fix } from '@/fix'
+import { fix, planFill } from '@/fix'
 import { setConfigSource } from '@/config'
 import { setCatalog } from '@/catalog'
 import { API_NS, CONFIG_VERSION, PLUGIN_NS } from '@/shared/constants'
@@ -183,57 +183,43 @@ export async function run(): Promise<void> {
         check('excludes：变更计数只计未排除提供方', changes === 1)
     }
 
-    // ---------- 7. excludes：记忆仍按模型重建（已删模型记忆被清除） ----------
+    // ---------- 7. 记忆不由 fix 重建：只写 llm-pi-ai，记忆段逐字不动 ----------
     {
         resetModules()
-        const ctx = makeStubCtx({
-            api: { providers: { 'excluded-provider': { models: [{ id: 'model-a' }] } } },
-            plugin: { [KEY]: {} },
-        })
-        setConfig(cfg({
-            excludes: ['excluded-provider'],
-            efforts: { 'excluded-provider': { 'model-a': 'high', 'model-gone': 'low' } },
-        }))
-        setCatalog(CAT)
-        const changes = await fix(ctx as unknown as Context)
-        const efforts = (ctx.userOf(PLUGIN_NS)[KEY] as Record<string, unknown> | undefined)?.efforts
-        check('excludes 记忆：变更计数为 0（不填充）', changes === 0)
-        check('excludes 记忆：已删模型记忆被清除', stable(efforts) === stable({ 'excluded-provider': { 'model-a': 'high' } }))
-    }
-
-    // ---------- 8. 记忆重建（非排除）：已删模型记忆清除、现存记忆保留 ----------
-    {
-        resetModules()
-        const ctx = makeStubCtx({
-            api: { providers: { testprovider: { models: [{ id: 'model-a' }] } } },
-            plugin: { [KEY]: {} },
-        })
-        setConfig(cfg({ efforts: { testprovider: { 'model-a': 'high', 'model-gone': 'low' } } }))
-        setCatalog(CAT)
-        await fix(ctx as unknown as Context)
-        const efforts = (ctx.userOf(PLUGIN_NS)[KEY] as Record<string, unknown> | undefined)?.efforts
-        check('记忆重建：已删模型记忆被清除', stable(efforts) === stable({ testprovider: { 'model-a': 'high' } }))
-        check('记忆重建：现存模型记忆保留', (efforts as Record<string, Record<string, string>> | undefined)?.['testprovider']?.['model-a'] === 'high')
-    }
-
-    // ---------- 8b. forgetRemoved 关闭：不重建、不写回，已删模型记忆原样保留 ----------
-    {
-        resetModules()
-        const memories = { testprovider: { 'model-a': 'high', 'model-gone': 'low' } }
+        const memories = { testprovider: { 'model-a': 'high', 'model-gone': 'low' }, 'deepseek-account': { 'ds-model': 'max' } }
         const ctx = makeStubCtx({
             api: { providers: { testprovider: { models: [{ id: 'model-a' }] } } },
             plugin: { [KEY]: { efforts: memories } },
         })
-        setConfig(cfg({
-            autoFill: { reasoning: false, context: false, image: false },
-            userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: false, followParent: false },
-            efforts: memories,
-        }))
+        setConfig(cfg({ efforts: memories }))
         setCatalog(CAT)
         const changes = await fix(ctx as unknown as Context)
         const efforts = (ctx.userOf(PLUGIN_NS)[KEY] as Record<string, unknown> | undefined)?.efforts
-        check('forgetRemoved 关：已删模型记忆原样保留', stable(efforts) === stable(memories), efforts)
-        check('forgetRemoved 关：自有 NS 零 mutate', ctx.mutateCalls.length === 0 && changes === 0, ctx.mutateCalls)
+        check('记忆不由 fix 重建：已删模型与外部提供方的记忆逐字保留', stable(efforts) === stable(memories), efforts)
+        check(
+            '记忆不由 fix 重建：写回只发生一次且落在 llm-pi-ai 段',
+            changes === 1 && ctx.mutateCalls.length === 1 && ctx.mutateCalls[0]?.ns === API_NS,
+            ctx.mutateCalls,
+        )
+        // 计划口径：efforts 记忆已整体移出 Node 半，填充计划里不应再有该字段
+        const plan = planFill(cfg({ efforts: memories }), { testprovider: { models: [{ id: 'model-a' }] } }, CAT, false)
+        check('记忆不由 fix 重建：填充计划里没有 newEfforts', !('newEfforts' in plan), Object.keys(plan))
+    }
+
+    // ---------- 8. excludes：记忆与排除项彻底无关（零自有段写回） ----------
+    {
+        resetModules()
+        const memories = { 'excluded-provider': { 'model-a': 'high', 'model-gone': 'low' } }
+        const ctx = makeStubCtx({
+            api: { providers: { 'excluded-provider': { models: [{ id: 'model-a' }] } } },
+            plugin: { [KEY]: { efforts: memories } },
+        })
+        setConfig(cfg({ excludes: ['excluded-provider'], efforts: memories }))
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const efforts = (ctx.userOf(PLUGIN_NS)[KEY] as Record<string, unknown> | undefined)?.efforts
+        check('excludes：记忆原样保留（不再按模型重建）', stable(efforts) === stable(memories), efforts)
+        check('excludes：零自有段写回', ctx.mutateCalls.length === 0 && changes === 0, ctx.mutateCalls)
     }
 
     // ---------- 9. 空壳字段清理：reasoningEfforts/input/compat 的空形态一律剔除（无填充也写） ----------
@@ -319,7 +305,7 @@ export async function run(): Promise<void> {
             plugin: { [KEY]: {} },
             conflictFirst: 1,
         })
-        setConfig(cfg()) // efforts 为空 ⇒ 无记忆变更 ⇒ 无 efforts 写回，首次 mutate 即模型写回
+        setConfig(cfg()) // 记忆不由 fix 重建：首次 mutate 即模型写回（无 efforts 写回）
         setCatalog(CAT)
         const changes = await fix(ctx as unknown as Context)
         check('冲突重试：重试后成功返回变更数', changes === 1)

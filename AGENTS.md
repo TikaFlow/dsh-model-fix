@@ -14,7 +14,8 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/shared/` | 跨半共享层：常量、`errorText`、探测契约（禁反向 import Node 半） |
 | `src/config.ts` `src/migrate.ts` `src/upgrade.ts` | 配置解析与配置源 / 当前版本侧迁移与自愈 / 冻结的升级台阶链 |
 | `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 缓存与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
-| `src/fix.ts` `src/empty.ts` | 填充（计划函数 `planFill` + 编排）/ 空壳字段唯一判据 `stripEmptyFields` |
+| `src/fix.ts` `src/empty.ts` | 填充（计划函数 `planFill` + 编排，**只写 `llm-pi-ai` 一段、不碰自有段**）/ 空壳字段唯一判据 `stripEmptyFields` |
+| `src/memory.ts` | 推理级别记忆的**失效清理**（Node 半唯一碰记忆的地方）：按 `ctx.llm` 全量模型列表**缺席即删除**，只写自有段的 `efforts` 一个键；读不到 ≠ 不存在（单个提供方目录读失败保留其整段） |
 | `src/subagent.ts` | 子智能体推理级别：宿主 `agent/request` 瀑布里按 `userExperience.followParent` 把子智能体的调用配置覆盖为父 Agent 当前生效的路由——提供方、模型、推理级别照父的来，输出上限取子智能体那份与父那份中更小的一个（每请求现算，不预检档位可用性） |
 | `src/reset.ts` `src/restore.ts` `src/prune.ts` | 重置推理级别 / 启动备份与交集恢复 / 剔除不支持档位 |
 | `src/guard.ts` `src/host.ts` `src/section.ts` `src/writeback.ts` | 事件流守卫 / `queueTask` / settings 段读取收口 / 写回 `llm-pi-ai` 段的统一外壳 |
@@ -23,7 +24,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/rpc.ts` `src/rpc-route.ts` `src/refresh.ts` | 四个写回端点 / 两条进度流 / 保鲜刷新 |
 | `src/client/index.tsx` `src/client/memory-listener.ts` `src/client/rpc-carrier.ts` | 席位注册与编排 / 推理级别记忆监听 / 调 Node 半的唯一出口 |
 | `src/client/card.tsx` 与同目录的 `tile.tsx` `confirm.tsx` `verify-dialog.tsx` `probe-dialog.tsx` `card-styles.ts` `card-meta.tsx` | 卡片的编排 / 瓦片 / 二次确认 / 两个弹层 / 样式 / 末尾联系行 |
-| `src/client/model.ts` `effort.ts` `scope.ts` `locale-keys.ts` `locale-zh.ts` `locale-en.ts` | 快照↔配置映射 / 记忆纯逻辑 / decode 包装 / 键契约与两种语言 |
+| `src/client/model.ts` `effort.ts` `scope.ts` `locale-keys.ts` `locale-zh.ts` `locale-en.ts` | 快照↔配置映射 / 记忆纯逻辑（**只管存取**） / decode 包装 / 键契约与两种语言 |
 | `public/models-cache.json` `icon.svg` `cordis.patch.yml` `locale/*.json` | 缓存副本与包根静态资源，不经 tsdown |
 
 ## 硬约束（违反即坏）
@@ -71,7 +72,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 - **解析与填充**：快照优先级（当前版本 → 更高版本降级 → 默认，非法或残缺按当前生效值规范化）；`allowUpdate` 含缺失补写、数据无档位不删已有值；`force` 单次绕过；`fix` 读 `descriptor.user` + revision 围栏；空壳字段一律删且**判据只有一处** `stripEmptyFields`（`reasoningEfforts`/`input`/`compat` 的空形态等同未声明，`fix`/`reset`/`restore`/`prune`/`fill` 五条写回路径共用，缺失补写也按清理后的值认）；`compat` 开关即增删且只写路由级。
 - **排除与列表**：`excludes` 是零操作排除而非撤销；允许填不存在的 id；不自动清理失效 id（列表顺序即录入意图）。
 - **参数来源**：图片模态只缓存正向信息；`99999999` / 0 视为无该字段；id 匹配宁可漏不错配；档位序取 `EFFORT_LEVELS`。
-- **推理级别记忆**：`efforts` 是运行时记忆而非用户配置；Node 半只持久化不自动设级别；`rememberEfforts` 关闭只停「保存新的」；`defaultHigh` 三条护栏；两个开关都不读 `excludes`；`followParent` 只管委派出去的子 Agent、不碰模型配置写入，同样不读 `excludes`。
+- **推理级别记忆**：`efforts` 是运行时记忆而非用户配置；**写入与恢复在前端、失效清理在 Node 半 `src/memory.ts`**，覆盖面 = 宿主活路由上的全部模型（llm-pi-ai、官方提供方、插件 adapter 注册的模型），而参数填充 / compat / `excludes` 仍只认 `llm-pi-ai`；`fix` 不再重建记忆、只写 `llm-pi-ai` 一段；剪枝**缺席即删除**（provider 不在 `listProviders()` ⇒ 整段删，组内模型不在 ⇒ 删该模型），**唯读不到不等于不存在**（单个提供方 `listModels` 抛错保留其整段、`listProviders()` 整体为空则本轮不剪），档位是否仍被广告不参与剪枝（恢复侧 `advertisesEffort` 已守）；剪枝触发面三处：`llm/adapters-updated`、两段配置变更后、启动首轮，`forgetRemoved` 为真才动手（改开关那轮即生效）；写回只写自有段的 `efforts` 一个键、经 `queueTask` + revision 围栏，在途只置 pending；Node 半不自动设级别；`rememberEfforts` 关闭只停「保存新的」；`defaultHigh` 三条护栏；两个开关都不读 `excludes`；`followParent` 只管委派出去的子 Agent、不碰模型配置写入，同样不读 `excludes`。
 - **写回端点**：重置只剔 `reasoningEfforts`、不写配置段；恢复备份只回退交集、绝不延迟补捕；写回端点以守卫互斥。卡片侧同理：五个动作键（强制更新 / 重置推理级别 / 恢复备份 / 验证模型 / 探测式填充）共用一个占用态 `configLocked` = 在途或任一弹层开着，任一处在途/开着时其余四个一并禁用。
 - **验证**：只读诊断、只由用户主动发起、即用即弃；受理**只认 `block-start`、不看内容**（`usage` 不算受理）；失败**只按** `LlmFailure` 的 `code` 分类（**全程不比对报错文案**，理由见 host-api），**限流与超时归瞬态**（既不判不可用也不短该模型的后续档位），端点不可达只认 `TRANSPORT`/`STREAM_CLOSED`、凭据无效即短路整组、额度耗尽只压该模型（额度多半按模型设，故**不否凭据**）；**短路只有一条判据：能断定后续必然失败才短**（模型级用 `shouldSkipModelTailAfterBaseline`——基线不带档位、失败天生与档位无关，故额度耗尽与「厂商确定性拒绝」够格短该模型剩余档位；上游 5xx、参数不正确、限流与超时一律不短），档位不支持只记录不短路；退化完成不算报错；每 provider 单并发、跨 provider ≤5 路、无退避；档位开关关态=**不发** `reasoningEffort`（端点可能有默认级别）；收尾统计随开关分两档（关=模型口径，开=级别口径且分母取 `plannedEfforts`）；浏览器半逐模型声明 `needTest`，为真的模型由执行器现发一次不带档位的**基线探测**（不进计划/明细/统计，跑通不发帧，不通则发一条模型级记录：够格的失败据此短该模型，限流与超时只记录、照常逐档验下去），基线已通且该档被判 `INVALID_REQUEST` 即判不支持且**不**短后续（控制变量法：两次请求唯一变量就是档位）；弹层自确认（记录区是弹层内与模型列表并列的第二个选项卡，点「验证」即切过去），SSE 流实时逐条展示、主键在途变「停止」、**关窗 / 断连即中止**且中止不发 `done`；跑完有明确不支持结论即弹剔除确认层（明细由 `unsupportedEfforts` 直接给出、经 Node 半写回，守卫不可省）。
 - **探测式填充**：逐档试出可用的推理级别并**立即写回**（与验证共用执行引擎，只差注入的 `runGroup`）；**必须先把候选档位临时预声明进配置**（宿主按配置里声明的档位本地校验，未声明的档位不出网），同轮结束时收敛回收回、增删统计以预声明之前那份为基线；**两级短路与验证同一条判据**（`providerBlockReason`：端点不通 / 凭据无效 / **本组首个请求超时**即短整组；`shouldSkipModelTail`：模型级只有**额度耗尽**够格、短到该模型自己的档位尾，被短模型按「没跑完」还原），「不支持」的第二条件是「同模型已有更低档跑通」——比基线探测更紧且零成本，故**不发那次额外的基线请求**；收敛口径由「剔除不支持」开关选（关=`可用 ∪ 原有`，开=`可用 ∪ (原有 − 明确判不支持)`，**该开关只对「探测所有」有效**——未填充者无档位可剔，那一轮按关下发并在途禁掉），只认明确状态，档位表算空即删键，**没跑满结论的一律还原、本轮被中止则整轮还原**（必须完全跑完才谈补全，不做「探到多少补多少」）；「忽略排除」是**唯一**突破「排除约束一切写入」的地方且同时管探测与写回；守卫**持有整轮**；**开跑前先把整段 providers 压一份兜底备份**（自有段顶层键 `probeBackup`，与 `version-N` 同级故不进快照、也**不递增 `CONFIG_VERSION`**），收敛落盘后清掉，**启动链末尾（首轮 fix 之后）见键即回退**（交集语义复用 `planRestore`，回退后再补一轮 `fix`，否则被撤掉预声明的模型会停在未填充态）；存不下备份即整轮中止；收敛写回在流内完成、终帧最后发，故统计随 `VerifySummary.fill` 回来而无独立写回端点；跑完**延迟 2.5s 再关窗**。
@@ -79,7 +80,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 
 ## 数据流与目录
 
-骨架与每个目录的完整职责见 [`docs/architecture.md`](docs/architecture.md)。两句话：段变更按 ns 分流为「自有段自愈→填充」与「llm-pi-ai 段填充→保鲜刷新」两条链，入口先判事件流守卫；浏览器半是 `configForms` → `makeScope` → 四席共用同一张卡 + 记忆监听子 fiber。
+骨架与每个目录的完整职责见 [`docs/architecture.md`](docs/architecture.md)。两句话：段变更按 ns 分流为「自有段自愈→填充→记忆整理」与「llm-pi-ai 段填充→保鲜刷新→记忆整理」两条链，入口先判事件流守卫；浏览器半是 `configForms` → `makeScope` → 四席共用同一张卡 + 记忆监听子 fiber（**记忆只管存取**，`fix` 只写 `llm-pi-ai` 一段，而失效清理由 Node 半的 `src/memory.ts` 按 `ctx.llm` 全量模型列表执行，第三个触发面是 `llm/adapters-updated`）。
 
 ## 命令
 
