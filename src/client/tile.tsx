@@ -5,11 +5,13 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { EXCLUDE_ID_PATTERN, GROUP_KEYS, groupValue, masterValue } from '@/client/model'
 import type { Flags, Group, RowKey } from '@/client/model'
 import type { CardKey } from '@/client/locale-keys'
-import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locale-keys'
+import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, SUBAGENT_POLICY_KEYS, TIP_KEYS } from '@/client/locale-keys'
 import { TIP_MAX_WIDTH } from '@/client/card-styles'
+import { SUBAGENT_EFFORT_POLICIES } from '@/shared/constants'
+import type { SubagentEffortPolicy } from '@/shared/types'
 
 /**
- * 卡片的瓦片层：展开体里五张瓦片的两种形态——布尔矩阵配置组瓦片（官方「插件列表」项卡同款）与
+ * 卡片的瓦片层：展开体里六张瓦片的两种形态——布尔矩阵配置组瓦片（官方「插件列表」项卡同款）与
  * 「排除提供方」的动态集合瓦片，渲染顺序由 TILE_ORDER 单一分发。
  *
  * 瓦片只管自己的 summary 与展开体结构，外加「排除提供方」那一份纯 UI 暂态（输入文本与校验反馈不属于配置）；
@@ -19,13 +21,13 @@ import { TIP_MAX_WIDTH } from '@/client/card-styles'
 
 /** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
 const CHEVRON_DOWN = primitives.IconChevronDownOutlineRegular
-const { Switch, Tag, StateDot, Tooltip, IconInfoOutlineRegular, IconTrashOutlineRegular } = primitives
+const { Switch, Tag, StateDot, Tooltip, Menu, IconInfoOutlineRegular, IconTrashOutlineRegular } = primitives
 
 /** 瓦片文案函数：与卡片 props 的 t 同型，同为 slots.register 的 locale 席位合成注入 */
 type TileTranslate = TranslateNS<'settings.modelFix'>
 
-/** 瓦片渲染顺序：自动填充 / 允许更新 / 兼容性 / 排除提供方 / 用户体验 */
-export const TILE_ORDER: readonly (Group | 'excludes')[] = ['autoFill', 'allowUpdate', 'compat', 'excludes', 'userExperience']
+/** 瓦片渲染顺序：自动填充 / 允许更新 / 兼容性 / 排除提供方 / 用户体验 / 子智能体推理级别 */
+export const TILE_ORDER: readonly (Group | 'excludes' | 'subagent')[] = ['autoFill', 'allowUpdate', 'compat', 'excludes', 'userExperience', 'subagent']
 
 /** 配置组瓦片（官方「插件列表」项卡同款）：summary 为组名 + 整组开关 + 折叠箭头，展开体为组释义 + 子开关行
  * （每行标题旁带一个说明键，气泡给该设置项释义）；
@@ -214,5 +216,128 @@ export function ExcludesTile(props: {
                 </div>
             ) : null}
         </div>
+    )
+}
+
+/**
+ * 「子智能体推理级别」瓦片：宿主只为**主** Agent 提供推理级别入口，子 Agent 没有同类设置面，
+ * 本瓦片是那份设置在本卡片里的落点。两条互斥策略共用一张瓦片——宿主「允许 Agent 为子智能体
+ * 选择模型」关闭时「跟随父 Agent 的路由」生效、开启时「按策略定档」生效，故按 `hostSelection`
+ * 把不生效的那一行置灰；该命名空间缺席（非 Web 组合）时无从判断，两行都保持可用。
+ * 尾区只有 chevron、没有整组总控：这里的两条本身互斥，给一个「整组开关」会诱导用户误读。
+ */
+export function SubagentTile(props: {
+    t: TileTranslate
+    flags: Flags
+    open: boolean
+    disabled: boolean
+    /** 宿主「允许 Agent 为子智能体选择模型」开关；undefined = 该命名空间缺席，不置灰任何行 */
+    hostSelection: boolean | undefined
+    onToggle: () => void
+    onFollow: () => void
+    onEffort: (policy: SubagentEffortPolicy) => void
+}) {
+    const { t, open } = props
+    const id = 'dsh-mf-item-subagent'
+    const title = t('subagentTitle')
+    const followDisabled = props.disabled || props.hostSelection === true
+    const effortDisabled = props.disabled || props.hostSelection === false
+    return (
+        <div className="dsh-mf-item" role="group" data-open={open ? 'true' : undefined} aria-labelledby={`${id}-title`}>
+            <div className="dsh-mf-itemHead">
+                <button
+                    type="button"
+                    className="dsh-mf-itemToggle"
+                    aria-expanded={open}
+                    aria-controls={`${id}-body`}
+                    aria-labelledby={`${id}-title`}
+                    onClick={props.onToggle}
+                />
+                <strong className="dsh-mf-itemTitle" id={`${id}-title`}>{title}</strong>
+                <span className="dsh-mf-itemTrailing">
+                    <CHEVRON_DOWN size={12} className="dsh-mf-itemChevron" />
+                </span>
+            </div>
+            {open ? (
+                <div className="dsh-mf-itemBody" id={`${id}-body`}>
+                    <p className="dsh-mf-itemHint">{t('subagentHint')}</p>
+                    <div className="dsh-mf-itemRow">
+                        <span className="dsh-mf-itemLabelGroup">
+                            <span className="dsh-mf-itemLabel">{t('subagentFollow')}</span>
+                            <Tooltip label={t('subagentFollowTip')} side="right" maxWidth={TIP_MAX_WIDTH} portal>
+                                <button type="button" className="dsh-mf-help" aria-label={t('subagentFollowTip')}>
+                                    <IconInfoOutlineRegular size={12} />
+                                </button>
+                            </Tooltip>
+                        </span>
+                        <Switch
+                            checked={props.flags.subagent.follow}
+                            disabled={followDisabled}
+                            label={`${t('subagentFollow')} ${title}`}
+                            onChange={props.onFollow}
+                        />
+                    </div>
+                    <div className="dsh-mf-itemRow">
+                        <span className="dsh-mf-itemLabelGroup">
+                            <span className="dsh-mf-itemLabel">{t('subagentEffort')}</span>
+                            <Tooltip label={t('subagentEffortTip')} side="right" maxWidth={TIP_MAX_WIDTH} portal>
+                                <button type="button" className="dsh-mf-help" aria-label={t('subagentEffortTip')}>
+                                    <IconInfoOutlineRegular size={12} />
+                                </button>
+                            </Tooltip>
+                        </span>
+                        <SubagentEffortMenu
+                            t={t}
+                            value={props.flags.subagent.effort}
+                            disabled={effortDisabled}
+                            onSelect={props.onEffort}
+                        />
+                    </div>
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
+/**
+ * 策略下拉：照官方【设置 → 通用设置 → 语言】那一行——宿主那一行不是原生 `<select>`，而是
+ * `Menu` 包一个按钮，锚点按钮的样式在 card-styles.ts 里逐字复刻了官方 `.selector`。
+ * 选项集合固定来自 `SUBAGENT_EFFORT_POLICIES`（与配置解析同一张表），因此回调只需在表内回查，
+ * 不用对 `Menu` 给回的 id 做断言。
+ */
+function SubagentEffortMenu(props: {
+    t: TileTranslate
+    value: SubagentEffortPolicy
+    disabled: boolean
+    onSelect: (policy: SubagentEffortPolicy) => void
+}) {
+    const [open, setOpen] = useState(false)
+    return (
+        <Menu
+            open={open}
+            onClose={() => { setOpen(false) }}
+            items={SUBAGENT_EFFORT_POLICIES.map(policy => ({ id: policy, label: props.t(SUBAGENT_POLICY_KEYS[policy]) }))}
+            selectedId={props.value}
+            onSelect={(id) => {
+                const next = SUBAGENT_EFFORT_POLICIES.find(policy => policy === id)
+                if (next !== undefined) props.onSelect(next)
+                setOpen(false)
+            }}
+            align="end"
+            portal
+            anchor={(
+                <button
+                    type="button"
+                    className="dsh-mf-selector"
+                    aria-haspopup="menu"
+                    aria-expanded={open}
+                    disabled={props.disabled}
+                    onClick={() => { setOpen(v => !v) }}
+                >
+                    {props.t(SUBAGENT_POLICY_KEYS[props.value])}
+                    <CHEVRON_DOWN className="dsh-mf-selectorChevron" />
+                </button>
+            )}
+        />
     )
 }

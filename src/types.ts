@@ -2,7 +2,7 @@
  * Node 半类型定义与纯类型守卫。
  *
  * 本文件只保留 Node 专属：models.dev 目录类型（`ModelEntry`/`CacheRecord`/…）、`isCapacity`、
- * 冻结历史版本（v3–v6）快照形态。跨半共享类型与守卫单一来源在 `src/shared/types.ts`，两半均直连。
+ * 冻结历史版本（v3–v7）快照形态。跨半共享类型与守卫单一来源在 `src/shared/types.ts`，两半均直连。
  */
 
 import { CAPACITY_UNLIMITED } from '@/constants'
@@ -170,4 +170,36 @@ export interface V6PluginConfigSnapshot {
     excludes: string[]
     efforts: EffortMemory
     userExperience: V6UserExperienceRules
+}
+
+// ---------- 历史版本（v7）冻结形态：引入 subagent 之前的快照（三组布尔 + compat + excludes + efforts + userExperience{rememberEfforts, defaultHigh, forgetRemoved}），定义不随代码演进 ----------
+
+/** 历史版本(v7)：字段规则（与当前 FieldRules 同形，独立声明以冻结形态） */
+export interface V7FieldRules {
+    reasoning: boolean
+    context: boolean
+    image: boolean
+}
+
+/** 历史版本(v7)：兼容性规则（与当前 CompatRules 同形，独立声明以冻结形态） */
+export interface V7CompatRules {
+    disableDeveloper: boolean
+}
+
+/** 历史版本(v7)：用户体验规则（与当前 UserExperienceRules 同形，独立声明以冻结形态） */
+export interface V7UserExperienceRules {
+    rememberEfforts: boolean
+    defaultHigh: boolean
+    forgetRemoved: boolean
+}
+
+/** 历史版本(v7)配置快照 */
+export interface V7PluginConfigSnapshot {
+    configVersion: number
+    allowUpdate: V7FieldRules
+    autoFill: V7FieldRules
+    compat: V7CompatRules
+    excludes: string[]
+    efforts: EffortMemory
+    userExperience: V7UserExperienceRules
 }

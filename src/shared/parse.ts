@@ -1,5 +1,5 @@
 /**
- * 跨半共享的当前版本（v7）配置解析、默认值与存储快照物化（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）。
+ * 跨半共享的当前版本（v8）配置解析、默认值与存储快照物化（零 Node 依赖、零 schemastery、零非基线 `@deepseek-ai/*`）。
  *
  * 浏览器半 `decodeSection` 与 Node 半 `resolveConfig`/`migrateConfig` 共用此处的解析函数（单一来源）；
  * `toStored` 为反方向的物化（配置 -> 规范存储快照），Node 半迁移落盘与浏览器半卡片「保存」共用。
@@ -8,14 +8,15 @@
  * 解析约定：
  * - 整项缺失 → 落该项默认；存在但非对象、或字段存在但非布尔 → 返回 undefined（整段快照非法）
  * - `excludes` 缺失落空数组、非数组或元素非字符串判非法；`efforts` 宽松解析（结构不符回落 {}，不判非法）
- * - 产物只含 6 个已知键（剥离 configVersion 等运行时不消费的键）；缺省容器均为新对象/新数组，不与 `DEFAULT_CONFIG` 共享引用
+ * - `subagent.effort` 取值不在 SUBAGENT_EFFORT_POLICIES 内判非法（与冻结台阶的 schema 同口径）
+ * - 产物只含 7 个已知键（剥离 configVersion 等运行时不消费的键）；缺省容器均为新对象/新数组，不与 `DEFAULT_CONFIG` 共享引用
  */
 
-import { CONFIG_VERSION, VERSION_PREFIX } from '@/shared/constants'
-import type { CompatRules, EffortMemory, FieldRules, PluginConfig, PluginConfigSnapshot, UserExperienceRules } from '@/shared/types'
+import { CONFIG_VERSION, SUBAGENT_EFFORT_POLICIES, VERSION_PREFIX } from '@/shared/constants'
+import type { CompatRules, EffortMemory, FieldRules, PluginConfig, PluginConfigSnapshot, SubagentEffortPolicy, SubagentRules, UserExperienceRules } from '@/shared/types'
 import { isPlainObject } from '@/shared/types'
 
-/** 默认配置：全新用户的配置基线（存储形态经 `toStored` 物化，取值改动须同步 `migrate.ts` 的台阶默认值） */
+/** 默认配置：全新用户的配置基线（存储形态经 `toStored` 物化，取值改动须同步 `upgrade.ts` 的台阶默认值） */
 export const DEFAULT_CONFIG: PluginConfig = {
     allowUpdate: { reasoning: false, context: false, image: false },
     autoFill: { reasoning: true, context: true, image: true },
@@ -23,6 +24,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
     excludes: [],
     efforts: {},
     userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
+    subagent: { follow: false, effort: 'none' },
 }
 
 /** compat 组逐字段的省略默认值 */
@@ -132,8 +134,30 @@ function parseUserExperience(value: unknown): UserExperienceRules | undefined {
     return rules
 }
 
+/** subagent 组逐字段的省略默认值 */
+const SUBAGENT_DEFAULTS: SubagentRules = { follow: false, effort: 'none' }
+
+/** effort 取值是否落在策略表内（顺带收窄成策略字面量） */
+function isSubagentPolicy(value: unknown): value is SubagentEffortPolicy {
+    return SUBAGENT_EFFORT_POLICIES.some(policy => policy === value)
+}
+
+/** 解析 subagent 组：整体缺失落默认；非对象、或 follow 非布尔、或 effort 不在策略表内 => undefined（整段快照非法） */
+function parseSubagent(value: unknown): SubagentRules | undefined {
+    if (value === undefined) return { ...SUBAGENT_DEFAULTS }
+    if (!isPlainObject(value)) return
+    const follow = value.follow
+    if (follow !== undefined && typeof follow !== 'boolean') return
+    const effort = value.effort
+    if (effort !== undefined && !isSubagentPolicy(effort)) return
+    return {
+        follow: typeof follow === 'boolean' ? follow : SUBAGENT_DEFAULTS.follow,
+        effort: isSubagentPolicy(effort) ? effort : SUBAGENT_DEFAULTS.effort,
+    }
+}
+
 /**
- * 校验单个快照值并物化默认；剥离 configVersion 等运行时不消费的键，非法返回 undefined。
+ * 解析单个快照值并物化默认；剥离 configVersion 等运行时不消费的键，非法返回 undefined。
  * 浏览器半 `decodeSection` 与 Node 半 `resolveConfig`/`migrateConfig` 共用此函数（单一来源）。
  */
 export function parseSnapshot(value: unknown): PluginConfig | undefined {
@@ -148,12 +172,14 @@ export function parseSnapshot(value: unknown): PluginConfig | undefined {
     if (!excludes) return
     const userExperience = parseUserExperience(value.userExperience)
     if (!userExperience) return
+    const subagent = parseSubagent(value.subagent)
+    if (!subagent) return
     const efforts = parseEfforts(value.efforts)
-    return { allowUpdate, autoFill, compat, excludes, efforts, userExperience }
+    return { allowUpdate, autoFill, compat, excludes, efforts, userExperience, subagent }
 }
 
 /**
- * 运行时配置 -> 规范 v7 存储快照（configVersion + 四组 + excludes + efforts + userExperience 全显式）。
+ * 运行时配置 -> 规范 v8 存储快照（configVersion + 四组 + excludes + efforts + userExperience + subagent 全显式）。
  * Node 半 migrate（自愈重写/高版本降级落盘）与浏览器半卡片「保存」共用（单一来源）。
  * 各组浅拷贝、excludes 复制、`efforts` 引用传递（调用方以写入当刻的实时记忆覆盖传入）；产物仅供立即序列化写入。
  */
@@ -166,5 +192,6 @@ export function toStored(config: PluginConfig): PluginConfigSnapshot {
         excludes: [...config.excludes],
         efforts: config.efforts,
         userExperience: { ...config.userExperience },
+        subagent: { ...config.subagent },
     }
 }

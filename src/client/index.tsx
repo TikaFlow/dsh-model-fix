@@ -23,8 +23,8 @@ import { CARD_NS } from '@/client/locale-keys'
 import { zh } from '@/client/locale-zh'
 import { makeRpcCarrier } from '@/client/rpc-carrier'
 import { applyEffortMemoryListener } from '@/client/memory-listener'
-import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS } from '@/shared/constants'
-import { decodeSection } from '@/client/model'
+import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS, SUBAGENT_MODEL_SELECTION_NS } from '@/shared/constants'
+import { decodeSection, decodeSubagentSelection } from '@/client/model'
 import type { Flags } from '@/client/model'
 import { makeScope, type DecodedScope } from '@/client/scope'
 
@@ -38,9 +38,13 @@ export function apply(ctx: ClientContext): void {
     // 宿主 get 只收一个 entryId 参数（无 decode spec），段值解码由 makeScope 的 decode 完成
     ctx.inject(['configForms'], (child) => {
         const configForms = child.get('configForms') as { get: (ns: string) => ConfigForm<unknown> }
+        // 宿主那条设置不在所有组合里都有（CLI/TUI 组合没有 Web 侧的子智能体设置页），
+        // 查无该命名空间时传 undefined，卡片据此不置灰任何一行（无从判断哪条策略生效）
+        const hostForm = configForms.get(SUBAGENT_MODEL_SELECTION_NS) as ConfigForm<unknown> | undefined
         boot(ctx,
             makeScope(configForms.get(MODEL_FIX_NS), decodeSection),
             makeScope(configForms.get(PI_AI_NS), () => PROVIDERS_VIEW),
+            hostForm === undefined ? undefined : makeScope(hostForm, decodeSubagentSelection),
         )
     })
 }
@@ -51,16 +55,18 @@ export function apply(ctx: ClientContext): void {
  *   声明过 inject，子 fiber 只声明了标记服务；子 ctx 只用于构造 scope）
  * @param scope - 本插件命名空间的 decode 后段视图（卡片与记忆监听消费）
  * @param providersScope - llm-pi-ai 命名空间的 decode 后段视图（只消费 user 层的提供方 id）
+ * @param hostSelectionScope - 宿主「允许 Agent 为子智能体选择模型」段的 decode 后视图（缺席即 undefined）
  */
 function boot(
     ctx: ClientContext,
     scope: DecodedScope<Flags>,
     providersScope: DecodedScope<readonly unknown[]>,
+    hostSelectionScope: DecodedScope<boolean> | undefined,
 ): void {
     // 词典注册返回 disposer；经 effect 挂载，卸载/HMR 时自动撤销
     ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), `${name}: card dictionaries`)
     // scope 的 form 订阅释放挂入本 fiber
-    ctx.effect(() => () => { scope.dispose(); providersScope.dispose() }, `${name}: scope disposal`)
+    ctx.effect(() => () => { scope.dispose(); providersScope.dispose(); hostSelectionScope?.dispose() }, `${name}: scope disposal`)
     // 浏览器半调 Node 半的全部出口（四个写回端点 + 两条诊断链的读流）见 rpc-carrier.ts
     const { forceUpdate, resetModels, restoreModels, verifyModels, pruneEfforts, probeEfforts } =
         makeRpcCarrier(ctx)
@@ -68,6 +74,7 @@ function boot(
     const cardProps = {
         scope,
         providersScope,
+        hostSelectionScope,
         forceUpdate,
         resetModels,
         restoreModels,

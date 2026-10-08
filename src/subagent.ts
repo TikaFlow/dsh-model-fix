@@ -1,0 +1,210 @@
+import type { Context } from '@deepseek-ai/cordis'
+import type { LlmCallConfig, LlmCallConfigAdapterDefaults, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { getConfig } from '@/config'
+import { errorText } from '@/shared/errors'
+import { lookupEffort } from '@/shared/effort'
+import { API_NS, EFFORT_LEVELS, PLUGIN_NAME } from '@/shared/constants'
+import { descriptorOf, sectionOf } from '@/section'
+import { isPlainObject, providersOf, type SubagentEffortPolicy } from '@/shared/types'
+
+/**
+ * 子智能体推理级别的注入面：在宿主 `agent/request` 瀑布里改写子 Agent 本次请求的调用配置。
+ *
+ * 宿主只为**主** Agent 提供推理级别入口，子 Agent 没有同类设置面；而每次委派真正落地的那份
+ * 调用配置就流经这道瀑布——本模块按 `subagent` 组的两条互斥策略（宿主开关关闭时的「跟随父
+ * Agent 路由」、开启时的「按策略定档」）在 `next()` 之后改写它，等价于替子 Agent 选定档位，
+ * 宿主随后照常做适配器元数据校验（不支持的档位由宿主抛 `UNSUPPORTED_REASONING_EFFORT`，
+ * 不在这里预检、不静默降级）。
+ *
+ * 每请求现算、不缓存结果：父 Agent 的档位与子智能体实际拿到的模型都可能在本会话内变动。
+ */
+
+/**
+ * 本模块用到的两项宿主契约——`Agent` 的只读面与「允许 Agent 为子智能体选择模型」设置服务，
+ * **均按契约复制，不引宿主包类型**。
+ *
+ * 原因：宿主富面 `Agent` 只在 `@deepseek-ai/dsh-agent` **包根**导出（`/types` 子路径只有 `{ id }`），
+ * 「允许选择模型」设置住在 `@deepseek-ai/dsh-tool-subagent/model-selection-settings`；而这两个包
+ * 都会把 `@deepseek-ai/dsh-session` 的**包根**类型拉进程序（如 `dsh-tool-subagent/lib/types/index.d.ts:13`
+ * 的 `import type { Session } from '@deepseek-ai/dsh-session'`），该包根对 `Context` 的
+ * `sessions: SessionStore` 增补会顶掉 `@deepseek-ai/dsh-api-session-controller/client` 的同名增补，
+ * 浏览器半的 `ctx.sessions` 于是由 `ISessions` 退化成 Node 侧的 `SessionStore`，
+ * `src/client/memory-listener.ts` 整片打出类型错误。故本模块只声明实际读取的成员，
+ * 升级宿主时按 [`docs/host-api.md`](docs/host-api.md) 的对应条目复核。
+ */
+interface SubagentHost {
+    readonly session: {
+        readonly header: { readonly origin?: string; readonly parentSession?: SessionId }
+        requestHeader(): { readonly config: LlmCallConfig; readonly adapterDefaults?: LlmCallConfigAdapterDefaults } | undefined
+    }
+    /** 宿主 `AgentOptions` 的路由三项（provider/model 可缺，故逐项判后再用） */
+    readonly options: { readonly provider?: string; readonly model?: string; readonly reasoningEffort?: ReasoningEffortId }
+}
+
+/** 宿主「允许 Agent 为子智能体选择模型」设置服务的只读面（只用到 `current().enabled`） */
+interface HostSelectionService { current(): { enabled: boolean } }
+
+/** 跟随父 Agent 时取到的路由三件套（`reasoningEffort` 缺项表示父当前未选档位） */
+interface FollowRoute {
+    provider: string
+    model: string
+    reasoningEffort?: ReasoningEffortId
+}
+
+/** 档位升序排名表（与 `EFFORT_LEVELS` 同序；`off` 表示可关闭推理，不是可用档位，故不参与） */
+const LEVEL_RANK = new Map<string, number>(EFFORT_LEVELS.map((level, index) => [level, index]))
+
+/** 已解析的「模型声明档位」表；按设置文档 revision 缓存，revision 变化即整体重建 */
+let declaredRevision = -1
+let declaredLevels = new Map<string, readonly string[]>()
+
+/** `agent/request` 瀑布监听签名（与宿主 `AgentEvents` 一致，见 [`docs/host-api.md`](docs/host-api.md)） */
+type SubagentRequestListener = (
+    payload: { agent: SubagentHost },
+    next: () => Promise<LlmCallConfig>,
+) => Promise<LlmCallConfig>
+
+/**
+ * 装上子智能体推理级别注入：单个 `agent/request` 监听覆盖全部 Agent（含 fork/workflow 等
+ * 一并归入 `origin === 'subagent'` 的会话），作用域随插件 ctx 销毁而自动卸载。
+ *
+ * 监听用 `prepend` 钉成最外层：`agent/request` 的监听者由外而内依次执行，最外层 `next()`
+ * 拿到的即宿主（含会话级模型切换）全部改写完成后的最终配置，父 Agent 的档位因此是「当前
+ * 生效值」而非某个中间态。
+ */
+export function installSubagentEffort(ctx: Context): void {
+    // 事件名与监听签名随 `SubagentHost` 一并按契约本地声明（引宿主包根会把 dsh-session 包根类型
+    // 拉进 typecheck 程序、顶掉浏览器半的 ctx.sessions），故此处对 `ctx.on` 做一次收窄断言；
+    // `this` 仍须是插件 ctx，故走 `.call` 而非裸调。
+    const on = ctx.on as unknown as (
+        this: Context,
+        name: string,
+        listener: SubagentRequestListener,
+        options?: { prepend?: boolean },
+    ) => unknown
+    on.call(ctx, 'agent/request', async (payload, next) => {
+        const config = await next()
+        try {
+            return resolveRequest(ctx, payload.agent, config)
+        } catch (error) {
+            // 读宿主设置/父 Agent 失败都不该拖垮子智能体的这一次请求：原样放行，交由宿主自身校验
+            ctx.logger.warn(`${PLUGIN_NAME}: 子智能体推理级别未生效：${errorText(error)}`)
+            return config
+        }
+    }, { prepend: true })
+}
+
+/** 按配置算出本次请求该用的调用配置；非子智能体 Agent 或策略不适用时原样返回入参 */
+function resolveRequest(ctx: Context, agent: SubagentHost | undefined, config: LlmCallConfig): LlmCallConfig {
+    if (agent?.session.header.origin !== 'subagent') return config
+    const cfg = getConfig()
+    if (!hostSelectionEnabled(ctx)) {
+        if (!cfg.subagent.follow) return config
+        const follow = resolveFollow(ctx, agent)
+        return follow === undefined ? config : applyFollow(config, follow)
+    }
+    const effort = resolvePolicy(
+        cfg.subagent.effort,
+        advertisedEfforts(ctx, config.provider, config.model),
+        lookupEffort(cfg.efforts, config.provider, config.model),
+    )
+    // 策略产出的档位是普通字符串（纯函数便于单测），落到调用配置前按宿主品牌类型断言一次
+    return effort === undefined ? config : { ...config, reasoningEffort: effort as ReasoningEffortId }
+}
+
+/**
+ * 宿主是否开着「允许 Agent 为子智能体选择模型」——两条策略的互斥开关。
+ * 服务缺席（非 Web 组合）或 `current()` 因「已开启但授权表为空」抛错时，一律按关闭处理。
+ */
+function hostSelectionEnabled(ctx: Context): boolean {
+    const service = (ctx.get as (name: string) => HostSelectionService | undefined)('subagentModelSelection')
+    try {
+        return service?.current().enabled === true
+    } catch {
+        return false
+    }
+}
+
+/**
+ * 父 Agent 当前生效的路由三件套：先取会话日志的请求头（最新一次请求的配置即当前生效值，
+ * 也是宿主委派时读取的那一份），无请求头则回落 Agent 自身的 options。取不到即 undefined。
+ *
+ * 请求头里被 `adapterDefaults.reasoningEffort` 标记的档位是适配器兜底值而非用户所选，
+ * 视作「父当前未选档位」而丢弃，避免把兜底值当作父的选择复制给子智能体。
+ */
+function resolveFollow(ctx: Context, agent: SubagentHost): FollowRoute | undefined {
+    const parentId = agent.session.header.parentSession
+    if (parentId === undefined) return undefined
+    const parent = ctx.get('agents')?.get(parentId)
+    if (!parent) return undefined
+    const header = parent.session.requestHeader()
+    const source = header?.config ?? parent.options
+    if (typeof source.provider !== 'string' || source.provider === '') return undefined
+    if (typeof source.model !== 'string' || source.model === '') return undefined
+    const effort = header?.adapterDefaults?.reasoningEffort === true ? undefined : source.reasoningEffort
+    return {
+        provider: source.provider,
+        model: source.model,
+        ...effort === undefined ? {} : { reasoningEffort: effort },
+    }
+}
+
+/** 整条覆盖为父的路由三件套；先丢旧档位再组新对象（父未选档位时子智能体也按其模型默认解析） */
+function applyFollow(config: LlmCallConfig, follow: FollowRoute): LlmCallConfig {
+    const next = { ...config }
+    delete next.reasoningEffort
+    return {
+        ...next,
+        provider: follow.provider,
+        model: follow.model,
+        ...follow.reasoningEffort === undefined ? {} : { reasoningEffort: follow.reasoningEffort },
+    }
+}
+
+/**
+ * 按策略定档（纯函数，可单测）：`none` 一律不干预；`min`/`max` 取模型声明档位的首尾；
+ * `memory` 优先用记忆值（须是该模型已声明的档位），否则回落 `high`，再取不到即不干预。
+ * 声明档位为空说明该模型没有可算的档位表——按不干预处理，交宿主解析其默认档位。
+ */
+export function resolvePolicy(
+    policy: SubagentEffortPolicy,
+    advertised: readonly string[],
+    remembered: string | undefined,
+): string | undefined {
+    if (policy === 'none') return undefined
+    if (policy === 'min') return advertised[0]
+    if (policy === 'max') return advertised[advertised.length - 1]
+    if (remembered !== undefined && advertised.includes(remembered)) return remembered
+    return advertised.includes('high') ? 'high' : undefined
+}
+
+/** 模型在 `llm-pi-ai` 段声明的推理档位（按 `EFFORT_LEVELS` 归一升序、剔除非推理的 `off`）；未声明或不可读即空表 */
+function advertisedEfforts(ctx: Context, provider: string, model: string): readonly string[] {
+    const descriptor = descriptorOf(ctx, API_NS)
+    if (!descriptor) return []
+    if (descriptor.revision !== declaredRevision) {
+        declaredRevision = descriptor.revision
+        declaredLevels = declaredLevelsOf(sectionOf(descriptor))
+    }
+    return declaredLevels.get(`${provider}\0${model}`) ?? []
+}
+
+/** 扫 `llm-pi-ai` 段建「provider\\0model → 已声明档位」表；声明值只取键（`off` 表示可关闭推理，不是可用档位） */
+function declaredLevelsOf(section: Record<string, unknown> | undefined): Map<string, readonly string[]> {
+    const levels = new Map<string, readonly string[]>()
+    const providers = providersOf(section)
+    if (!providers) return levels
+    for (const [provider, value] of Object.entries(providers)) {
+        if (!isPlainObject(value) || !Array.isArray(value.models)) continue
+        for (const model of value.models) {
+            if (!isPlainObject(model) || typeof model.id !== 'string' || model.id === '') continue
+            if (!isPlainObject(model.reasoningEfforts)) continue
+            const names = Object.keys(model.reasoningEfforts)
+                .filter(name => name !== 'off' && LEVEL_RANK.has(name))
+                .sort((a, b) => (LEVEL_RANK.get(a) ?? 0) - (LEVEL_RANK.get(b) ?? 0))
+            levels.set(`${provider}\0${model.id}`, names)
+        }
+    }
+    return levels
+}

@@ -1,4 +1,4 @@
-/** src/client/model.ts 纯映射层用例：解码（只读 version-7，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化、验证候选拍取、目标收敛与分组全选、探测式填充候选（未填充判据 / 忽略排除）与七档展开 */
+/** src/client/model.ts 纯映射层用例：解码（只读 version-8，非法/缺失回默认）、组总控/单格语义、排除列表增删与命中判定、脏检测、快照规范化、验证候选拍取、目标收敛与分组全选、探测式填充候选（未填充判据 / 忽略排除）与七档展开 */
 
 import { check, stable } from '@test/helper'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
@@ -8,6 +8,7 @@ import {
     addExclude,
     applyGroup,
     decodeSection,
+    decodeSubagentSelection,
     groupAllPicked,
     groupValue,
     isDirty,
@@ -17,6 +18,7 @@ import {
     providerIdsOf,
     removeExclude,
     resolveHits,
+    setSubagent,
     toggleCell,
     toggleGroupPicks,
     verifyCandidatesOf,
@@ -26,7 +28,7 @@ import {
 import type { Flags } from '@/client/model'
 import { EFFORT_LEVELS } from '@/shared/constants'
 
-/** 三组全开的配置（总控与整组置位用例的基准，无排除项，无记忆，用户体验三项全开） */
+/** 三组全开的配置（总控与整组置位用例的基准，无排除项，无记忆，用户体验三项全开，子智能体项留默认） */
 const ALL_ON: Flags = {
     autoFill: { reasoning: true, context: true, image: true },
     allowUpdate: { reasoning: true, context: true, image: true },
@@ -34,6 +36,7 @@ const ALL_ON: Flags = {
     excludes: [],
     efforts: {},
     userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
+    subagent: DEFAULT_FLAGS.subagent,
 }
 
 /** 带两个排除项的配置（排除列表用例的基准，其中 acme-gateway 在 providerIds 里命中） */
@@ -44,11 +47,11 @@ const WITH_EFFORTS: Flags = { ...ALL_ON, efforts: { 'z-ai': { 'glm-5.2': 'high' 
 
 /** 执行本文件的全部用例 */
 export function run(): void {
-    // ---------- decodeSection：v7 正常解析 ----------
+    // ---------- decodeSection：v8 正常解析 ----------
     check(
-        'decode 完整 v7 快照',
+        'decode 完整 v8 快照',
         stable(decodeSection({
-            'version-7': { configVersion: 7, autoFill: { reasoning: false, context: true, image: false }, allowUpdate: { reasoning: true, context: false, image: false }, compat: { disableDeveloper: false }, excludes: ['acme-gateway'] },
+            'version-8': { configVersion: 8, autoFill: { reasoning: false, context: true, image: false }, allowUpdate: { reasoning: true, context: false, image: false }, compat: { disableDeveloper: false }, excludes: ['acme-gateway'] },
         })) === stable({
             autoFill: { reasoning: false, context: true, image: false },
             allowUpdate: { reasoning: true, context: false, image: false },
@@ -56,37 +59,40 @@ export function run(): void {
             excludes: ['acme-gateway'],
             efforts: {},
             userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
+            subagent: DEFAULT_FLAGS.subagent,
         }),
     )
-    // ---------- v7 缺 excludes 整项落默认（向后兼容语义） ----------
+    // ---------- v8 缺 excludes 整项落默认（向后兼容语义） ----------
     check(
         'decode 缺 excludes 落空数组',
-        stable(decodeSection({ 'version-7': { autoFill: { reasoning: false }, allowUpdate: { reasoning: true } } })) === stable({
+        stable(decodeSection({ 'version-8': { autoFill: { reasoning: false }, allowUpdate: { reasoning: true } } })) === stable({
             autoFill: { reasoning: false, context: true, image: true },
             allowUpdate: { reasoning: true, context: false, image: false },
             compat: { disableDeveloper: true },
             excludes: [],
             efforts: {},
             userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
+            subagent: DEFAULT_FLAGS.subagent,
         }),
     )
-    // ---------- v7 缺 compat 整项落默认（v3 时代就有的兼容语义，升级后不变） ----------
+    // ---------- v8 缺 compat 整项落默认（v3 时代就有的兼容语义，升级后不变） ----------
     check(
         'decode 缺 compat 落默认 true',
-        stable(decodeSection({ 'version-7': { excludes: ['acme-gateway'] } })) === stable({
+        stable(decodeSection({ 'version-8': { excludes: ['acme-gateway'] } })) === stable({
             autoFill: { reasoning: true, context: true, image: true },
             allowUpdate: { reasoning: false, context: false, image: false },
             compat: { disableDeveloper: true },
             excludes: ['acme-gateway'],
             efforts: {},
             userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
+            subagent: DEFAULT_FLAGS.subagent,
         }),
     )
-    // ---------- v7 带 efforts 正常解析 ----------
+    // ---------- v8 带 efforts 正常解析 ----------
     check(
         'decode 含 efforts 快照',
         stable(decodeSection({
-            'version-7': { autoFill: { reasoning: true }, efforts: { 'z-ai': { 'glm-5.2': 'high' } } },
+            'version-8': { autoFill: { reasoning: true }, efforts: { 'z-ai': { 'glm-5.2': 'high' } } },
         })) === stable({
             autoFill: { reasoning: true, context: true, image: true },
             allowUpdate: { reasoning: false, context: false, image: false },
@@ -94,37 +100,38 @@ export function run(): void {
             excludes: [],
             efforts: { 'z-ai': { 'glm-5.2': 'high' } },
             userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
+            subagent: DEFAULT_FLAGS.subagent,
         }),
     )
     // ---------- userExperience：缺整项落默认、字段原样生效、字段缺省落默认 ----------
-    check('decode 缺 userExperience 落默认', stable(decodeSection({ 'version-7': {} })) === stable(DEFAULT_FLAGS))
-    check('decode userExperience rememberEfforts false 原样生效', stable(decodeSection({ 'version-7': { userExperience: { rememberEfforts: false } } })) === stable({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: true } }))
-    check('decode userExperience defaultHigh true 原样生效', stable(decodeSection({ 'version-7': { userExperience: { defaultHigh: true } } })) === stable({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true } }))
-    check('decode userExperience forgetRemoved false 原样生效', stable(decodeSection({ 'version-7': { userExperience: { forgetRemoved: false } } })) === stable({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: false } }))
-    check('decode userExperience 缺字段落默认', stable(decodeSection({ 'version-7': { userExperience: {} } })) === stable(DEFAULT_FLAGS))
+    check('decode 缺 userExperience 落默认', stable(decodeSection({ 'version-8': {} })) === stable(DEFAULT_FLAGS))
+    check('decode userExperience rememberEfforts false 原样生效', stable(decodeSection({ 'version-8': { userExperience: { rememberEfforts: false } } })) === stable({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: true } }))
+    check('decode userExperience defaultHigh true 原样生效', stable(decodeSection({ 'version-8': { userExperience: { defaultHigh: true } } })) === stable({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true } }))
+    check('decode userExperience forgetRemoved false 原样生效', stable(decodeSection({ 'version-8': { userExperience: { forgetRemoved: false } } })) === stable({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: false } }))
+    check('decode userExperience 缺字段落默认', stable(decodeSection({ 'version-8': { userExperience: {} } })) === stable(DEFAULT_FLAGS))
     // ---------- userExperience 非对象 / 字段非布尔 => 整段快照非法（镜像 Node 侧 schema） ----------
-    check('decode userExperience 非对象回退默认', stable(decodeSection({ 'version-7': { userExperience: 'x' } })) === stable(DEFAULT_FLAGS))
-    check('decode userExperience 字段非布尔回退默认', stable(decodeSection({ 'version-7': { userExperience: { rememberEfforts: 'yes' } } })) === stable(DEFAULT_FLAGS))
-    check('decode userExperience defaultHigh 非布尔回退默认', stable(decodeSection({ 'version-7': { userExperience: { defaultHigh: 'yes' } } })) === stable(DEFAULT_FLAGS))
-    check('decode userExperience forgetRemoved 非布尔回退默认', stable(decodeSection({ 'version-7': { userExperience: { forgetRemoved: 'yes' } } })) === stable(DEFAULT_FLAGS))
+    check('decode userExperience 非对象回退默认', stable(decodeSection({ 'version-8': { userExperience: 'x' } })) === stable(DEFAULT_FLAGS))
+    check('decode userExperience 字段非布尔回退默认', stable(decodeSection({ 'version-8': { userExperience: { rememberEfforts: 'yes' } } })) === stable(DEFAULT_FLAGS))
+    check('decode userExperience defaultHigh 非布尔回退默认', stable(decodeSection({ 'version-8': { userExperience: { defaultHigh: 'yes' } } })) === stable(DEFAULT_FLAGS))
+    check('decode userExperience forgetRemoved 非布尔回退默认', stable(decodeSection({ 'version-8': { userExperience: { forgetRemoved: 'yes' } } })) === stable(DEFAULT_FLAGS))
     // ---------- efforts 宽松解析：结构不符回落 {}，不判整段快照非法 ----------
-    check('decode efforts 非对象回落空（快照仍合法）', stable(decodeSection({ 'version-7': { efforts: 'bad' } })) === stable(DEFAULT_FLAGS))
-    check('decode efforts 内层非对象回落空', stable(decodeSection({ 'version-7': { efforts: { a: 'bad' } } })) === stable(DEFAULT_FLAGS))
-    check('decode efforts 混合保留合法项', stable(decodeSection({ 'version-7': { efforts: { a: { m: 'high', bad: 42 } } } })) === stable({ ...DEFAULT_FLAGS, efforts: { a: { m: 'high' } } }))
+    check('decode efforts 非对象回落空（快照仍合法）', stable(decodeSection({ 'version-8': { efforts: 'bad' } })) === stable(DEFAULT_FLAGS))
+    check('decode efforts 内层非对象回落空', stable(decodeSection({ 'version-8': { efforts: { a: 'bad' } } })) === stable(DEFAULT_FLAGS))
+    check('decode efforts 混合保留合法项', stable(decodeSection({ 'version-8': { efforts: { a: { m: 'high', bad: 42 } } } })) === stable({ ...DEFAULT_FLAGS, efforts: { a: { m: 'high' } } }))
     // ---------- 组非对象 / 字段类型非法 => 整段快照非法，回退默认（镜像 Node 侧 schema 抛错语义） ----------
-    check('decode compat 非对象回退默认', stable(decodeSection({ 'version-7': { compat: 'x' } })) === stable(DEFAULT_FLAGS))
-    check('decode compat 字段非布尔回退默认', stable(decodeSection({ 'version-7': { compat: { disableDeveloper: 'yes' } } })) === stable(DEFAULT_FLAGS))
-    check('decode excludes 非数组回退默认', stable(decodeSection({ 'version-7': { excludes: 'acme-gateway' } })) === stable(DEFAULT_FLAGS))
-    check('decode excludes 元素非字符串回退默认', stable(decodeSection({ 'version-7': { excludes: ['ok', 42] } })) === stable(DEFAULT_FLAGS))
-    check('decode excludes 空数组合法且区别于缺失', stable(decodeSection({ 'version-7': { excludes: [] } })) === stable(DEFAULT_FLAGS))
+    check('decode compat 非对象回退默认', stable(decodeSection({ 'version-8': { compat: 'x' } })) === stable(DEFAULT_FLAGS))
+    check('decode compat 字段非布尔回退默认', stable(decodeSection({ 'version-8': { compat: { disableDeveloper: 'yes' } } })) === stable(DEFAULT_FLAGS))
+    check('decode excludes 非数组回退默认', stable(decodeSection({ 'version-8': { excludes: 'acme-gateway' } })) === stable(DEFAULT_FLAGS))
+    check('decode excludes 元素非字符串回退默认', stable(decodeSection({ 'version-8': { excludes: ['ok', 42] } })) === stable(DEFAULT_FLAGS))
+    check('decode excludes 空数组合法且区别于缺失', stable(decodeSection({ 'version-8': { excludes: [] } })) === stable(DEFAULT_FLAGS))
     check(
         'decode 字段非布尔非法回退默认',
         stable(decodeSection({
             'version-3': { configVersion: 3, autoFill: { reasoning: false, context: false }, allowUpdate: { reasoning: true, context: true } },
-            'version-7': { autoFill: { reasoning: 'yes' } },
+            'version-8': { autoFill: { reasoning: 'yes' } },
         })) === stable(DEFAULT_FLAGS),
     )
-    // ---------- 只读 version-7：段内仅有低版本快照（迁移未完成/失败）不读取，回默认 ----------
+    // ---------- 只读 version-8：段内仅有低版本快照（迁移未完成/失败）不读取，回默认 ----------
     check(
         'decode 段内仅有 v5 回默认',
         stable(decodeSection({
@@ -143,26 +150,27 @@ export function run(): void {
         stable(decodeSection({ 'version-9': { autoFill: { reasoning: true, context: true, image: true } } })) === stable(DEFAULT_FLAGS),
     )
     // ---------- 非对象段与垃圾输入一律兜默认，永不 undefined ----------
-    check('decode 段为布尔回退默认', stable(decodeSection({ 'version-7': true })) === stable(DEFAULT_FLAGS))
-    for (const junk of [undefined, null, 42, 'x', [], { foo: 1 }, { 'version-7': null }, { 'version-x': {} }]) {
+    check('decode 段为布尔回退默认', stable(decodeSection({ 'version-8': true })) === stable(DEFAULT_FLAGS))
+    for (const junk of [undefined, null, 42, 'x', [], { foo: 1 }, { 'version-8': null }, { 'version-x': {} }]) {
         check(`decode 垃圾输入兜默认 ${stable(junk)}`, stable(decodeSection(junk)) === stable(DEFAULT_FLAGS), junk)
     }
-    // ---------- toStored：规范形态（configVersion + 三组布尔 + 排除列表 + efforts + userExperience 全显式，无多余键） ----------
+    // ---------- toStored：规范形态（configVersion + 三组布尔 + 排除列表 + efforts + userExperience + subagent 全显式，无多余键） ----------
     check(
-        'snapshot 规范化为 v7 存储形态',
+        'snapshot 规范化为 v8 存储形态',
         stable(toStored(DEFAULT_FLAGS)) === stable({
-            configVersion: 7,
+            configVersion: 8,
             autoFill: { reasoning: true, context: true, image: true },
             allowUpdate: { reasoning: false, context: false, image: false },
             compat: { disableDeveloper: true },
             excludes: [],
             efforts: {},
             userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
+            subagent: DEFAULT_FLAGS.subagent,
         }),
         toStored(DEFAULT_FLAGS),
     )
     check('snapshot 含 efforts', stable(toStored(WITH_EFFORTS).efforts) === stable({ 'z-ai': { 'glm-5.2': 'high' } }))
-    check('snapshot 键名为 version-7', VERSION_KEY === 'version-7', VERSION_KEY)
+    check('snapshot 键名为 version-8', VERSION_KEY === 'version-8', VERSION_KEY)
     // 序列化产物与自身解码必须互逆（保存后立即读回不得变化）
     check('snapshot -> decode 往返一致', stable(decodeSection({ [VERSION_KEY]: toStored(WITH_EXCLUDES) })) === stable(WITH_EXCLUDES), toStored(WITH_EXCLUDES))
     // 带 efforts 的往返一致
@@ -210,6 +218,7 @@ export function run(): void {
             excludes: DEFAULT_FLAGS.excludes,
             efforts: DEFAULT_FLAGS.efforts,
             userExperience: DEFAULT_FLAGS.userExperience,
+            subagent: DEFAULT_FLAGS.subagent,
         }),
     )
     check(
@@ -280,6 +289,22 @@ export function run(): void {
     check('isDirty userExperience 等值不为脏', isDirty({ ...DEFAULT_FLAGS, userExperience: { ...DEFAULT_FLAGS.userExperience } }, DEFAULT_FLAGS) === false)
     // efforts 的变化不标脏（运行时记忆，非用户配置，不应触发"未保存更改"）
     check('isDirty efforts 变化不标脏', isDirty({ ...DEFAULT_FLAGS, efforts: { a: { m: 'high' } } }, DEFAULT_FLAGS) === false)
+    // subagent 不是布尔矩阵而是两个标量：改任一字段都必须标脏，否则那行改了存不下去
+    check('isDirty subagent.follow 不同即为脏', isDirty(setSubagent(DEFAULT_FLAGS, { follow: true }), DEFAULT_FLAGS) === true)
+    check('isDirty subagent.effort 不同即为脏', isDirty(setSubagent(DEFAULT_FLAGS, { effort: 'max' }), DEFAULT_FLAGS) === true)
+    check('isDirty subagent 等值不为脏', isDirty(setSubagent(DEFAULT_FLAGS, { ...DEFAULT_FLAGS.subagent }), DEFAULT_FLAGS) === false)
+    // ---------- 子智能体两条策略：只改草稿，不动入参 ----------
+    check('setSubagent 只改指定字段', stable(setSubagent(DEFAULT_FLAGS, { effort: 'min' }).subagent) === stable({ follow: false, effort: 'min' }), setSubagent(DEFAULT_FLAGS, { effort: 'min' }).subagent)
+    check('setSubagent 切 follow 时保留 effort', stable(setSubagent({ ...DEFAULT_FLAGS, subagent: { follow: false, effort: 'memory' } }, { follow: true }).subagent) === stable({ follow: true, effort: 'memory' }))
+    check('setSubagent 不改入参', DEFAULT_FLAGS.subagent.follow === false && DEFAULT_FLAGS.subagent.effort === 'none')
+    // ---------- 宿主「允许 Agent 为子智能体选择模型」段：只认那一个布尔，其余一律按关闭 ----------
+    check('decodeSubagentSelection enabled true 为开', decodeSubagentSelection({ enabled: true }) === true)
+    check('decodeSubagentSelection enabled false / 缺键 / 非布尔 / 非对象为关', decodeSubagentSelection({ enabled: false }) === false
+        && decodeSubagentSelection({}) === false
+        && decodeSubagentSelection({ enabled: 'yes' }) === false
+        && decodeSubagentSelection(undefined) === false
+        && decodeSubagentSelection('x') === false
+        && decodeSubagentSelection([]) === false)
     // ---------- 验证候选：与 providerIdsOf 同源，档位取 reasoningEfforts 的键并按 EFFORT_LEVELS 归一 ----------
     const verifyUser = {
         providers: {

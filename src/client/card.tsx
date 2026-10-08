@@ -3,8 +3,9 @@
  * 组件实例详情页 / 内置插件选项卡）共用同一外壳，差异只有折叠态策略（`defaultOpen`：三处详情席位默认展开
  * 且保存后不自动收起，footer 席默认收起、保存后自动收起）；详情页仍自绘自己的图标 / 面包屑 / 开关，
  * 卡片头部只管本卡。
- * 展开体为五张瓦片（顺序由 TILE_ORDER 单一分发）：四张布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 /
- * 用户体验）+ 一张动态集合瓦片（排除提供方，summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）。
+ * 展开体为六张瓦片（顺序由 TILE_ORDER 单一分发）：四张布尔矩阵瓦片（自动填充 / 允许更新 / 兼容性 /
+ * 用户体验）+ 一张动态集合瓦片（排除提供方，summary 尾区为「N 命中」徽标，0 命中也常驻、不得画成错误色）
+ * + 一张「子智能体推理级别」瓦片（两条互斥策略，随宿主「允许 Agent 为子智能体选择模型」开关择一生效）。
  * 瓦片手风琴：默认收起、同时只开一个。
  * 布尔瓦片的每一行标题带一个说明键：悬停或键盘聚焦时经宿主 Tooltip 气泡给出该设置项释义（组释义在首行、项释义在气泡）。
  * footer 左侧为强制更新 / 重置推理级别（危险键）/ 恢复备份（次级键）/ 验证模型（次级键）/ 探测式填充（次级键），右侧为取消（仅未保存时渲染）/ 保存；
@@ -47,6 +48,7 @@ import {
     probeTargetsOf,
     removeExclude,
     resolveHits,
+    setSubagent,
     toggleCell,
     toggleGroupPicks,
     verifyCandidatesOf,
@@ -54,7 +56,7 @@ import {
 } from '@/client/model'
 import type { Flags, Group, RowKey, VerifyCandidate, VerifyTarget } from '@/client/model'
 import type { CardKey } from '@/client/locale-keys'
-import { ExcludesTile, GroupTile, TILE_ORDER } from '@/client/tile'
+import { ExcludesTile, GroupTile, SubagentTile, TILE_ORDER } from '@/client/tile'
 import { CardMeta } from '@/client/card-meta'
 import { ConfirmModal } from '@/client/confirm'
 import { VerifyDialog } from '@/client/verify-dialog'
@@ -63,6 +65,7 @@ import type { RpcCarrier } from '@/client/rpc-carrier'
 import { errorText } from '@/shared/errors'
 import { isProviderBlocking } from '@/shared/verify-progress'
 import type { UnsupportedEffort, ProbeOutcome, VerifyProbedFrame } from '@/shared/verify-progress'
+import type { SubagentEffortPolicy } from '@/shared/types'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 
 /** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
@@ -129,6 +132,11 @@ export interface CardProps extends RpcCarrier {
     scope: DecodedScope<Flags>
     /** 宿主 llm-pi-ai 命名空间：只取 snapshot.user 的提供方 id，判定排除项是否命中 */
     providersScope: DecodedScope<readonly unknown[]>
+    /**
+     * 宿主「允许 Agent 为子智能体选择模型」命名空间：只取那一个布尔，决定子智能体瓦片里
+     * 两条互斥策略哪一条生效。命名空间缺席（非 Web 组合）时为 undefined，卡片不置灰任何一行。
+     */
+    hostSelectionScope?: DecodedScope<boolean>
     /** 初始折叠态：插件详情页（plugins.bundle.config）、组件实例详情页（plugins.row.config）与「内置插件」选项卡（settings.plugins.tab）默认展开；模型页 footer 席不传即默认收起（与官方插件卡一致）。同时决定保存成功后是否自动收起——只在默认收起的席位上生效 */
     defaultOpen?: boolean
 }
@@ -162,6 +170,12 @@ export function Card(props: CardProps) {
     const providerIds = useMemo(
         () => providerIdsOf(providersSnap.status === 'ready' ? providersSnap.user : undefined),
         [providersSnap],
+    )
+    // 宿主「允许 Agent 为子智能体选择模型」开关：命名空间缺席时订阅退化为空转，值恒 undefined
+    const hostScope = props.hostSelectionScope
+    const hostSelection = useSyncExternalStore(
+        (listener) => hostScope?.subscribe(listener) ?? (() => {}),
+        () => hostScope?.getSnapshot().value,
     )
     // 验证候选与提供方 id 同源（同一份 llm-pi-ai user 层），故列表里出现的正是 fix 会遍历的那些模型
     const verifyCandidates = useMemo(
@@ -329,6 +343,15 @@ export function Card(props: CardProps) {
     const onMaster = (group: Group) => {
         setNotice(null)
         commitDraft(applyGroup(shown, group, !masterValue(shown, group)))
+    }
+    // 子智能体两条策略：跟随开关取反、策略下拉取选中项，同样只改草稿（保存才落盘）
+    const onFollow = () => {
+        setNotice(null)
+        commitDraft(setSubagent(shown, { follow: !shown.subagent.follow }))
+    }
+    const onEffort = (policy: SubagentEffortPolicy) => {
+        setNotice(null)
+        commitDraft(setSubagent(shown, { effort: policy }))
     }
     // 瓦片折叠：官方 toggleRow 同语义——点已开者即收起，否则切到该瓦片
     const onTileToggle = (key: string) => {
@@ -685,7 +708,7 @@ export function Card(props: CardProps) {
         <>
             {!ready ? <p className="dsh-mf-line" role="status">{t('loading')}</p> : null}
             {ready && !snap.writable ? <p className="dsh-mf-line dsh-mf-warn" role="status">{t('readOnly')}</p> : null}
-            {/* 四个布尔组由组枚举与键表派生，「排除提供方」形状不同单独分发；顺序见 TILE_ORDER */}
+            {/* 四个布尔组由组枚举与键表派生，「排除提供方」与「子智能体」形状不同各自单独分发；顺序见 TILE_ORDER */}
             <div className="dsh-mf-items">
                 {TILE_ORDER.map((tile) => tile === 'excludes' ? (
                     <ExcludesTile
@@ -698,6 +721,18 @@ export function Card(props: CardProps) {
                         onToggle={() => { onTileToggle(tile) }}
                         onAdd={onAddExclude}
                         onRemove={onRemoveExclude}
+                    />
+                ) : tile === 'subagent' ? (
+                    <SubagentTile
+                        key={tile}
+                        t={t}
+                        flags={shown}
+                        open={tileOpen === tile}
+                        disabled={!canWrite}
+                        hostSelection={hostSelection}
+                        onToggle={() => { onTileToggle(tile) }}
+                        onFollow={onFollow}
+                        onEffort={onEffort}
                     />
                 ) : (
                     <GroupTile

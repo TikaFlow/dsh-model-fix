@@ -2,7 +2,7 @@ import z from '@deepseek-ai/schemastery'
 import { MIN_SUPPORTED_VERSION } from '@/constants'
 import { parseEfforts } from '@/shared/parse'
 import type { PluginConfigSnapshot } from '@/shared/types'
-import type { V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot, V5CompatRules, V5FieldRules, V5PluginConfigSnapshot, V5UserExperienceRules, V6CompatRules, V6FieldRules, V6PluginConfigSnapshot, V6UserExperienceRules } from '@/types'
+import type { V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules, V4FieldRules, V4PluginConfigSnapshot, V5CompatRules, V5FieldRules, V5PluginConfigSnapshot, V5UserExperienceRules, V6CompatRules, V6FieldRules, V6PluginConfigSnapshot, V6UserExperienceRules, V7CompatRules, V7FieldRules, V7PluginConfigSnapshot, V7UserExperienceRules } from '@/types'
 import { isPlainObject } from '@/shared/types'
 
 /**
@@ -11,7 +11,7 @@ import { isPlainObject } from '@/shared/types'
  * 本文件是**冻结形态的堆栈**，与当前版本的配置定义刻意不共享任何可演进来源：
  * 各级的 schema、默认常量、台阶默认值一律就地写字面量，也不引用 `CONFIG_VERSION`（产物版本号写死）——
  * 否则今天调整一个默认值，明天就会连带改写历史台阶的语义，破坏高版本快照的无损回退。
- * 配套的冻结类型 `V3`–`V6` 在 `src/types.ts`，增删台阶时两边同步（约定见 AGENTS.md）。
+ * 配套的冻结类型 `V3`–`V7` 在 `src/types.ts`，增删台阶时两边同步（约定见 AGENTS.md）。
  *
  * 当前版本的规范化、旧快照清理与自愈不在这里，见 `src/migrate.ts`。
  */
@@ -270,8 +270,8 @@ const V6ConfigSchema: z<Omit<V6PluginConfigSnapshot, 'configVersion' | 'efforts'
  */
 const V7_FORGET_REMOVED_DEFAULT = true
 
-/** 升到 v7（当前版本）：低于 v7 的输入先由 upgradeTo6 逐级接力到 v6，再按 v6 冻结 schema 解析（非法整体回退 v6 默认），新增 userExperience.forgetRemoved 并落默认；efforts 经 parseEfforts 宽松保留 */
-function upgradeTo7(config: unknown, fromVersion: number): PluginConfigSnapshot {
+/** 升到 v7：低于 v7 的输入先由 upgradeTo6 逐级接力到 v6，再按 v6 冻结 schema 解析（非法整体回退 v6 默认），新增 userExperience.forgetRemoved 并落默认；efforts 经 parseEfforts 宽松保留 */
+function upgradeTo7(config: unknown, fromVersion: number): V7PluginConfigSnapshot {
     const v6 = fromVersion < 6 ? upgradeTo6(config, fromVersion) : config
     let parsed: Omit<V6PluginConfigSnapshot, 'configVersion' | 'efforts'>
     try {
@@ -299,10 +299,89 @@ function upgradeTo7(config: unknown, fromVersion: number): PluginConfigSnapshot 
     }
 }
 
+// ---------- 历史版本（v7）迁移源代码：v7 快照的冻结形态（见 types.ts 历史版本(v7) 段说明），不引用当前版本的可演进定义。 ----------
+
+/** 历史版本(v7)：字段规则 schema（与 v6 同形，独立声明以冻结形态），dflt 为省略字段的默认值 */
+const v7FieldRules = (dflt: boolean): z<V7FieldRules> => z.object({
+    reasoning: z.boolean().default(dflt),
+    context: z.boolean().default(dflt),
+    image: z.boolean().default(dflt),
+})
+
+/** 历史版本(v7)：兼容性规则 schema（与 v6 同形，独立声明以冻结形态） */
+const v7CompatRules: z<V7CompatRules> = z.object({
+    disableDeveloper: z.boolean().default(true),
+})
+
+/** 历史版本(v7)：用户体验规则 schema（与 v6 同形，独立声明以冻结形态）；三项均为省略时的默认值 */
+const v7UserExperienceRules: z<V7UserExperienceRules> = z.object({
+    rememberEfforts: z.boolean().default(true),
+    defaultHigh: z.boolean().default(true),
+    forgetRemoved: z.boolean().default(true),
+})
+
+/** 历史版本(v7)：默认配置——解析失败兜底与 schema 整项缺省的唯一来源 */
+const V7_BASE: Omit<V7PluginConfigSnapshot, 'configVersion'> = {
+    allowUpdate: { reasoning: false, context: false, image: false },
+    autoFill: { reasoning: true, context: true, image: true },
+    compat: { disableDeveloper: true },
+    excludes: [],
+    efforts: {},
+    userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
+}
+
+/**
+ * 历史版本(v7)：配置 schema（仅对象写法，configVersion 等多余键被 schema 忽略；默认取 V7_BASE 的展开副本）。
+ * efforts 是宽松记忆字段，不进 schema（坏结构只该回落 {} 而非拖垮整段），由 upgradeTo8 经 parseEfforts 单独保留。
+ */
+const V7ConfigSchema: z<Omit<V7PluginConfigSnapshot, 'configVersion' | 'efforts'>> = z.object({
+    allowUpdate: v7FieldRules(false).default({ ...V7_BASE.allowUpdate }),
+    autoFill: v7FieldRules(true).default({ ...V7_BASE.autoFill }),
+    compat: v7CompatRules.default({ ...V7_BASE.compat }),
+    excludes: z.array(z.string()).default([...V7_BASE.excludes]),
+    userExperience: v7UserExperienceRules.default({ ...V7_BASE.userExperience }),
+})
+
+/**
+ * subagent 组的台阶默认值：v7 无该组，升级到 v8 时落默认（不干预、不跟随），与 v8 出厂默认一致。
+ * 写字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.subagent`——后者随当前版本演进，台阶产物形态必须恒定。
+ */
+const V8_SUBAGENT_DEFAULT = { follow: false, effort: 'none' } as const
+
+/** 升到 v8（当前版本）：低于 v8 的输入先由 upgradeTo7 逐级接力到 v7，再按 v7 冻结 schema 解析（非法整体回退 v7 默认），新增 subagent 组并落默认；efforts 经 parseEfforts 宽松保留 */
+function upgradeTo8(config: unknown, fromVersion: number): PluginConfigSnapshot {
+    const v7 = fromVersion < 7 ? upgradeTo7(config, fromVersion) : config
+    let parsed: Omit<V7PluginConfigSnapshot, 'configVersion' | 'efforts'>
+    try {
+        parsed = V7ConfigSchema((isPlainObject(v7) ? v7 : {}) as unknown as Omit<V7PluginConfigSnapshot, 'configVersion' | 'efforts'>)
+    } catch {
+        // 同 upgradeTo4：展开拷贝防与 V7_BASE 共享嵌套引用（efforts 不进 schema，不在 parsed 内）
+        parsed = {
+            allowUpdate: { ...V7_BASE.allowUpdate },
+            autoFill: { ...V7_BASE.autoFill },
+            compat: { ...V7_BASE.compat },
+            excludes: [...V7_BASE.excludes],
+            userExperience: { ...V7_BASE.userExperience },
+        }
+    }
+    // efforts 宽松保留（结构不符回落 {}）：记忆坏值不判整段快照非法，避免连累配置自愈重写丢配置
+    const efforts = parseEfforts(isPlainObject(v7) ? v7.efforts : undefined)
+    return {
+        configVersion: 8,
+        allowUpdate: parsed.allowUpdate,
+        autoFill: parsed.autoFill,
+        compat: { ...parsed.compat },
+        excludes: [...parsed.excludes],
+        efforts,
+        userExperience: { ...parsed.userExperience },
+        subagent: { ...V8_SUBAGENT_DEFAULT },
+    }
+}
+
 /**
  * 配置版本迁移入口：只调用最新一级台阶，产物即当前 CONFIG_VERSION 的快照形态。
  * 新版本发布时只追加 `upgradeToN` 并把本函数改指它，既有台阶的逻辑一律不改（约定见 AGENTS.md）。
  */
 export function upgradeConfig(config: unknown, fromVersion: number): PluginConfigSnapshot {
-    return upgradeTo7(config, fromVersion)
+    return upgradeTo8(config, fromVersion)
 }

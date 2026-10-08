@@ -154,6 +154,21 @@
 - **`ModelProviderGroup`**（`@deepseek-ai/dsh-api-session-controller` 的 `src/types.ts`）：`{ id; name; models: readonly ModelCatalogModel[] }`；`ModelCatalogModel{ id; name; description?; reasoning? }`；`ModelReasoning{ efforts; defaultEffort? }`；`ModelReasoningEffort{ id; name; description? }`。
 - **`ObservableSnapshot` 不推首值**（`@deepseek-ai/dsh-client-store` 的 `src/contract.ts`：`{ getSnapshot(): T; subscribe(fn): () => void }`）：实现 `src/index.ts` 的 `createSnapshotStore` 直接包装 zustand vanilla `api.subscribe`，**没有 `fireImmediately`**（默认 `flush:'sync'`，另有 `rafBatch`）。`ctx.locale.subscribe`（`@deepseek-ai/dsh-client-locale` 的 `src/client/index.ts`）与 `sessions.retainInfo.subscribe` 同语义 ⇒ 本仓订阅后必须手动补跑一次。
 
+### agent/request：子智能体推理级别注入面
+
+- **`agent/request` 瀑布**（`@deepseek-ai/dsh-agent` 的 `src/runtime-types.ts`）：`'agent/request'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; signal: AbortSignal }, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>`。派发器（`@deepseek-ai/dsh-agent` 的 `src/dispatch.ts` 的 `agentEvents`）把 `fused = ({ ...payload, agent })` 传给钩子 ⇒ **`payload.agent` 必是运行期 Agent**（调用方带的 `agent` 字段会被覆盖）。
+- **种子配置是冻结的**（`@deepseek-ai/dsh-agent-loop` 的 `src/agent.ts` 的 `prepareRequest`）：`seedConfig = deepFreeze(structuredClone(...))` 后 `await this.dispatch.waterfall('agent/request', …, () => Promise.resolve(seedConfig))`，随后校验 `provider`/`model` 非空再 `llm.prepareCall(proposedConfig, signal)` ⇒ **中间件只能返回新对象，绝不可就地改字段**；`await next()` 的返回值即本次请求实际生效的 `LlmCallConfig`（子智能体「实际使用的模型与档位」由此可读，每请求现算，无需缓存）。
+- **`next()` 取到的是下游结果**：本仓把 `agentCtx.on('agent/request', handler, { prepend: true })` 钉成最外层，`handler` 内部 `const config = await next()` 拿到种子配置（此时未被任何更内层钩子改写），再决定是否覆盖。
+- **全局覆盖靠 scope 过滤器**（`@deepseek-ai/dsh-scope` 的 `src/index.ts` 的 `scopeTarget`）：`const tag = scopeOf(ctx); if (tag === undefined) return true` ⇒ **未 `createScope` 打标签的 ctx 全局收事件**，故插件根 ctx 上注册的单个监听即可覆盖全部 Agent，**不需要 `agent/created` 逐 Agent 挂监听**（`agent/created` 的 `source` 是 `SessionStartSource = 'startup'|'resume'|'clear'|'compact'`，不含父会话信息，本来也拿不到父路由）。
+- **`ctx.on` 的 prepend 选项**（`@deepseek-ai/cordis` 的 `lib/types/events.d.ts`）：`ctx.on(name, listener, options?: boolean | EventOptions)`、`EventOptions{ prepend?: boolean; global?: boolean }`、布尔即 `prepend` 简写；钩子表全局一张按注册先后排列（`lib/index.js` 注释「Listeners run outermost-first」）⇒ **HMR 重载后靠 `{ prepend: true }` 仍能钉在最外层**。
+- **官方注入范本**（`@deepseek-ai/dsh-agent` 的 `src/model-selection.ts` 的 `installModelSelection(agentCtx, selection)`，调用点 `@deepseek-ai/dsh-api-session-controller` 的 `src/agent.ts`）：先 `await next()` 再解构掉继承的 `reasoningEffort` 后拼新对象返回 ⇒ 本仓 `src/subagent.ts` 的形状照此，只把「改成什么」换成策略判定。
+- **`ctx.agents` 取父 Agent**（`@deepseek-ai/dsh-agent` 的 `src/index.ts`）：`class AgentRegistry extends Service`、`super(ctx, 'agents')`、声明合并在 `lib/types/index.d.ts`；`get(id: SessionId): Agent | undefined` 返回 runtime-types 的**富面 Agent**（含 `options: AgentOptions`、`session: Session`、`ctx: Context`）——注意 `@deepseek-ai/dsh-agent/types` 子路径只导出精简 `Agent { id }`，**必须从包根导入**；宿主自身取法见 `@deepseek-ai/dsh-subagent` 的 `src/index.ts`（`ctx.get('agents')?.get(parentSessionId)`）。**本仓不引该包**（包根会带进 `dsh-session` 包根类型、顶掉浏览器半的 `ctx.sessions`），改为在 `src/subagent.ts` 复制只读的 `session.header` / `session.requestHeader()` / `options` 三项。
+- **会话头与请求头**（`@deepseek-ai/dsh-session` 的 `src/types.ts` 与 `src/index.ts`）：`SessionHeader.parentSession?: SessionId`、`origin?: 'subagent'`；`Session.requestHeader(): EpochHeader | undefined`、`EpochHeader{ config: LlmCallConfig; adapterDefaults?: LlmCallConfigAdapterDefaults; tools?; system? }`。**父路由以最近一次请求头为准**（`@deepseek-ai/dsh-subagent` 的 `src/child-agent.ts` 的 `parentAgentOptionsForDelegation` 就是读 `parent.session.requestHeader()?.config`，无头才回落 `parent.options`）；`adapterDefaults?.reasoningEffort === true` 表示该档位是适配器默认值而非用户所选，本仓视为「未选」。
+- **「允许 Agent 为子智能体选择模型」开关**（`@deepseek-ai/dsh-tool-subagent` 的 `src/model-selection-settings.ts` 子路径）：`class SubagentModelSelectionConfig extends Service`、`super(ctx, 'subagentModelSelection')`，`current(): SubagentModelSelectionSettings{ enabled; allowedModels }`；**`enabled && allowedModels.length === 0` 时 `current()` 抛错** ⇒ 本仓按 try/catch 当作关闭；**该服务缺席（CLI/TUI 组合没有这条设置）时同样按关闭处理**。两条子智能体策略以它为互斥开关：关时「跟随父 Agent 路由」生效，开时「按策略定档」生效。**本仓同样不引该子路径类型**（同 `dsh-agent` 的理由），只本地声明 `current(): { enabled: boolean }` 并用 `(ctx.get as (name: string) => HostSelectionService | undefined)('subagentModelSelection')` 取服务。
+- **档位由宿主本地校验**（`@deepseek-ai/dsh-llm` 的 `src/index.ts` 的 `resolveCallWithInfo`）：模型元数据不含该档位即抛 `LlmError(…, 'UNSUPPORTED_REASONING_EFFORT')`（文案 `provider "…" model "…" does not support reasoning effort "…"`），**未声明的档位不出网**。
+- **可用档位的权威来源是 llm-pi-ai 配置**（`@deepseek-ai/dsh-llm-pi-ai` 的 `src/catalog.ts` 的 `resolveModelReasoning`）：user 层模型项的 `reasoningEfforts` —— **省略**= 沿用已装目录能力（无权威档位表）、**`false`**= 非推理模型、**只声明 `off`** 报 `model "<id>" reasoningEfforts offers no level beyond "off"; …`、**键的值为 null**= 该档位未声明即不支持 ⇒ 本仓策略分支只认「键集合」并剔掉 `off`，取不到就按不干预原样放行。档位 id 空间与本仓 `EFFORT_LEVELS` 同集（宿主 `THINKING_LEVELS` 同为 `off/minimal/low/medium/high/xhigh/max`）。
+- **死路备忘**：改宿主 `subagentModelSelection` 的 schema（strict `z.object({ enabled, allowedModels })`，`current()` 忽略额外键）；拦截 `llm/stream` 瀑布（绕过授权校验且与 session log 的请求头失步）；用 `Config.agentOptions`（部署配置，第三方拿不到别的 fiber 的 config 引用）；给 fork 子智能体开路由选择（宿主刻意不给，路由变更会丢失继承会话前缀的 KV-Cache 复用）。
+
 ### 模块装载：`window.__ModuleLoader__` 与 `dsh.client.inject`
 
 - **契约**（`@deepseek-ai/dsh-client-modules` 的 `src/index.ts`）：`ClientModuleLoaderTarget{ mode: 'queue'|'live'; pendingQueue; load(registration): void; create(options): ClientModuleSystem }`；`ClientModuleCreateOptions{ boot; staticModules; loadBundle? }`。
@@ -172,7 +187,7 @@
 | 宿主模块 | 导入符号 | 形式 | 使用处 |
 | --- | --- | --- | --- |
 | `@deepseek-ai/cordis` | `Context` / `Context as ClientContext` | type-only | Node 半各模块；`src/client/index.tsx`、`src/client/memory-listener.ts`、`src/client/rpc-carrier.ts` |
-| `@deepseek-ai/schemastery` | 默认导出 `z` | **值导入** | `src/index.ts`（`Config`）、`src/upgrade.ts`（冻结升级台阶链的 v3–v6 schema） |
+| `@deepseek-ai/schemastery` | 默认导出 `z` | **值导入** | `src/index.ts`（`Config`）、`src/upgrade.ts`（冻结升级台阶链的 v3–v7 schema） |
 | `@deepseek-ai/dsh-settings` | `SettingsPathOp`、`SettingsDescriptor` | type-only | `SettingsPathOp`：`src/fix.ts` `src/migrate.ts` `src/reset.ts` `src/restore.ts` `src/prune.ts` `src/fill.ts` `src/writeback.ts` `src/client/scope.ts`；`SettingsDescriptor`：`src/section.ts`（节读取收口，替掉各处 `describe().find`） |
 | `@deepseek-ai/dsh-util-values` | `deepEqualJson` | **值导入** | `src/fix.ts` `src/migrate.ts` `src/compat.ts` `src/restore.ts` |
 | `@deepseek-ai/dsh-llm` | `LlmRuntime`、`ReasoningEffortId` | type-only | `src/probe-engine.ts`；`src/rpc.ts` 另有一处 `import type {} from '@deepseek-ai/dsh-llm'`（`ctx.llm` 服务面合并） |
@@ -188,21 +203,24 @@
 | `@deepseek-ai/dsh-api-session-controller/client` | 合并（`ctx.sessions`） | 合并 | `src/client/memory-listener.ts` |
 | `@deepseek-ai/dsh-api-session-controller/types` | `ModelSelection`、`ModelSelectionProjection`、`ModelProviderGroup` | type-only | `src/client/memory-listener.ts`、`src/client/effort.ts` |
 | `@deepseek-ai/dsh-client-ui-model-selection/client` | `ModelDirectory` | type-only | `src/client/memory-listener.ts` |
-| `@deepseek-ai/dsh-session/types` | `SessionId` | type-only | `src/client/memory-listener.ts` |
+| `@deepseek-ai/dsh-session/types` | `SessionId` | type-only | `src/client/memory-listener.ts`、`src/subagent.ts`、`test/subagent.test.ts`（**只引 `/types` 子路径**：包根会把 Node 侧 `SessionStore` 的 `ctx.sessions` 增补带进来，见下方契约复制条目） |
 | `@deepseek-ai/dsh-client-ui-renderer/client` | 合并（`ctx.slots`） | 合并 | `src/client/index.tsx` |
 | `@deepseek-ai/dsh-client-locale/client` | 合并（`ctx.locale`） | 合并 | `src/client/index.tsx` |
 | `@deepseek-ai/dsh-client-ui-settings-models/client` | 合并（slot key `settings.models.footer`） | 合并 | `src/client/index.tsx` |
 | `@deepseek-ai/dsh-client-ui-plugin-manager/client` | 合并（slot key `plugins.bundle.config` / `plugins.row.config`） | 合并 | `src/client/index.tsx` |
+| `@deepseek-ai/dsh-llm` | `LlmCallConfig` / `LlmCallConfigAdapterDefaults` / `ReasoningEffortId`（**必须包根**：`/types` 子路径不含 `LlmCallConfig`） | type-only | `src/subagent.ts` |
 
 - **浏览器半的运行期宿主依赖只有 `react`、`react/jsx-runtime` 与 `@deepseek-ai/dsh-client-ui-primitives`**：其余全是 type-only 或合并导入，擦除后不留痕。`ui-primitives` 属平台模块（宿主冻结模块表提供），故卡片用的是**宿主运行期对象**而非打包副本——这是有意选择（符号漂移由 typecheck 在构建期拦下），风险是宿主改名后运行期拿到 `undefined`，React #130 打空该 slot 条目；缓释手段是 devDep 类型面 + 升宿主时复核全部宿主值导入的符号面。
 - **`ctx.llm` 只做 type-only 引用**：凭据只在宿主凭据缝内可读，验证请求必须经宿主 `LlmRuntime.stream` 发出，故 `dependencies` 不长新条目；档位 id 用 `as ReasoningEffortId` 断言而不引运行期构造器。
 - **浏览器侧 `connection` 的 rpc 面需经 `unknown` 桥接**：宿主 `connection` 服务的声明合并只有服务端面 `HostConnectionHandle`，client 面（`ClientConnectionRpc`）不合并进 `Context`，故取用写作 `(ctx.get('connection') as unknown as { rpc: ClientConnectionRpc }).rpc`。
+- **子智能体注入面的三项宿主类型按契约复制，不引宿主包**（`src/subagent.ts` 的 `SubagentHost` / `HostSelectionService` / `SubagentRequestListener`，测试侧同形）：富面 `Agent` 只在 `@deepseek-ai/dsh-agent` **包根**导出、「允许 Agent 为子智能体选择模型」设置住在 `@deepseek-ai/dsh-tool-subagent/model-selection-settings`，而这两个包都会把 `@deepseek-ai/dsh-session` 的**包根**类型拉进整个 typecheck 程序（如 `dsh-tool-subagent/lib/types/index.d.ts:13` 的 `import type { Session } from '@deepseek-ai/dsh-session'`）；该包根对 `Context` 的 `sessions: SessionStore` 增补会顶掉 `@deepseek-ai/dsh-api-session-controller/client` 的同名增补，浏览器半的 `ctx.sessions` 于是从 `ISessions` 退化成 Node 侧的 `SessionStore`，`src/client/memory-listener.ts` 整片打出 6 条类型错误（`retainInfo` / `binding` / `getSnapshot` / `subscribe` 不存在、`unknown` 不能传给 `SessionId`）。实测：这两个包只要出现在 `src/` 的 type-only 导入里就会触发（出现在 `test/` 里未触发，但不可依赖），故 `package.json` **不列** `@deepseek-ai/dsh-agent` 与 `@deepseek-ai/dsh-tool-subagent`。**升宿主时**须复核宿主是否已修好这处声明合并；若修好，可改回直接导入并删掉本地复制。
 
 ## 依赖宿主字面量的键与码
 
 改这些字面量必须确认宿主侧同名同值；它们散落在常量与内联处，AGENTS.md 只点名了 `PLUGIN_NS` 一处。
 
 - **settings 命名空间**：`PLUGIN_NS = 'tikaflow-model-fix'`（= `cordis.patch.yml` 的 `id`，浏览器半 `configForms.get(ns)` 与 Node 半写回 NS 同一字面量）、`API_NS = 'llm-pi-ai'`（宿主自带段，本插件只读 user 层并在同段写 `providers.<id>.models` 与路由 `compat`）。
+- **子智能体相关的宿主字面量**：`SUBAGENT_MODEL_SELECTION_NS = 'subagent-model-selection-settings'`（宿主 `cordis.patch.yml` 里那条 patch 的 `id`，同时是 settings 命名空间名；浏览器半 `configForms.get(ns)` 读它、Node 半 `ctx.get('subagentModelSelection')` 读同一设置，**该命名空间/服务在 CLI/TUI 组合缺席 ⇒ 一律按关闭处理**）、cordis 服务名 `subagentModelSelection`、`SessionHeader.origin = 'subagent'`、llm-pi-ai 模型项的 `reasoningEfforts` 键、`SUBAGENT_EFFORT_POLICIES`（本仓自有取值域 `none|memory|min|max`，非宿主字面量）。
 - **RPC channel 与流路由**：`channel = '/tikaflow-model-fix'`、`VERIFY_STREAM_ROUTE = '/api/tikaflow-model-fix/verify'`、`PROBE_STREAM_ROUTE = '/api/tikaflow-model-fix/probe'`（两条都是 `connection.fetch` 的 exact 路由，须落在 `/api` 之下）、`VERIFY_STREAM_URL` / `PROBE_STREAM_URL = 对应 ROUTE.slice(1)`（浏览器 `fetch` 用文档相对路径）。两条流共用 `src/rpc.ts` 的 `progressStreamFetch`（同形状，只差执行器与措辞）；探测那条入口先查事件流守卫（它一轮之内要写两次配置），已开即回 409 + 中文文案。
 - **RPC endpoint 名**：`forceUpdate` / `resetModels` / `restoreModels` / `pruneEfforts`；结果信封 `{ ok: true, value: { changed } }` 或 `{ ok: true, value: { pruned } }`。
 - **本插件错误码**（`ConnectionRpcResult` 的 `error.code`）：`model-fix/write-in-progress`、`model-fix/force-update-failed`、`model-fix/reset-models-failed`、`model-fix/restore-models-failed`、`model-fix/prune-efforts-invalid`、`model-fix/prune-efforts-failed`、`model-fix/unknown-endpoint`。
@@ -233,6 +251,7 @@
 - **宿主 settings 无客户端包、无命名空间登记/ready 事件**：全仓检索确认（`@deepseek-ai/dsh-settings` 的 `package.json` 只有 `.` / `./types` / `./src/*` / `.package.json` 导出，`ConfigForms` 也没有 `whileServed` 之外的等待原语），本仓 `src/migrate.ts` 的有界轮询等待不可省。
 - **`settings.models.footer` 的 SlotMap 定义在 `@deepseek-ai/dsh-client-ui-settings-models` 而非 `@deepseek-ai/dsh-client-ui-settings`**（前者 `src/client/slot-contract.ts`）——搜 slot 定义时别只搜 ui-settings。
 - **`ConfigForm` 写入的「被拒 vs 传输失败」是两件事**：`set` / `unset` / `mutate` 被拒或跳过返回 `false`，传输失败 reject（`@deepseek-ai/dsh-client-ui-settings` 的 `src/client/config-form-types.ts` 的 JSDoc）；且非 loopback 连接整体是 `memory` 模式、所有写入返回 `false`（同包 `src/client/index.ts`）。本仓卡片只读返回值、不区分来源，故升级后若宿主改为对传输失败也返回 false，用户只会看到「未生效」而无错误文案。
+- **子智能体注入面已逐 tag 核过**：`packages/core/agent/src/{runtime-types,index,model-selection}.ts`、`packages/core/session/src/{index,types}.ts`、`packages/core/agent-loop/src/agent.ts`、`packages/core/scope/src/index.ts`、`packages/llm/llm/src/index.ts`、`packages/llm/llm-pi-ai/src/catalog.ts`、`packages/subagent/tool-subagent/src/model-selection-settings.ts` 在 `dsh-v0.1.7-rc.2` / HEAD / `dsh-v0.2.1-alpha.1` 三处 blob 哈希全部一致（本仓最低支持版本 0.1.7-rc.2）。子智能体可选模型 + 推理级别的能力自 **`dsh-v0.1.2-alpha.1`** 起存在（`dsh-v0.1.1-rc.2` 的 `tool-subagent/src/` 下无 `model-selection*.ts` / `list-models.ts`），远早于本仓最低支持版本。
 
 ## 升级宿主时的检查清单
 
@@ -243,3 +262,5 @@
 - 复核四个 slot key、`rowConfigKey` 拼接、`SlotLabel` thunk 与 `PropsLocale`（`t` 只在声明 `locale:` 时上 props）。
 - 复核 `ctx.sessions.binding()` / `ctx.modelDirectories.directoryFor()` 的失败契约（一个返回 `undefined`、一个抛错），二者互换会让记忆链路的 try/catch 失准。
 - 复核 `Config` 仍是 volatile 实时引用（`Volatile<T>` + `loader/volatile-update`），以及 `z.any()` 与 `z.object` 在 schemastery 与 settings `projectForm` 两层的投影差异。
+- 复核子智能体注入面的五件事：`agent/request` 仍是可 `prepend` 的瀑布且种子配置仍 `deepFreeze`（改动会逼本仓从「返回新对象」改成别的形态）；未打 scope 标签的 ctx 仍全局收事件；`ctx.agents.get()` 仍返回富面 `Agent`；`session.requestHeader()` 仍以最近一次请求头为准；`subagentModelSelection` 服务的缺席/抛错语义未变。
+- 复核 `@deepseek-ai/dsh-session` 包根对 `Context.sessions` 的声明合并与 `@deepseek-ai/dsh-api-session-controller/client` 是否仍冲突（冲突未解前，`src/subagent.ts` 的三项契约复制与 `package.json` 不列 `@deepseek-ai/dsh-agent` / `@deepseek-ai/dsh-tool-subagent` 的约定都要保留；冲突若已解，可改回直接导入）。

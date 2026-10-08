@@ -12,6 +12,7 @@ const base: PluginConfig = {
     excludes: ['lab'],
     efforts: {},
     userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: true },
+    subagent: { follow: false, effort: 'none' },
 }
 
 const providers = {

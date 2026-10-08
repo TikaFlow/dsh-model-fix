@@ -9,6 +9,7 @@
 
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type { Group, RowKey } from '@/client/model'
+import type { SubagentEffortPolicy } from '@/shared/types'
 
 /** 卡片词典命名空间 */
 export const CARD_NS = 'settings.modelFix'
@@ -164,6 +165,18 @@ export type CardKey =
     | 'feedback'
     | 'issueBody'
 
+    // 「子智能体推理级别」瓦片
+    | 'subagentTitle'
+    | 'subagentHint'
+    | 'subagentFollow'
+    | 'subagentFollowTip'
+    | 'subagentEffort'
+    | 'subagentEffortTip'
+    | 'subagentEffortNone'
+    | 'subagentEffortMemory'
+    | 'subagentEffortMin'
+    | 'subagentEffortMax'
+
 declare module '@deepseek-ai/dsh-client-ui-slots' {
     interface LocaleNamespaceMap {
         'settings.modelFix': CardKey
@@ -206,4 +219,12 @@ export const TIP_KEYS: Record<RowKey, CardKey> = {
     rememberEfforts: 'tipRememberEfforts',
     defaultHigh: 'tipDefaultHigh',
     forgetRemoved: 'tipForgetRemoved',
+}
+
+/** 子智能体推理策略的选项文案键映射（策略下拉的四个选项） */
+export const SUBAGENT_POLICY_KEYS: Record<SubagentEffortPolicy, CardKey> = {
+    none: 'subagentEffortNone',
+    memory: 'subagentEffortMemory',
+    min: 'subagentEffortMin',
+    max: 'subagentEffortMax',
 }

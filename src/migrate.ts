@@ -22,7 +22,7 @@ import { upgradeConfig } from '@/upgrade'
 /** 全新用户的规范默认快照（与升级链对空输入的结果一致，由 test 守护）；物化函数单一来源在 src/shared/parse.ts 的 `toStored` */
 export const DEFAULT_STORED: PluginConfigSnapshot = toStored(DEFAULT_CONFIG)
 
-/** 当前版本的快照键（`version-7`，N 取 `CONFIG_VERSION`），全文件的规范化/迁移/自愈写回共用 */
+/** 当前版本的快照键（当前为 `version-8`，N 取 `CONFIG_VERSION`），全文件的规范化/迁移/自愈写回共用 */
 const CURRENT_KEY = versionKey(CONFIG_VERSION)
 
 /** 收集段内合法版本号（升序）；不按最低支持过滤，低于最低支持的版本交由 pruneOps Phase A 清理 */
@@ -77,7 +77,7 @@ export function pruneOps(
  */
 export function canonicalizeCurrentOp(section: VersionedSection | undefined): SettingsPathOp[] {
     if (!section) return []
-    if (!(CURRENT_KEY in section)) return [] // v7 不存在 → 交给迁移分支，不在此产出
+    if (!(CURRENT_KEY in section)) return [] // 当前版本键不存在 → 交给迁移分支，不在此产出
     const onDisk = section[CURRENT_KEY]
     const canonical = toStored(resolveConfig(section))
     return deepEqualJson(onDisk, canonical) ? [] : [{ op: 'set', path: [CURRENT_KEY], value: canonical }]

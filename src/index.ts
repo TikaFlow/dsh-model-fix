@@ -11,6 +11,7 @@ import { fix } from '@/fix'
 import { isIgnoreAll } from '@/guard'
 import { captureBackup } from '@/restore'
 import { restoreProbeBackup } from '@/probe-backup'
+import { installSubagentEffort } from '@/subagent'
 
 export const name = PLUGIN_NAME
 export const inject = ['settings', 'connection', 'llm']
@@ -116,6 +117,8 @@ export function apply(ctx: Context, config?: unknown): void {
         if (ns === PLUGIN_NS) refillAfterOwnChange(ctx)
         else if (ns === API_NS) refillAfterApiChange(ctx, isDisposed)
     })
+    // 子智能体推理级别注入（agent/request 瀑布最外层；每请求现算，读配置源与 llm-pi-ai 声明档位）
+    installSubagentEffort(ctx)
     // 浏览器半「强制更新 / 重置推理级别 / 恢复备份」RPC channel（结果经 ConnectionRpcResult 回传卡片）
     installRpc(ctx)
     ctx.effect(() => {

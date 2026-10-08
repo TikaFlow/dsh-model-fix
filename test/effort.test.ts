@@ -4,9 +4,9 @@ import {
     advertisesEffort,
     applyEffort,
     classifyTransition,
-    lookupEffort,
     sameSelection,
 } from '@/client/effort'
+import { lookupEffort } from '@/shared/effort'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { EffortMemory } from '@/shared/types'
 

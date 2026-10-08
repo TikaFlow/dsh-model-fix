@@ -12,10 +12,13 @@ import type { PluginConfig } from '@/shared/types'
 import { fix } from '@/fix'
 import { setConfigSource } from '@/config'
 import { setCatalog } from '@/catalog'
-import { API_NS, PLUGIN_NS } from '@/shared/constants'
-import { DEFAULT_CONFIG } from '@/shared/parse'
+import { API_NS, CONFIG_VERSION, PLUGIN_NS } from '@/shared/constants'
+import { DEFAULT_CONFIG, versionKey } from '@/shared/parse'
 import { check, stable } from '@test/helper'
 import { makeStubCtx, resetModules, type StubCtx } from '@test/ctx'
+
+/** 插件命名空间里当前版本快照的键（fix 的落盘口随版本变，故不写字面量） */
+const KEY = versionKey(CONFIG_VERSION)
 
 /** 合成目录索引：model-a 四字段齐全，model-b 无图片，model-c 无可用数据（efforts 空、无容量、无模态） */
 const CAT: IndexedCatalog = {
@@ -42,6 +45,7 @@ function cfg(overrides: Partial<PluginConfig> = {}): PluginConfig {
         excludes: overrides.excludes ?? [],
         efforts: overrides.efforts ?? {},
         userExperience: { ...DEFAULT_CONFIG.userExperience, ...overrides.userExperience },
+        subagent: { ...DEFAULT_CONFIG.subagent, ...overrides.subagent },
     }
 }
 
@@ -185,7 +189,7 @@ export async function run(): Promise<void> {
         resetModules()
         const ctx = makeStubCtx({
             api: { providers: { 'excluded-provider': { models: [{ id: 'model-a' }] } } },
-            plugin: { 'version-7': {} },
+            plugin: { [KEY]: {} },
         })
         setConfig(cfg({
             excludes: ['excluded-provider'],
@@ -193,7 +197,7 @@ export async function run(): Promise<void> {
         }))
         setCatalog(CAT)
         const changes = await fix(ctx as unknown as Context)
-        const efforts = (ctx.userOf(PLUGIN_NS)['version-7'] as Record<string, unknown> | undefined)?.efforts
+        const efforts = (ctx.userOf(PLUGIN_NS)[KEY] as Record<string, unknown> | undefined)?.efforts
         check('excludes 记忆：变更计数为 0（不填充）', changes === 0)
         check('excludes 记忆：已删模型记忆被清除', stable(efforts) === stable({ 'excluded-provider': { 'model-a': 'high' } }))
     }
@@ -203,12 +207,12 @@ export async function run(): Promise<void> {
         resetModules()
         const ctx = makeStubCtx({
             api: { providers: { testprovider: { models: [{ id: 'model-a' }] } } },
-            plugin: { 'version-7': {} },
+            plugin: { [KEY]: {} },
         })
         setConfig(cfg({ efforts: { testprovider: { 'model-a': 'high', 'model-gone': 'low' } } }))
         setCatalog(CAT)
         await fix(ctx as unknown as Context)
-        const efforts = (ctx.userOf(PLUGIN_NS)['version-7'] as Record<string, unknown> | undefined)?.efforts
+        const efforts = (ctx.userOf(PLUGIN_NS)[KEY] as Record<string, unknown> | undefined)?.efforts
         check('记忆重建：已删模型记忆被清除', stable(efforts) === stable({ testprovider: { 'model-a': 'high' } }))
         check('记忆重建：现存模型记忆保留', (efforts as Record<string, Record<string, string>> | undefined)?.['testprovider']?.['model-a'] === 'high')
     }
@@ -219,7 +223,7 @@ export async function run(): Promise<void> {
         const memories = { testprovider: { 'model-a': 'high', 'model-gone': 'low' } }
         const ctx = makeStubCtx({
             api: { providers: { testprovider: { models: [{ id: 'model-a' }] } } },
-            plugin: { 'version-7': { efforts: memories } },
+            plugin: { [KEY]: { efforts: memories } },
         })
         setConfig(cfg({
             autoFill: { reasoning: false, context: false, image: false },
@@ -228,7 +232,7 @@ export async function run(): Promise<void> {
         }))
         setCatalog(CAT)
         const changes = await fix(ctx as unknown as Context)
-        const efforts = (ctx.userOf(PLUGIN_NS)['version-7'] as Record<string, unknown> | undefined)?.efforts
+        const efforts = (ctx.userOf(PLUGIN_NS)[KEY] as Record<string, unknown> | undefined)?.efforts
         check('forgetRemoved 关：已删模型记忆原样保留', stable(efforts) === stable(memories), efforts)
         check('forgetRemoved 关：自有 NS 零 mutate', ctx.mutateCalls.length === 0 && changes === 0, ctx.mutateCalls)
     }
@@ -313,7 +317,7 @@ export async function run(): Promise<void> {
         resetModules()
         const ctx = makeStubCtx({
             api: { providers: { testprovider: { models: [{ id: 'model-a' }] } } },
-            plugin: { 'version-7': {} },
+            plugin: { [KEY]: {} },
             conflictFirst: 1,
         })
         setConfig(cfg()) // efforts 为空 ⇒ 无记忆变更 ⇒ 无 efforts 写回，首次 mutate 即模型写回
