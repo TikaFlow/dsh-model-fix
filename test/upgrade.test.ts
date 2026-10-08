@@ -10,8 +10,8 @@ export function run(): void {
     const EXCLUDES: string[] = []
     const EFFORTS: Record<string, Record<string, string>> = {}
     const USER_EXPERIENCE = { rememberEfforts: true, defaultHigh: true, forgetRemoved: true }
-    // v8 新增的 subagent 组台阶默认值：v7 无该组，升级一律落「不跟随 + 不干预」
-    const SUBAGENT = { follow: false, effort: 'none' }
+    // v8 新增的 subagent 组台阶默认值：v7 无该组，升级一律落「不跟随」
+    const SUBAGENT = { follow: false }
 
     // ---------- v3 → v8：三组布尔与 compat 原样沿用，补 excludes（v4 起）、efforts/userExperience（v5 起）、defaultHigh（v6 起）、forgetRemoved（v7 起）、subagent 默认（v8 起） ----------
     const v3Stored = {
@@ -209,8 +209,8 @@ export function run(): void {
     }), upgradeConfig('garbage', 7))
     // v7 冻结 schema 不含 subagent 键：跨版本残留或手写的同名字段一律不认，落台阶默认
     check('v7 输入带 subagent 键也不认（按 v7 冻结 schema 忽略，落台阶默认）',
-        stable(upgradeConfig({ ...v7Stored, subagent: { follow: true, effort: 'max' } }, 7).subagent) === stable(SUBAGENT),
-        upgradeConfig({ ...v7Stored, subagent: { follow: true, effort: 'max' } }, 7).subagent)
+        stable(upgradeConfig({ ...v7Stored, subagent: { follow: true } }, 7).subagent) === stable(SUBAGENT),
+        upgradeConfig({ ...v7Stored, subagent: { follow: true } }, 7).subagent)
     check('v7 输入 efforts 坏结构回落空但保留其余字段与 subagent 默认', stable(upgradeConfig({ ...v7Stored, efforts: 'bad' }, 7)) === stable({
         configVersion: 8,
         subagent: SUBAGENT,

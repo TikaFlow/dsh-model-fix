@@ -48,7 +48,6 @@ import {
     probeTargetsOf,
     removeExclude,
     resolveHits,
-    setSubagent,
     toggleCell,
     toggleGroupPicks,
     verifyCandidatesOf,
@@ -65,7 +64,6 @@ import type { RpcCarrier } from '@/client/rpc-carrier'
 import { errorText } from '@/shared/errors'
 import { isProviderBlocking } from '@/shared/verify-progress'
 import type { UnsupportedEffort, ProbeOutcome, VerifyProbedFrame } from '@/shared/verify-progress'
-import type { SubagentEffortPolicy } from '@/shared/types'
 import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 
 /** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
@@ -344,14 +342,10 @@ export function Card(props: CardProps) {
         setNotice(null)
         commitDraft(applyGroup(shown, group, !masterValue(shown, group)))
     }
-    // 子智能体两条策略：跟随开关取反、策略下拉取选中项，同样只改草稿（保存才落盘）
+    // 子智能体跟随开关取反：只改草稿（保存才落盘）；subagent 组只有这一个键，直接替换该组即可
     const onFollow = () => {
         setNotice(null)
-        commitDraft(setSubagent(shown, { follow: !shown.subagent.follow }))
-    }
-    const onEffort = (policy: SubagentEffortPolicy) => {
-        setNotice(null)
-        commitDraft(setSubagent(shown, { effort: policy }))
+        commitDraft({ ...shown, subagent: { follow: !shown.subagent.follow } })
     }
     // 瓦片折叠：官方 toggleRow 同语义——点已开者即收起，否则切到该瓦片
     const onTileToggle = (key: string) => {
@@ -732,7 +726,6 @@ export function Card(props: CardProps) {
                         hostSelection={hostSelection}
                         onToggle={() => { onTileToggle(tile) }}
                         onFollow={onFollow}
-                        onEffort={onEffort}
                     />
                 ) : (
                     <GroupTile

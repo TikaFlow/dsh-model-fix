@@ -13,7 +13,7 @@ export function run(): void {
         check(`parseVersion 拒绝非规范键 ${bad}`, parseVersion(bad) === undefined, bad)
     }
 
-    const SUBAGENT = { follow: false, effort: 'none' }
+    const SUBAGENT = { follow: false }
     const DEFAULT_STABLE = stable({
         allowUpdate: { reasoning: false, context: false, image: false },
         autoFill: { reasoning: true, context: true, image: true },
@@ -31,14 +31,14 @@ export function run(): void {
         compat: { disableDeveloper: false },
         excludes: ['acme-gateway', 'lab-7'],
     }
-    // 当前版本（v8）快照：subagent 组原样沿用（含非默认值 follow + memory），其余缺项落默认
+    // 当前版本（v8）快照：subagent 组原样沿用（含非默认值 follow），其余缺项落默认
     const v8Entry = {
         configVersion: 8,
         autoFill: { reasoning: false, context: true, image: false },
         allowUpdate: { reasoning: false, context: false, image: false },
         compat: { disableDeveloper: false },
         excludes: ['x'],
-        subagent: { follow: true, effort: 'memory' },
+        subagent: { follow: true },
     }
     check('段内无 v8 快照时降取最高可解析的 v7 快照', stable(resolveConfig({ 'version-7': v7Entry })) === stable({
         autoFill: { reasoning: true, context: false, image: false },
@@ -171,7 +171,7 @@ export function run(): void {
         excludes: ['x'],
         efforts: {},
         userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
-        subagent: { follow: true, effort: 'memory' },
+        subagent: { follow: true },
     }), resolveConfig({ 'version-9': { autoFill: { reasoning: false, context: false, image: false } }, 'version-8': v8Entry }))
     // 无当前版本快照时取段内最高可解析版本（含更高版本）
     check('无 v8 快照时取段内最高的可解析版本（v9 胜过 v7）',
@@ -188,7 +188,7 @@ export function run(): void {
     check('段为数组/非对象回默认', stable(resolveConfig([])) === DEFAULT_STABLE, resolveConfig([]))
 
     // parseSnapshot：迁移侧据此判定当前版本快照是否仍可解析（决定要不要自愈重写）
-    check('parseSnapshot 合法快照物化为三组布尔 + 排除列表 + 记忆 + 用户体验 + 子智能体策略', stable(parseSnapshot(v7Entry)) === stable({
+    check('parseSnapshot 合法快照物化为三组布尔 + 排除列表 + 记忆 + 用户体验 + 子智能体跟随开关', stable(parseSnapshot(v7Entry)) === stable({
         autoFill: { reasoning: true, context: false, image: false },
         allowUpdate: { reasoning: false, context: false, image: true },
         compat: { disableDeveloper: false },
@@ -211,15 +211,14 @@ export function run(): void {
         && parseSnapshot(undefined) === undefined
         && parseSnapshot([]) === undefined)
     // subagent 组：与 compat / userExperience 同严格度——整项非对象、字段非法都判整段快照非法
-    check('subagent 缺省整项落默认（不跟随 + 不干预）', stable(parseSnapshot({ configVersion: 8 })?.subagent) === stable(SUBAGENT), parseSnapshot({ configVersion: 8 }))
-    check('subagent 部分缺省逐字段落默认', stable(parseSnapshot({ configVersion: 8, subagent: { follow: true } })?.subagent) === stable({ follow: true, effort: 'none' }), parseSnapshot({ configVersion: 8, subagent: { follow: true } }))
-    for (const bad of ['x', 42, [], { follow: 'yes' }, { follow: true, effort: 'turbo' }, { effort: 1 }]) {
+    check('subagent 缺省整项落默认（不跟随）', stable(parseSnapshot({ configVersion: 8 })?.subagent) === stable(SUBAGENT), parseSnapshot({ configVersion: 8 }))
+    check('subagent 显式 follow 沿用', stable(parseSnapshot({ configVersion: 8, subagent: { follow: true } })?.subagent) === stable({ follow: true }), parseSnapshot({ configVersion: 8, subagent: { follow: true } }))
+    for (const bad of ['x', 42, [], { follow: 'yes' }, { follow: 1 }, { follow: null }]) {
         check(`subagent 非法输入整段快照判非法（${stable(bad)}）`, parseSnapshot({ configVersion: 8, subagent: bad }) === undefined, parseSnapshot({ configVersion: 8, subagent: bad }))
     }
-    for (const policy of ['none', 'memory', 'min', 'max'] as const) {
-        check(`subagent.effort ${policy} 原样沿用`, stable(parseSnapshot({ configVersion: 8, subagent: { follow: false, effort: policy } })?.subagent) === stable({ follow: false, effort: policy }), parseSnapshot({ configVersion: 8, subagent: { follow: false, effort: policy } }))
-    }
-    check('v8 快照里的 subagent 组经 resolveConfig 原样生效', stable(resolveConfig({ 'version-8': v8Entry }).subagent) === stable({ follow: true, effort: 'memory' }), resolveConfig({ 'version-8': v8Entry }).subagent)
+    // 组内未知键按忽略处理（与 compat / userExperience 同口径），故旧的 effort 键不影响解析
+    check('subagent 组内未知键按忽略处理', stable(parseSnapshot({ configVersion: 8, subagent: { effort: 'turbo' } })?.subagent) === stable(SUBAGENT), parseSnapshot({ configVersion: 8, subagent: { effort: 'turbo' } }))
+    check('v8 快照里的 subagent 组经 resolveConfig 原样生效', stable(resolveConfig({ 'version-8': v8Entry }).subagent) === stable({ follow: true }), resolveConfig({ 'version-8': v8Entry }).subagent)
     check('parseSnapshot 剥离 configVersion 等运行时不消费的键', Object.keys(parseSnapshot(v7Entry) ?? {}).sort().join(',') === 'allowUpdate,autoFill,compat,efforts,excludes,subagent,userExperience', parseSnapshot(v7Entry))
     // 缺省 excludes 落的是新建数组：解析结果被调用方改动不得污染 DEFAULT_CONFIG
     const materialized = parseSnapshot({ configVersion: 4 })

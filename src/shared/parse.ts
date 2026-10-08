@@ -8,12 +8,11 @@
  * 解析约定：
  * - 整项缺失 → 落该项默认；存在但非对象、或字段存在但非布尔 → 返回 undefined（整段快照非法）
  * - `excludes` 缺失落空数组、非数组或元素非字符串判非法；`efforts` 宽松解析（结构不符回落 {}，不判非法）
- * - `subagent.effort` 取值不在 SUBAGENT_EFFORT_POLICIES 内判非法（与冻结台阶的 schema 同口径）
- * - 产物只含 7 个已知键（剥离 configVersion 等运行时不消费的键）；缺省容器均为新对象/新数组，不与 `DEFAULT_CONFIG` 共享引用
+ * - 产物只含 6 个已知键（剥离 configVersion 等运行时不消费的键）；缺省容器均为新对象/新数组，不与 `DEFAULT_CONFIG` 共享引用
  */
 
-import { CONFIG_VERSION, SUBAGENT_EFFORT_POLICIES, VERSION_PREFIX } from '@/shared/constants'
-import type { CompatRules, EffortMemory, FieldRules, PluginConfig, PluginConfigSnapshot, SubagentEffortPolicy, SubagentRules, UserExperienceRules } from '@/shared/types'
+import { CONFIG_VERSION, VERSION_PREFIX } from '@/shared/constants'
+import type { CompatRules, EffortMemory, FieldRules, PluginConfig, PluginConfigSnapshot, SubagentRules, UserExperienceRules } from '@/shared/types'
 import { isPlainObject } from '@/shared/types'
 
 /** 默认配置：全新用户的配置基线（存储形态经 `toStored` 物化，取值改动须同步 `upgrade.ts` 的台阶默认值） */
@@ -24,7 +23,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
     excludes: [],
     efforts: {},
     userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
-    subagent: { follow: false, effort: 'none' },
+    subagent: { follow: false },
 }
 
 /** compat 组逐字段的省略默认值 */
@@ -135,25 +134,15 @@ function parseUserExperience(value: unknown): UserExperienceRules | undefined {
 }
 
 /** subagent 组逐字段的省略默认值 */
-const SUBAGENT_DEFAULTS: SubagentRules = { follow: false, effort: 'none' }
+const SUBAGENT_DEFAULTS: SubagentRules = { follow: false }
 
-/** effort 取值是否落在策略表内（顺带收窄成策略字面量） */
-function isSubagentPolicy(value: unknown): value is SubagentEffortPolicy {
-    return SUBAGENT_EFFORT_POLICIES.some(policy => policy === value)
-}
-
-/** 解析 subagent 组：整体缺失落默认；非对象、或 follow 非布尔、或 effort 不在策略表内 => undefined（整段快照非法） */
+/** 解析 subagent 组：整体缺失落默认；非对象或 follow 非布尔 => undefined（整段快照非法） */
 function parseSubagent(value: unknown): SubagentRules | undefined {
     if (value === undefined) return { ...SUBAGENT_DEFAULTS }
     if (!isPlainObject(value)) return
     const follow = value.follow
     if (follow !== undefined && typeof follow !== 'boolean') return
-    const effort = value.effort
-    if (effort !== undefined && !isSubagentPolicy(effort)) return
-    return {
-        follow: typeof follow === 'boolean' ? follow : SUBAGENT_DEFAULTS.follow,
-        effort: isSubagentPolicy(effort) ? effort : SUBAGENT_DEFAULTS.effort,
-    }
+    return { follow: typeof follow === 'boolean' ? follow : SUBAGENT_DEFAULTS.follow }
 }
 
 /**

@@ -12,17 +12,17 @@ export function run(): void {
     const EXCLUDES: string[] = []
     const EFFORTS: Record<string, Record<string, string>> = {}
     const USER_EXPERIENCE = { rememberEfforts: true, defaultHigh: true, forgetRemoved: true }
-    const SUBAGENT = { follow: false, effort: 'none' }
+    const SUBAGENT = { follow: false }
 
     // toStored：运行时配置 -> 当前版本快照（自愈重写与全新用户直写的唯一构造口）
-    check('toStored 补 configVersion 且含三组布尔与排除列表与 efforts 与 userExperience（含 defaultHigh 与 forgetRemoved）与 subagent 策略', stable(toStored({
+    check('toStored 补 configVersion 且含三组布尔与排除列表与 efforts 与 userExperience（含 defaultHigh 与 forgetRemoved）与 subagent 跟随开关', stable(toStored({
         autoFill: { reasoning: false, context: true, image: false },
         allowUpdate: { reasoning: true, context: false, image: true },
         compat: { disableDeveloper: false },
         excludes: ['acme-gateway'],
         efforts: { 'z-ai': { 'glm-5.2': 'high' } },
         userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: false },
-        subagent: { follow: true, effort: 'memory' },
+        subagent: { follow: true },
     })) === stable({
         configVersion: 8,
         autoFill: { reasoning: false, context: true, image: false },
@@ -31,8 +31,8 @@ export function run(): void {
         excludes: ['acme-gateway'],
         efforts: { 'z-ai': { 'glm-5.2': 'high' } },
         userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: false },
-        subagent: { follow: true, effort: 'memory' },
-    }), toStored({ autoFill: { reasoning: false, context: true, image: false }, allowUpdate: { reasoning: true, context: false, image: true }, compat: { disableDeveloper: false }, excludes: ['acme-gateway'], efforts: { 'z-ai': { 'glm-5.2': 'high' } }, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: false }, subagent: { follow: true, effort: 'memory' } }))
+        subagent: { follow: true },
+    }), toStored({ autoFill: { reasoning: false, context: true, image: false }, allowUpdate: { reasoning: true, context: false, image: true }, compat: { disableDeveloper: false }, excludes: ['acme-gateway'], efforts: { 'z-ai': { 'glm-5.2': 'high' } }, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: false }, subagent: { follow: true } }))
     check('DEFAULT_STORED 即 toStored(默认配置)', stable(DEFAULT_STORED) === stable(toStored({
         autoFill: { reasoning: true, context: true, image: true },
         allowUpdate: { reasoning: false, context: false, image: false },
@@ -40,7 +40,7 @@ export function run(): void {
         excludes: [],
         efforts: {},
         userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
-        subagent: { follow: false, effort: 'none' },
+        subagent: { follow: false },
     })), DEFAULT_STORED)
     check('DEFAULT_STORED 的 configVersion 为当前版本', DEFAULT_STORED.configVersion === CONFIG_VERSION, DEFAULT_STORED)
 

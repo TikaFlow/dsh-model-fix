@@ -76,12 +76,6 @@ const STYLE_TEXT = [
     '.dsh-mf-help{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;padding:0;border:0;border-radius:var(--dsw-radius-sm,8px);background:none;color:var(--dsw-alias-label-tertiary,#81858c);cursor:pointer}',
     '.dsh-mf-help:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06));color:var(--dsw-alias-label-secondary,#61666b)}',
     '.dsh-mf-help:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,rgb(65,118,230)));outline-offset:1px}',
-    // 策略下拉的锚点按钮逐字复刻官方 LanguageRow 的 .selector（36px 高、14px 内距、模块底色），
-    // chevron 照其 .chevron 只收 flex:none；行内的行高与间距沿用本卡片既有 .dsh-mf-itemRow
-    '.dsh-mf-selector{display:inline-flex;align-items:center;gap:12px;height:36px;padding:0 14px;border:0;border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.62));font:inherit;font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary,#0f1115);cursor:pointer}',
-    '.dsh-mf-selector:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}',
-    '.dsh-mf-selector:disabled{opacity:.6;cursor:default}',
-    '.dsh-mf-selectorChevron{flex:none}',
     // 输入框照 ModelsSection 的 .input，删除钮照同页 .iconButton（hover 用 .iconButtonDanger 变体）
     '.dsh-mf-input{box-sizing:border-box;width:100%;height:32px;padding:0 10px;border:0.5px solid var(--dsw-alias-border-l4,rgba(0,0,0,.16));border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#0f1115);font:inherit;font-size:14px;line-height:22px}',
     '.dsh-mf-input:focus{border-color:var(--dsw-alias-state-business-primary,rgb(65,118,230));outline:none}',

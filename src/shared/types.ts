@@ -5,8 +5,6 @@
  * 宿主类型面（Connection RPC 契约等）一律 type-only 导入 devDep 的宿主包（构建期擦除），不在本仓另行声明。
  */
 
-import type { SUBAGENT_EFFORT_POLICIES } from '@/shared/constants'
-
 /** 判断是否为普通数据对象（非数组、非 null、非类实例） */
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -75,19 +73,13 @@ export interface UserExperienceRules {
 /** 每模型推理级别记忆：provider id → model id → harness ModelThinkingLevel 字符串 */
 export type EffortMemory = Record<string, Record<string, string>>
 
-/** 子智能体推理级别的策略：`none` 不干预、`memory` 用该模型记住的级别、`min` / `max` 取模型可用档位的首尾 */
-export type SubagentEffortPolicy = (typeof SUBAGENT_EFFORT_POLICIES)[number]
-
 /**
- * 子智能体推理级别规则。宿主「允许 Agent 为子智能体选择模型」关闭时只有 `follow` 生效（子智能体跟随父 Agent
- * 当前生效的 provider + model + reasoningEffort 三件套）；该开关打开时改由 `effort` 策略按子智能体自己
- * 实际使用的 provider + model 决定推理级别（不动路由）。两者互斥，且都只在配置值非默认时才有动作。
+ * 子智能体推理级别规则：宿主「允许 Agent 为子智能体选择模型」关闭时，`follow` 为开的子智能体
+ * 跟随父 Agent 当前生效的 provider + model + reasoningEffort 三件套（每次请求现算）。
  */
 export interface SubagentRules {
     /** 子智能体跟随父 Agent 的路由与推理级别 */
     follow: boolean
-    /** 按子智能体实际模型决定推理级别的策略 */
-    effort: SubagentEffortPolicy
 }
 
 /** 当前运行时配置（仅对象写法） */

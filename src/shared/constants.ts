@@ -34,12 +34,9 @@ export const PROBE_STREAM_URL = PROBE_STREAM_ROUTE.slice(1)
 /** 推理级别取值，与 harness 的 ModelThinkingLevel 一致（由低到高：浏览器半取「最低档位」即取首个命中项） */
 export const EFFORT_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
-/** 子智能体推理级别的策略取值：none 不干预、memory 用该模型记住的级别、min / max 取模型可用档位的首尾 */
-export const SUBAGENT_EFFORT_POLICIES = ['none', 'memory', 'min', 'max'] as const
-
 /**
  * 宿主「允许 Agent 为子智能体选择模型」设置的命名空间（= 宿主 `cordis.patch.yml` 里那条 patch 的 id）。
- * 两条子智能体策略以它为互斥开关：关时「跟随父 Agent 路由」生效，开时「按策略定档」生效。
+ * 它决定「跟随父 Agent 路由」开关是否生效：关时生效，开时不生效。
  */
 export const SUBAGENT_MODEL_SELECTION_NS = 'subagent-model-selection-settings'
 

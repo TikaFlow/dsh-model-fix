@@ -6,8 +6,12 @@
  */
 
 import type { ModelProviderGroup, ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
-import { lookupEffort } from '@/shared/effort'
 import type { EffortMemory } from '@/shared/types'
+
+/** 嵌套查记忆：provider → model → 级别；无记录返回 undefined */
+export function lookupEffort(memory: EffortMemory, provider: string, model: string): string | undefined {
+    return memory[provider]?.[model]
+}
 
 /**
  * 计算写入后的整段记忆（不改入参）：`effort` 为字符串则记录该模型，`null` 则清除该模型记忆。

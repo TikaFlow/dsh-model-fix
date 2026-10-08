@@ -3,19 +3,15 @@ import type { LlmCallConfig, LlmCallConfigAdapterDefaults, ReasoningEffortId } f
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { getConfig } from '@/config'
 import { errorText } from '@/shared/errors'
-import { lookupEffort } from '@/shared/effort'
-import { API_NS, EFFORT_LEVELS, PLUGIN_NAME } from '@/shared/constants'
-import { descriptorOf, sectionOf } from '@/section'
-import { isPlainObject, providersOf, type SubagentEffortPolicy } from '@/shared/types'
+import { PLUGIN_NAME } from '@/shared/constants'
 
 /**
  * 子智能体推理级别的注入面：在宿主 `agent/request` 瀑布里改写子 Agent 本次请求的调用配置。
  *
  * 宿主只为**主** Agent 提供推理级别入口，子 Agent 没有同类设置面；而每次委派真正落地的那份
- * 调用配置就流经这道瀑布——本模块按 `subagent` 组的两条互斥策略（宿主开关关闭时的「跟随父
- * Agent 路由」、开启时的「按策略定档」）在 `next()` 之后改写它，等价于替子 Agent 选定档位，
- * 宿主随后照常做适配器元数据校验（不支持的档位由宿主抛 `UNSUPPORTED_REASONING_EFFORT`，
- * 不在这里预检、不静默降级）。
+ * 调用配置就流经这道瀑布——本模块按 `subagent` 组的「跟随父 Agent 路由」开关在 `next()` 之后
+ * 改写它，等价于替子 Agent 选定档位，宿主随后照常做适配器元数据校验（不支持的档位由宿主抛
+ * `UNSUPPORTED_REASONING_EFFORT`，不在这里预检、不静默降级）。
  *
  * 每请求现算、不缓存结果：父 Agent 的档位与子智能体实际拿到的模型都可能在本会话内变动。
  */
@@ -42,22 +38,11 @@ interface SubagentHost {
     readonly options: { readonly provider?: string; readonly model?: string; readonly reasoningEffort?: ReasoningEffortId }
 }
 
+/** 宿主 `AgentRegistry` 的只读面（按契约复制） */
+interface HostAgentRegistry { get(id: SessionId): SubagentHost | undefined }
+
 /** 宿主「允许 Agent 为子智能体选择模型」设置服务的只读面（只用到 `current().enabled`） */
 interface HostSelectionService { current(): { enabled: boolean } }
-
-/** 跟随父 Agent 时取到的路由三件套（`reasoningEffort` 缺项表示父当前未选档位） */
-interface FollowRoute {
-    provider: string
-    model: string
-    reasoningEffort?: ReasoningEffortId
-}
-
-/** 档位升序排名表（与 `EFFORT_LEVELS` 同序；`off` 表示可关闭推理，不是可用档位，故不参与） */
-const LEVEL_RANK = new Map<string, number>(EFFORT_LEVELS.map((level, index) => [level, index]))
-
-/** 已解析的「模型声明档位」表；按设置文档 revision 缓存，revision 变化即整体重建 */
-let declaredRevision = -1
-let declaredLevels = new Map<string, readonly string[]>()
 
 /** `agent/request` 瀑布监听签名（与宿主 `AgentEvents` 一致，见 [`docs/host-api.md`](docs/host-api.md)） */
 type SubagentRequestListener = (
@@ -95,26 +80,18 @@ export function installSubagentEffort(ctx: Context): void {
     }, { prepend: true })
 }
 
-/** 按配置算出本次请求该用的调用配置；非子智能体 Agent 或策略不适用时原样返回入参 */
+/** 按配置算出本次请求该用的调用配置；非子智能体 Agent 或开关不适用时原样返回入参 */
 function resolveRequest(ctx: Context, agent: SubagentHost | undefined, config: LlmCallConfig): LlmCallConfig {
     if (agent?.session.header.origin !== 'subagent') return config
-    const cfg = getConfig()
-    if (!hostSelectionEnabled(ctx)) {
-        if (!cfg.subagent.follow) return config
-        const follow = resolveFollow(ctx, agent)
-        return follow === undefined ? config : applyFollow(config, follow)
-    }
-    const effort = resolvePolicy(
-        cfg.subagent.effort,
-        advertisedEfforts(ctx, config.provider, config.model),
-        lookupEffort(cfg.efforts, config.provider, config.model),
-    )
-    // 策略产出的档位是普通字符串（纯函数便于单测），落到调用配置前按宿主品牌类型断言一次
-    return effort === undefined ? config : { ...config, reasoningEffort: effort as ReasoningEffortId }
+    // 宿主开着「允许 Agent 为子智能体选择模型」时，路由由模型自己在授权范围内挑，不该由插件覆盖
+    if (hostSelectionEnabled(ctx)) return config
+    if (!getConfig().subagent.follow) return config
+    const follow = resolveFollow(ctx, agent)
+    return follow === undefined ? config : applyFollow(config, follow)
 }
 
 /**
- * 宿主是否开着「允许 Agent 为子智能体选择模型」——两条策略的互斥开关。
+ * 宿主是否开着「允许 Agent 为子智能体选择模型」——跟着关时跟随才生效。
  * 服务缺席（非 Web 组合）或 `current()` 因「已开启但授权表为空」抛错时，一律按关闭处理。
  */
 function hostSelectionEnabled(ctx: Context): boolean {
@@ -136,7 +113,7 @@ function hostSelectionEnabled(ctx: Context): boolean {
 function resolveFollow(ctx: Context, agent: SubagentHost): FollowRoute | undefined {
     const parentId = agent.session.header.parentSession
     if (parentId === undefined) return undefined
-    const parent = ctx.get('agents')?.get(parentId)
+    const parent = (ctx.get as (name: string) => HostAgentRegistry | undefined)('agents')?.get(parentId)
     if (!parent) return undefined
     const header = parent.session.requestHeader()
     const source = header?.config ?? parent.options
@@ -150,6 +127,13 @@ function resolveFollow(ctx: Context, agent: SubagentHost): FollowRoute | undefin
     }
 }
 
+/** 跟随父 Agent 时取到的路由三件套（`reasoningEffort` 缺项表示父当前未选档位） */
+interface FollowRoute {
+    provider: string
+    model: string
+    reasoningEffort?: ReasoningEffortId
+}
+
 /** 整条覆盖为父的路由三件套；先丢旧档位再组新对象（父未选档位时子智能体也按其模型默认解析） */
 function applyFollow(config: LlmCallConfig, follow: FollowRoute): LlmCallConfig {
     const next = { ...config }
@@ -160,51 +144,4 @@ function applyFollow(config: LlmCallConfig, follow: FollowRoute): LlmCallConfig 
         model: follow.model,
         ...follow.reasoningEffort === undefined ? {} : { reasoningEffort: follow.reasoningEffort },
     }
-}
-
-/**
- * 按策略定档（纯函数，可单测）：`none` 一律不干预；`min`/`max` 取模型声明档位的首尾；
- * `memory` 优先用记忆值（须是该模型已声明的档位），否则回落 `high`，再取不到即不干预。
- * 声明档位为空说明该模型没有可算的档位表——按不干预处理，交宿主解析其默认档位。
- */
-export function resolvePolicy(
-    policy: SubagentEffortPolicy,
-    advertised: readonly string[],
-    remembered: string | undefined,
-): string | undefined {
-    if (policy === 'none') return undefined
-    if (policy === 'min') return advertised[0]
-    if (policy === 'max') return advertised[advertised.length - 1]
-    if (remembered !== undefined && advertised.includes(remembered)) return remembered
-    return advertised.includes('high') ? 'high' : undefined
-}
-
-/** 模型在 `llm-pi-ai` 段声明的推理档位（按 `EFFORT_LEVELS` 归一升序、剔除非推理的 `off`）；未声明或不可读即空表 */
-function advertisedEfforts(ctx: Context, provider: string, model: string): readonly string[] {
-    const descriptor = descriptorOf(ctx, API_NS)
-    if (!descriptor) return []
-    if (descriptor.revision !== declaredRevision) {
-        declaredRevision = descriptor.revision
-        declaredLevels = declaredLevelsOf(sectionOf(descriptor))
-    }
-    return declaredLevels.get(`${provider}\0${model}`) ?? []
-}
-
-/** 扫 `llm-pi-ai` 段建「provider\\0model → 已声明档位」表；声明值只取键（`off` 表示可关闭推理，不是可用档位） */
-function declaredLevelsOf(section: Record<string, unknown> | undefined): Map<string, readonly string[]> {
-    const levels = new Map<string, readonly string[]>()
-    const providers = providersOf(section)
-    if (!providers) return levels
-    for (const [provider, value] of Object.entries(providers)) {
-        if (!isPlainObject(value) || !Array.isArray(value.models)) continue
-        for (const model of value.models) {
-            if (!isPlainObject(model) || typeof model.id !== 'string' || model.id === '') continue
-            if (!isPlainObject(model.reasoningEfforts)) continue
-            const names = Object.keys(model.reasoningEfforts)
-                .filter(name => name !== 'off' && LEVEL_RANK.has(name))
-                .sort((a, b) => (LEVEL_RANK.get(a) ?? 0) - (LEVEL_RANK.get(b) ?? 0))
-            levels.set(`${provider}\0${model.id}`, names)
-        }
-    }
-    return levels
 }

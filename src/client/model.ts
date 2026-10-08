@@ -6,7 +6,7 @@
  * 以及验证候选的拍取与目标收敛（卡片「验证模型」弹层消费）。
  */
 
-import type { PluginConfig, SubagentRules } from '@/shared/types'
+import type { PluginConfig } from '@/shared/types'
 import { isPlainObject, providersOf } from '@/shared/types'
 import { CONFIG_VERSION, EFFORT_LEVELS } from '@/shared/constants'
 import { DEFAULT_CONFIG, FIELD_KEYS, COMPAT_KEYS, USER_EXPERIENCE_KEYS, parseSnapshot, versionKey } from '@/shared/parse'
@@ -85,11 +85,6 @@ export function toggleCell(flags: Flags, group: Group, key: RowKey): Flags {
     return { ...flags, [group]: rows } as Flags
 }
 
-/** 改子智能体策略的一处取值（跟随开关或档位策略），返回新对象（不改入参） */
-export function setSubagent(flags: Flags, patch: Partial<SubagentRules>): Flags {
-    return { ...flags, subagent: { ...flags.subagent, ...patch } }
-}
-
 /**
  * 排除列表逐项比较（**顺序敏感**）：草稿只由已存值经增删派生，顺序不会自行漂移，
  * 故无需排序——插入顺序是用户意图的一部分。
@@ -99,9 +94,9 @@ function sameIdList(a: readonly string[], b: readonly string[]): boolean {
     return a.every((id, index) => id === b[index])
 }
 
-/** 布尔组 + 排除列表 + 子智能体两条策略逐项比较，判断草稿相对已存配置是否有改动
+/** 布尔组 + 排除列表逐项比较，判断草稿相对已存配置是否有改动
  * （userExperience 属布尔组，随 GROUPS 遍历覆盖；`efforts` 是运行时记忆而非用户配置，不参与比较，
- *  故改记忆不标脏；`subagent` 不是布尔矩阵而是两个标量，须显式比较才不被漏掉） */
+ *  故改记忆不标脏；`subagent` 只有跟随开关一项，随 GROUPS 之外的显式比较覆盖） */
 export function isDirty(draft: Flags, saved: Flags): boolean {
     for (const group of GROUPS) {
         for (const key of GROUP_KEYS[group]) {
@@ -110,7 +105,6 @@ export function isDirty(draft: Flags, saved: Flags): boolean {
     }
     return !sameIdList(draft.excludes, saved.excludes)
         || draft.subagent.follow !== saved.subagent.follow
-        || draft.subagent.effort !== saved.subagent.effort
 }
 
 /**

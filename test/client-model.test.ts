@@ -18,7 +18,6 @@ import {
     providerIdsOf,
     removeExclude,
     resolveHits,
-    setSubagent,
     toggleCell,
     toggleGroupPicks,
     verifyCandidatesOf,
@@ -289,14 +288,9 @@ export function run(): void {
     check('isDirty userExperience 等值不为脏', isDirty({ ...DEFAULT_FLAGS, userExperience: { ...DEFAULT_FLAGS.userExperience } }, DEFAULT_FLAGS) === false)
     // efforts 的变化不标脏（运行时记忆，非用户配置，不应触发"未保存更改"）
     check('isDirty efforts 变化不标脏', isDirty({ ...DEFAULT_FLAGS, efforts: { a: { m: 'high' } } }, DEFAULT_FLAGS) === false)
-    // subagent 不是布尔矩阵而是两个标量：改任一字段都必须标脏，否则那行改了存不下去
-    check('isDirty subagent.follow 不同即为脏', isDirty(setSubagent(DEFAULT_FLAGS, { follow: true }), DEFAULT_FLAGS) === true)
-    check('isDirty subagent.effort 不同即为脏', isDirty(setSubagent(DEFAULT_FLAGS, { effort: 'max' }), DEFAULT_FLAGS) === true)
-    check('isDirty subagent 等值不为脏', isDirty(setSubagent(DEFAULT_FLAGS, { ...DEFAULT_FLAGS.subagent }), DEFAULT_FLAGS) === false)
-    // ---------- 子智能体两条策略：只改草稿，不动入参 ----------
-    check('setSubagent 只改指定字段', stable(setSubagent(DEFAULT_FLAGS, { effort: 'min' }).subagent) === stable({ follow: false, effort: 'min' }), setSubagent(DEFAULT_FLAGS, { effort: 'min' }).subagent)
-    check('setSubagent 切 follow 时保留 effort', stable(setSubagent({ ...DEFAULT_FLAGS, subagent: { follow: false, effort: 'memory' } }, { follow: true }).subagent) === stable({ follow: true, effort: 'memory' }))
-    check('setSubagent 不改入参', DEFAULT_FLAGS.subagent.follow === false && DEFAULT_FLAGS.subagent.effort === 'none')
+    // subagent 只有跟随开关一项：改它必须标脏，否则那行改了存不下去
+    check('isDirty subagent.follow 不同即为脏', isDirty({ ...DEFAULT_FLAGS, subagent: { follow: true } }, DEFAULT_FLAGS) === true)
+    check('isDirty subagent 等值不为脏', isDirty({ ...DEFAULT_FLAGS, subagent: { ...DEFAULT_FLAGS.subagent } }, DEFAULT_FLAGS) === false)
     // ---------- 宿主「允许 Agent 为子智能体选择模型」段：只认那一个布尔，其余一律按关闭 ----------
     check('decodeSubagentSelection enabled true 为开', decodeSubagentSelection({ enabled: true }) === true)
     check('decodeSubagentSelection enabled false / 缺键 / 非布尔 / 非对象为关', decodeSubagentSelection({ enabled: false }) === false

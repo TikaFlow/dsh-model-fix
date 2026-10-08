@@ -343,10 +343,10 @@ const V7ConfigSchema: z<Omit<V7PluginConfigSnapshot, 'configVersion' | 'efforts'
 })
 
 /**
- * subagent 组的台阶默认值：v7 无该组，升级到 v8 时落默认（不干预、不跟随），与 v8 出厂默认一致。
+ * subagent 组的台阶默认值：v7 无该组，升级到 v8 时落默认（不跟随），与 v8 出厂默认一致。
  * 写字面量而不引用 `src/shared/parse.ts` 的 `DEFAULT_CONFIG.subagent`——后者随当前版本演进，台阶产物形态必须恒定。
  */
-const V8_SUBAGENT_DEFAULT = { follow: false, effort: 'none' } as const
+const V8_SUBAGENT_DEFAULT = { follow: false } as const
 
 /** 升到 v8（当前版本）：低于 v8 的输入先由 upgradeTo7 逐级接力到 v7，再按 v7 冻结 schema 解析（非法整体回退 v7 默认），新增 subagent 组并落默认；efforts 经 parseEfforts 宽松保留 */
 function upgradeTo8(config: unknown, fromVersion: number): PluginConfigSnapshot {

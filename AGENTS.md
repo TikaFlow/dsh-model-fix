@@ -15,7 +15,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/config.ts` `src/migrate.ts` `src/upgrade.ts` | 配置解析与配置源 / 当前版本侧迁移与自愈 / 冻结的升级台阶链 |
 | `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 缓存与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
 | `src/fix.ts` `src/empty.ts` | 填充（计划函数 `planFill` + 编排）/ 空壳字段唯一判据 `stripEmptyFields` |
-| `src/subagent.ts` | 子智能体推理级别：宿主 `agent/request` 瀑布里按 `subagent` 组两条互斥策略改写调用配置（每请求现算，不预检档位可用性） |
+| `src/subagent.ts` | 子智能体推理级别：宿主 `agent/request` 瀑布里按 `subagent.follow` 把子智能体的调用配置覆盖为父 Agent 当前生效的路由三件套（每请求现算，不预检档位可用性） |
 | `src/reset.ts` `src/restore.ts` `src/prune.ts` | 重置推理级别 / 启动备份与交集恢复 / 剔除不支持档位 |
 | `src/guard.ts` `src/host.ts` `src/section.ts` `src/writeback.ts` | 事件流守卫 / `queueTask` / settings 段读取收口 / 写回 `llm-pi-ai` 段的统一外壳 |
 | `src/probe-verdict.ts` `src/probe-plan.ts` `src/probe-report.ts` `src/probe-engine.ts` | 验证与探测式填充共用的判定 / 计划 / 汇报 / 执行四层 |
