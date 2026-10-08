@@ -34,7 +34,7 @@ export const en: Record<CardKey, string> = {
     tipRememberEfforts: 'Remembers the reasoning level you pick per model and restores it when you switch models.',
     tipDefaultHigh: 'When switching to a model that has no reasoning level set, no memory of it, and support for high, its level is set to high.',
     tipForgetRemoved: 'Deleting a model or a provider also clears its remembered reasoning levels.',
-    tipFollowParent: 'Takes effect only while the host setting "Allow agents to pick a model for subagents" is off: a subagent follows the parent agent\'s current provider, model and reasoning level, and its output cap is the smaller of its own and the parent\'s. Recomputed per request.',
+    tipFollowParent: 'Takes effect while the host setting "Allow agents to pick a model for subagents" is off: a subagent follows the parent agent\'s provider, model and reasoning level in real time.',
     excludePlaceholder: 'acme-gateway',
     excludeAdd: 'Add an excluded provider',
     excludeInvalid: 'Start with a lowercase letter; then lowercase letters, digits, and dashes.',

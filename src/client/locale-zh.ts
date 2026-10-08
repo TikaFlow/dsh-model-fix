@@ -37,7 +37,7 @@ export const zh: Record<CardKey, string> = {
     tipRememberEfforts: '按模型记住你手动选择的推理级别，切换模型时自动恢复。',
     tipDefaultHigh: '切换到某模型时，若它未设推理级别、也没有它的记忆，且该模型支持 high，则自动设为 high。',
     tipForgetRemoved: '删除模型或提供方时，一并清除其推理级别记忆。',
-    tipFollowParent: '仅在宿主「允许 Agent 为子智能体选择模型」关闭时生效：子智能体的提供方、模型与推理级别照父智能体当前生效的那份来，输出上限取更小的一个，每次请求现算。',
+    tipFollowParent: '未开启「允许 Agent 为子智能体选择模型」时生效：子智能体的提供方、模型与推理级别照实时跟随父智能体。',
     excludePlaceholder: 'acme-gateway',
     excludeAdd: '添加排除的提供方',
     excludeInvalid: '需以小写字母开头，之后可用小写字母、数字和短横线。',
