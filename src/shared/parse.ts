@@ -8,11 +8,11 @@
  * 解析约定：
  * - 整项缺失 → 落该项默认；存在但非对象、或字段存在但非布尔 → 返回 undefined（整段快照非法）
  * - `excludes` 缺失落空数组、非数组或元素非字符串判非法；`efforts` 宽松解析（结构不符回落 {}，不判非法）
- * - 产物只含 6 个已知键（剥离 configVersion 等运行时不消费的键）；缺省容器均为新对象/新数组，不与 `DEFAULT_CONFIG` 共享引用
+ * - 产物只含 5 个已知键（剥离 configVersion 等运行时不消费的键）；缺省容器均为新对象/新数组，不与 `DEFAULT_CONFIG` 共享引用
  */
 
 import { CONFIG_VERSION, VERSION_PREFIX } from '@/shared/constants'
-import type { CompatRules, EffortMemory, FieldRules, PluginConfig, PluginConfigSnapshot, SubagentRules, UserExperienceRules } from '@/shared/types'
+import type { CompatRules, EffortMemory, FieldRules, PluginConfig, PluginConfigSnapshot, UserExperienceRules } from '@/shared/types'
 import { isPlainObject } from '@/shared/types'
 
 /** 默认配置：全新用户的配置基线（存储形态经 `toStored` 物化，取值改动须同步 `upgrade.ts` 的台阶默认值） */
@@ -22,15 +22,14 @@ export const DEFAULT_CONFIG: PluginConfig = {
     compat: { disableDeveloper: true },
     excludes: [],
     efforts: {},
-    userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true },
-    subagent: { follow: false },
+    userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: true, followParent: false },
 }
 
 /** compat 组逐字段的省略默认值 */
 const COMPAT_DEFAULTS: CompatRules = { disableDeveloper: true }
 
 /** userExperience 组逐字段的省略默认值 */
-const USER_EXPERIENCE_DEFAULTS: UserExperienceRules = { rememberEfforts: true, defaultHigh: true, forgetRemoved: true }
+const USER_EXPERIENCE_DEFAULTS: UserExperienceRules = { rememberEfforts: true, defaultHigh: true, forgetRemoved: true, followParent: false }
 
 /** 模型参数行对应的字段键（自动填充 / 允许更新两组的行，渲染顺序与总控共用） */
 export const FIELD_KEYS = ['reasoning', 'context', 'image'] as const
@@ -39,7 +38,7 @@ export const FIELD_KEYS = ['reasoning', 'context', 'image'] as const
 export const COMPAT_KEYS = ['disableDeveloper'] as const
 
 /** 用户体验组的行键；同组新增行键在此追加即可（新增顶层组才需递增 CONFIG_VERSION；已随 v6 / v7 落地的键见 upgrade.ts 的升级台阶） */
-export const USER_EXPERIENCE_KEYS = ['rememberEfforts', 'defaultHigh', 'forgetRemoved'] as const
+export const USER_EXPERIENCE_KEYS = ['rememberEfforts', 'defaultHigh', 'forgetRemoved', 'followParent'] as const
 
 /** 解析版本快照键 version-N；非法返回 undefined。严格匹配规范键（重建键名需与实际键一致，禁宽泛归一） */
 export function parseVersion(key: string): number | undefined {
@@ -133,18 +132,6 @@ function parseUserExperience(value: unknown): UserExperienceRules | undefined {
     return rules
 }
 
-/** subagent 组逐字段的省略默认值 */
-const SUBAGENT_DEFAULTS: SubagentRules = { follow: false }
-
-/** 解析 subagent 组：整体缺失落默认；非对象或 follow 非布尔 => undefined（整段快照非法） */
-function parseSubagent(value: unknown): SubagentRules | undefined {
-    if (value === undefined) return { ...SUBAGENT_DEFAULTS }
-    if (!isPlainObject(value)) return
-    const follow = value.follow
-    if (follow !== undefined && typeof follow !== 'boolean') return
-    return { follow: typeof follow === 'boolean' ? follow : SUBAGENT_DEFAULTS.follow }
-}
-
 /**
  * 解析单个快照值并物化默认；剥离 configVersion 等运行时不消费的键，非法返回 undefined。
  * 浏览器半 `decodeSection` 与 Node 半 `resolveConfig`/`migrateConfig` 共用此函数（单一来源）。
@@ -161,14 +148,12 @@ export function parseSnapshot(value: unknown): PluginConfig | undefined {
     if (!excludes) return
     const userExperience = parseUserExperience(value.userExperience)
     if (!userExperience) return
-    const subagent = parseSubagent(value.subagent)
-    if (!subagent) return
     const efforts = parseEfforts(value.efforts)
-    return { allowUpdate, autoFill, compat, excludes, efforts, userExperience, subagent }
+    return { allowUpdate, autoFill, compat, excludes, efforts, userExperience }
 }
 
 /**
- * 运行时配置 -> 规范 v8 存储快照（configVersion + 四组 + excludes + efforts + userExperience + subagent 全显式）。
+ * 运行时配置 -> 规范 v8 存储快照（configVersion + 四组 + excludes + efforts + userExperience 全显式）。
  * Node 半 migrate（自愈重写/高版本降级落盘）与浏览器半卡片「保存」共用（单一来源）。
  * 各组浅拷贝、excludes 复制、`efforts` 引用传递（调用方以写入当刻的实时记忆覆盖传入）；产物仅供立即序列化写入。
  */
@@ -181,6 +166,5 @@ export function toStored(config: PluginConfig): PluginConfigSnapshot {
         excludes: [...config.excludes],
         efforts: config.efforts,
         userExperience: { ...config.userExperience },
-        subagent: { ...config.subagent },
     }
 }

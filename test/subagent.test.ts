@@ -3,10 +3,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { LlmCallConfig, LlmCallConfigAdapterDefaults, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { check, stable } from '@test/helper'
-import { installSubagentEffort } from '@/subagent'
+import { installSubagentFollowParent } from '@/subagent'
 import { setConfigSource } from '@/config'
 import { DEFAULT_CONFIG } from '@/shared/parse'
-import type { PluginConfig } from '@/shared/types'
+import type { PluginConfig, UserExperienceRules } from '@/shared/types'
 
 /**
  * 最小 Agent 桩类型——与 `src/subagent.ts` 里那份契约复制同形。
@@ -80,7 +80,8 @@ interface SelectionStub {
 }
 
 interface RunInit {
-    config?: Partial<PluginConfig['subagent']>
+    /** 只覆盖「用户体验」组（本测试的判据只有 followParent 一项） */
+    config?: Partial<UserExperienceRules>
     agent: Agent
     host?: LlmCallConfig
     selection?: SelectionStub
@@ -92,11 +93,11 @@ interface RunInit {
 async function runOnce(init: RunInit): Promise<{ result: LlmCallConfig; warns: string[]; listener: RequestListener | undefined; options: unknown }> {
     const config: PluginConfig = {
         ...DEFAULT_CONFIG,
-        subagent: { ...DEFAULT_CONFIG.subagent, ...init.config },
+        userExperience: { ...DEFAULT_CONFIG.userExperience, ...init.config },
     }
     setConfigSource(() => config)
     const stub = makeCtx({ selection: init.selection, parentOf: init.parentOf, getThrows: init.getThrows })
-    installSubagentEffort(stub.ctx)
+    installSubagentFollowParent(stub.ctx)
     const listener = stub.listenerOf()
     const host: LlmCallConfig = init.host ?? { provider: 'pi', model: 'dsr' }
     const result = listener === undefined ? host : await listener({ agent: init.agent }, () => Promise.resolve(host))
@@ -107,16 +108,16 @@ async function runOnce(init: RunInit): Promise<{ result: LlmCallConfig; warns: s
 const OFF: SelectionStub = { current: () => ({ enabled: false }) }
 
 export async function run(): Promise<void> {
-    // ---------- installSubagentEffort：注册面与作用域 ----------
+    // ---------- installSubagentFollowParent：注册面与作用域 ----------
     const subagent = makeAgent({ origin: 'subagent', parentSession: 'p1' })
     const mounted = await runOnce({ agent: subagent })
-    check('installSubagentEffort: 监听注册在 agent/request 且 prepend 为真',
+    check('installSubagentFollowParent: 监听注册在 agent/request 且 prepend 为真',
         mounted.listener !== undefined && stable(mounted.options) === stable({ prepend: true }))
 
     // ---------- 非子智能体会话原样放行 ----------
     const top = await runOnce({
         agent: makeAgent({ origin: undefined, parentSession: 'p1' }),
-        config: { follow: true },
+        config: { followParent: true },
         parentOf: () => makeAgent({ options: { provider: 'pi', model: 'parent-model', reasoningEffort: 'high' } }),
     })
     check('resolveRequest: 非子智能体会话原样放行（跟随开关不碰主 Agent）',
@@ -125,7 +126,7 @@ export async function run(): Promise<void> {
     // ---------- 宿主开关关闭：跟随父 Agent 的路由三件套 ----------
     const offIdle = await runOnce({
         agent: subagent,
-        config: { follow: false },
+        config: { followParent: false },
         selection: OFF,
         parentOf: () => makeAgent({ options: { provider: 'pi', model: 'parent-model' } }),
     })
@@ -134,7 +135,7 @@ export async function run(): Promise<void> {
 
     const offFollow = await runOnce({
         agent: subagent,
-        config: { follow: true },
+        config: { followParent: true },
         selection: OFF,
         parentOf: () => makeAgent({
             header: { config: { provider: 'pi', model: 'parent-model', reasoningEffort: 'high' } },
@@ -146,7 +147,7 @@ export async function run(): Promise<void> {
 
     const offAdapterDefault = await runOnce({
         agent: subagent,
-        config: { follow: true },
+        config: { followParent: true },
         selection: OFF,
         parentOf: () => makeAgent({
             header: {
@@ -160,22 +161,22 @@ export async function run(): Promise<void> {
 
     const offNoHeader = await runOnce({
         agent: subagent,
-        config: { follow: true },
+        config: { followParent: true },
         selection: OFF,
         parentOf: () => makeAgent({ options: { provider: 'pi', model: 'parent-model', reasoningEffort: 'medium' } }),
     })
     check('resolveRequest: 父尚无请求头 → 回落父 Agent 自身的 options',
         stable(offNoHeader.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'medium' }))
 
-    const noParentId = await runOnce({ agent: subagent, config: { follow: true }, selection: OFF })
+    const noParentId = await runOnce({ agent: subagent, config: { followParent: true }, selection: OFF })
     const orphan = await runOnce({
         agent: makeAgent({ origin: 'subagent' }),
-        config: { follow: true },
+        config: { followParent: true },
         selection: OFF,
     })
     const missingParent = await runOnce({
         agent: subagent,
-        config: { follow: true },
+        config: { followParent: true },
         selection: OFF,
         parentOf: () => undefined,
     })
@@ -187,7 +188,7 @@ export async function run(): Promise<void> {
     // ---------- 宿主服务缺席或抛错 ----------
     const noService = await runOnce({
         agent: subagent,
-        config: { follow: true },
+        config: { followParent: true },
         parentOf: () => makeAgent({ options: { provider: 'pi', model: 'parent-model' } }),
     })
     check('hostSelectionEnabled: 服务缺席（CLI/TUI 组合）按关闭处理，跟随分支照常生效',
@@ -198,7 +199,7 @@ export async function run(): Promise<void> {
     }
     const onThrow = await runOnce({
         agent: subagent,
-        config: { follow: true },
+        config: { followParent: true },
         selection: throwing,
         parentOf: () => makeAgent({ options: { provider: 'pi', model: 'parent-model' } }),
     })
@@ -208,11 +209,11 @@ export async function run(): Promise<void> {
     // ---------- 异常兜底：取父 Agent 抛错时记一条 warn 并原样放行，不拖垮子智能体这一请求 ----------
     const broken = await runOnce({
         agent: subagent,
-        config: { follow: true },
+        config: { followParent: true },
         selection: OFF,
         getThrows: true,
     })
-    check('installSubagentEffort: 取父 Agent 失败 → 记一条 warn 并原样放行，不拖垮子智能体这一请求',
+    check('installSubagentFollowParent: 取父 Agent 失败 → 记一条 warn 并原样放行，不拖垮子智能体这一请求',
         stable(broken.result) === stable({ provider: 'pi', model: 'dsr' })
         && broken.warns.length === 1
         && broken.warns[0].includes('子智能体推理级别未生效'))

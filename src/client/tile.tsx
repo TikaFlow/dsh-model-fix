@@ -9,7 +9,7 @@ import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locale-keys
 import { TIP_MAX_WIDTH } from '@/client/card-styles'
 
 /**
- * 卡片的瓦片层：展开体里六张瓦片的两种形态——布尔矩阵配置组瓦片（官方「插件列表」项卡同款）与
+ * 卡片的瓦片层：展开体里五张瓦片的两种形态——布尔矩阵配置组瓦片（官方「插件列表」项卡同款）与
  * 「排除提供方」的动态集合瓦片，渲染顺序由 TILE_ORDER 单一分发。
  *
  * 瓦片只管自己的 summary 与展开体结构，外加「排除提供方」那一份纯 UI 暂态（输入文本与校验反馈不属于配置）；
@@ -24,18 +24,21 @@ const { Switch, Tag, StateDot, Tooltip, IconInfoOutlineRegular, IconTrashOutline
 /** 瓦片文案函数：与卡片 props 的 t 同型，同为 slots.register 的 locale 席位合成注入 */
 type TileTranslate = TranslateNS<'settings.modelFix'>
 
-/** 瓦片渲染顺序：自动填充 / 允许更新 / 兼容性 / 排除提供方 / 用户体验 / 子智能体推理级别 */
-export const TILE_ORDER: readonly (Group | 'excludes' | 'subagent')[] = ['autoFill', 'allowUpdate', 'compat', 'excludes', 'userExperience', 'subagent']
+/** 瓦片渲染顺序：自动填充 / 允许更新 / 兼容性 / 排除提供方 / 用户体验 */
+export const TILE_ORDER: readonly (Group | 'excludes')[] = ['autoFill', 'allowUpdate', 'compat', 'excludes', 'userExperience']
 
 /** 配置组瓦片（官方「插件列表」项卡同款）：summary 为组名 + 整组开关 + 折叠箭头，展开体为组释义 + 子开关行
  * （每行标题旁带一个说明键，气泡给该设置项释义）；
- * 整行可点由 .dsh-mf-itemToggle 覆盖层承担（无 button 嵌套），可访问名用 aria-labelledby 指向可见标题。 */
+ * 整行可点由 .dsh-mf-itemToggle 覆盖层承担（无 button 嵌套），可访问名用 aria-labelledby 指向可见标题。
+ * `disabledRows` 让卡片按单行的生效条件把个别行置灰（整组仍可用），瓦片自己不判语义。 */
 export function GroupTile(props: {
     group: Group
     t: TileTranslate
     flags: Flags
     open: boolean
     disabled: boolean
+    /** 展开体内需单独置灰的行键集合（与整组 `disabled` 或运算） */
+    disabledRows?: ReadonlySet<RowKey>
     onToggle: () => void
     onMaster: () => void
     onCell: (key: RowKey) => void
@@ -71,6 +74,7 @@ export function GroupTile(props: {
                     <p className="dsh-mf-itemHint">{t(HINT_KEYS[group])}</p>
                     {GROUP_KEYS[group].map((key) => {
                         const tip = t(TIP_KEYS[key])
+                        const cellDisabled = props.disabled || props.disabledRows?.has(key) === true
                         return (
                             <div key={key} className="dsh-mf-itemRow">
                                 <span className="dsh-mf-itemLabelGroup">
@@ -86,7 +90,7 @@ export function GroupTile(props: {
                                 </span>
                                 <Switch
                                     checked={groupValue(props.flags, group, key)}
-                                    disabled={props.disabled}
+                                    disabled={cellDisabled}
                                     label={`${t(ROW_KEYS[key])} ${title}`}
                                     onChange={() => { props.onCell(key) }}
                                 />
@@ -211,69 +215,6 @@ export function ExcludesTile(props: {
                             </div>
                         )
                     })}
-                </div>
-            ) : null}
-        </div>
-    )
-}
-
-/**
- * 「子智能体推理级别」瓦片：宿主只为**主** Agent 提供推理级别入口，子 Agent 没有同类设置面，
- * 本瓦片是那份设置在本卡片里的落点。当前只有一条「跟随父 Agent 路由」开关——宿主
- * 「允许 Agent 为子智能体选择模型」关闭时生效（子智能体沿用父会话当前的模型与推理级别），
- * 开启时不生效，故按 `hostSelection` 把不生效的那一行置灰；该命名空间缺席（非 Web 组合）时
- * 无从判断，该行保持可用。尾区只有 chevron、没有整组总控：这里只有一条开关，给一个「整组开关」
- * 没有意义。
- */
-export function SubagentTile(props: {
-    t: TileTranslate
-    flags: Flags
-    open: boolean
-    disabled: boolean
-    /** 宿主「允许 Agent 为子智能体选择模型」开关；undefined = 该命名空间缺席，不置灰 */
-    hostSelection: boolean | undefined
-    onToggle: () => void
-    onFollow: () => void
-}) {
-    const { t, open } = props
-    const id = 'dsh-mf-item-subagent'
-    const title = t('subagentTitle')
-    const followDisabled = props.disabled || props.hostSelection === true
-    return (
-        <div className="dsh-mf-item" role="group" data-open={open ? 'true' : undefined} aria-labelledby={`${id}-title`}>
-            <div className="dsh-mf-itemHead">
-                <button
-                    type="button"
-                    className="dsh-mf-itemToggle"
-                    aria-expanded={open}
-                    aria-controls={`${id}-body`}
-                    aria-labelledby={`${id}-title`}
-                    onClick={props.onToggle}
-                />
-                <strong className="dsh-mf-itemTitle" id={`${id}-title`}>{title}</strong>
-                <span className="dsh-mf-itemTrailing">
-                    <CHEVRON_DOWN size={12} className="dsh-mf-itemChevron" />
-                </span>
-            </div>
-            {open ? (
-                <div className="dsh-mf-itemBody" id={`${id}-body`}>
-                    <p className="dsh-mf-itemHint">{t('subagentHint')}</p>
-                    <div className="dsh-mf-itemRow">
-                        <span className="dsh-mf-itemLabelGroup">
-                            <span className="dsh-mf-itemLabel">{t('subagentFollow')}</span>
-                            <Tooltip label={t('subagentFollowTip')} side="right" maxWidth={TIP_MAX_WIDTH} portal>
-                                <button type="button" className="dsh-mf-help" aria-label={t('subagentFollowTip')}>
-                                    <IconInfoOutlineRegular size={12} />
-                                </button>
-                            </Tooltip>
-                        </span>
-                        <Switch
-                            checked={props.flags.subagent.follow}
-                            disabled={followDisabled}
-                            label={`${t('subagentFollow')} ${title}`}
-                            onChange={props.onFollow}
-                        />
-                    </div>
                 </div>
             ) : null}
         </div>

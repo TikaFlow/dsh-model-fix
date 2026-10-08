@@ -362,8 +362,7 @@ export async function run(): Promise<void> {
         compat: { disableDeveloper: true },
         excludes: ['lab'],
         efforts: {},
-        userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: true },
-        subagent: { follow: false },
+        userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: true, followParent: false },
     }
     const providers = {
         acme: {

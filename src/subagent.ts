@@ -9,7 +9,7 @@ import { PLUGIN_NAME } from '@/shared/constants'
  * 子智能体推理级别的注入面：在宿主 `agent/request` 瀑布里改写子 Agent 本次请求的调用配置。
  *
  * 宿主只为**主** Agent 提供推理级别入口，子 Agent 没有同类设置面；而每次委派真正落地的那份
- * 调用配置就流经这道瀑布——本模块按 `subagent` 组的「跟随父 Agent 路由」开关在 `next()` 之后
+ * 调用配置就流经这道瀑布——本模块按 `userExperience.followParent` 开关在 `next()` 之后
  * 改写它，等价于替子 Agent 选定档位，宿主随后照常做适配器元数据校验（不支持的档位由宿主抛
  * `UNSUPPORTED_REASONING_EFFORT`，不在这里预检、不静默降级）。
  *
@@ -51,14 +51,17 @@ type SubagentRequestListener = (
 ) => Promise<LlmCallConfig>
 
 /**
- * 装上子智能体推理级别注入：单个 `agent/request` 监听覆盖全部 Agent（含 fork/workflow 等
+ * 装上「跟随父智能体」：单个 `agent/request` 监听覆盖全部 Agent（含 fork/workflow 等
  * 一并归入 `origin === 'subagent'` 的会话），作用域随插件 ctx 销毁而自动卸载。
+ *
+ * 本文件只服务 `userExperience.followParent` 这一个开关——它没有独立的配置组，判定读的就是
+ * 该键；文件名沿用「子智能体」这一话题域。
  *
  * 监听用 `prepend` 钉成最外层：`agent/request` 的监听者由外而内依次执行，最外层 `next()`
  * 拿到的即宿主（含会话级模型切换）全部改写完成后的最终配置，父 Agent 的档位因此是「当前
  * 生效值」而非某个中间态。
  */
-export function installSubagentEffort(ctx: Context): void {
+export function installSubagentFollowParent(ctx: Context): void {
     // 事件名与监听签名随 `SubagentHost` 一并按契约本地声明（引宿主包根会把 dsh-session 包根类型
     // 拉进 typecheck 程序、顶掉浏览器半的 ctx.sessions），故此处对 `ctx.on` 做一次收窄断言；
     // `this` 仍须是插件 ctx，故走 `.call` 而非裸调。
@@ -85,7 +88,7 @@ function resolveRequest(ctx: Context, agent: SubagentHost | undefined, config: L
     if (agent?.session.header.origin !== 'subagent') return config
     // 宿主开着「允许 Agent 为子智能体选择模型」时，路由由模型自己在授权范围内挑，不该由插件覆盖
     if (hostSelectionEnabled(ctx)) return config
-    if (!getConfig().subagent.follow) return config
+    if (!getConfig().userExperience.followParent) return config
     const follow = resolveFollow(ctx, agent)
     return follow === undefined ? config : applyFollow(config, follow)
 }

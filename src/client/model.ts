@@ -47,8 +47,8 @@ export function decodeSection(section: unknown): Flags {
 
 /**
  * 解码宿主 `subagent-model-selection-settings` 命名空间整段，取其「允许 Agent 为子智能体选择
- * 模型」开关：它决定卡片里两条互斥策略哪一条生效，故只取这一个布尔。段非法或缺失一律按关闭。
- * 同样永不返回 undefined——那会让宿主 scope 永挂 loading。
+ * 模型」开关：它决定「用户体验」组里的「跟随父智能体」是否生效，故只取这一个布尔。
+ * 段非法或缺失一律按关闭。永不返回 undefined——那会让宿主 scope 永挂 loading。
  */
 export function decodeSubagentSelection(section: unknown): boolean {
     return isPlainObject(section) && section.enabled === true
@@ -95,8 +95,7 @@ function sameIdList(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /** 布尔组 + 排除列表逐项比较，判断草稿相对已存配置是否有改动
- * （userExperience 属布尔组，随 GROUPS 遍历覆盖；`efforts` 是运行时记忆而非用户配置，不参与比较，
- *  故改记忆不标脏；`subagent` 只有跟随开关一项，随 GROUPS 之外的显式比较覆盖） */
+ * （`userExperience.followParent` 是布尔组的一行，随 GROUPS 遍历覆盖；`efforts` 是运行时记忆而非用户配置，不参与比较） */
 export function isDirty(draft: Flags, saved: Flags): boolean {
     for (const group of GROUPS) {
         for (const key of GROUP_KEYS[group]) {
@@ -104,7 +103,6 @@ export function isDirty(draft: Flags, saved: Flags): boolean {
         }
     }
     return !sameIdList(draft.excludes, saved.excludes)
-        || draft.subagent.follow !== saved.subagent.follow
 }
 
 /**

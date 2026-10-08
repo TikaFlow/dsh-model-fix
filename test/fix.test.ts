@@ -45,7 +45,6 @@ function cfg(overrides: Partial<PluginConfig> = {}): PluginConfig {
         excludes: overrides.excludes ?? [],
         efforts: overrides.efforts ?? {},
         userExperience: { ...DEFAULT_CONFIG.userExperience, ...overrides.userExperience },
-        subagent: { ...DEFAULT_CONFIG.subagent, ...overrides.subagent },
     }
 }
 
@@ -227,7 +226,7 @@ export async function run(): Promise<void> {
         })
         setConfig(cfg({
             autoFill: { reasoning: false, context: false, image: false },
-            userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: false },
+            userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: false, followParent: false },
             efforts: memories,
         }))
         setCatalog(CAT)

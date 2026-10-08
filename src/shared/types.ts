@@ -68,19 +68,16 @@ export interface UserExperienceRules {
      * 默认 true。
      */
     forgetRemoved: boolean
+    /**
+     * 子智能体跟随父 Agent：为 true 时，宿主「允许 Agent 为子智能体选择模型」关闭着的组合里，
+     * 委派出去的子 Agent 每次请求都整条沿用父 Agent **当前**生效的提供方 + 模型 + 推理级别
+     * （而非建子那一刻的快照）。默认 false（即不干预，行为与没装本插件一致）。
+     */
+    followParent: boolean
 }
 
 /** 每模型推理级别记忆：provider id → model id → harness ModelThinkingLevel 字符串 */
 export type EffortMemory = Record<string, Record<string, string>>
-
-/**
- * 子智能体推理级别规则：宿主「允许 Agent 为子智能体选择模型」关闭时，`follow` 为开的子智能体
- * 跟随父 Agent 当前生效的 provider + model + reasoningEffort 三件套（每次请求现算）。
- */
-export interface SubagentRules {
-    /** 子智能体跟随父 Agent 的路由与推理级别 */
-    follow: boolean
-}
 
 /** 当前运行时配置（仅对象写法） */
 export interface PluginConfig {
@@ -103,8 +100,6 @@ export interface PluginConfig {
     efforts: EffortMemory
     /** 用户体验规则（前端行为开关，不支持按提供方排除） */
     userExperience: UserExperienceRules
-    /** 子智能体推理级别规则（作用于委派出去的 Agent 的每次请求，不涉及模型配置写入） */
-    subagent: SubagentRules
 }
 
 /** 当前版本的存储快照：运行时配置字段 + 显式版本号 */
@@ -116,7 +111,6 @@ export interface PluginConfigSnapshot {
     excludes: string[]
     efforts: EffortMemory
     userExperience: UserExperienceRules
-    subagent: SubagentRules
 }
 
 /** 命名空间下的整段配置：version-N -> 对应版本的配置快照（保留低版本历史与更高新版本，便于无损回退） */

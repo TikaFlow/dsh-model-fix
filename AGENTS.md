@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-DSH 插件：按 [models.dev](https://models.dev) 为非官方（自定义）提供方的模型填充/同步 `reasoningEfforts`、`contextWindow`、`maxTokens`、`input`，并为 `api: openai-completions` 路由维护 `compat.supportsDeveloperRole`；`excludes` 命中的提供方零操作（只影响保存之后的行为，不撤销已写入内容）；`userExperience` 管会话侧体验（**不支持按提供方排除**）：`rememberEfforts` 每模型记住推理级别并在切换模型时恢复、`defaultHigh` 无记忆且未设级别时自动设 `high`、`forgetRemoved` 删除模型/提供方时随之忘记其记忆。
+DSH 插件：按 [models.dev](https://models.dev) 为非官方（自定义）提供方的模型填充/同步 `reasoningEfforts`、`contextWindow`、`maxTokens`、`input`，并为 `api: openai-completions` 路由维护 `compat.supportsDeveloperRole`；`excludes` 命中的提供方零操作（只影响保存之后的行为，不撤销已写入内容）；`userExperience` 管会话侧体验（**不支持按提供方排除**）：`rememberEfforts` 每模型记住推理级别并在切换模型时恢复、`defaultHigh` 无记忆且未设级别时自动设 `high`、`forgetRemoved` 删除模型/提供方时随之忘记其记忆、`followParent` 子智能体整条沿用父 Agent 当前生效的路由三件套。
 
 ## 技术栈与目录
 
@@ -15,7 +15,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | `src/config.ts` `src/migrate.ts` `src/upgrade.ts` | 配置解析与配置源 / 当前版本侧迁移与自愈 / 冻结的升级台阶链 |
 | `src/catalog.ts` `src/lookup.ts` `src/compat.ts` | 缓存与目录拍平 / id 匹配与档位转换 / 路由 compat 纯写入计划 |
 | `src/fix.ts` `src/empty.ts` | 填充（计划函数 `planFill` + 编排）/ 空壳字段唯一判据 `stripEmptyFields` |
-| `src/subagent.ts` | 子智能体推理级别：宿主 `agent/request` 瀑布里按 `subagent.follow` 把子智能体的调用配置覆盖为父 Agent 当前生效的路由三件套（每请求现算，不预检档位可用性） |
+| `src/subagent.ts` | 子智能体推理级别：宿主 `agent/request` 瀑布里按 `userExperience.followParent` 把子智能体的调用配置覆盖为父 Agent 当前生效的路由三件套（每请求现算，不预检档位可用性） |
 | `src/reset.ts` `src/restore.ts` `src/prune.ts` | 重置推理级别 / 启动备份与交集恢复 / 剔除不支持档位 |
 | `src/guard.ts` `src/host.ts` `src/section.ts` `src/writeback.ts` | 事件流守卫 / `queueTask` / settings 段读取收口 / 写回 `llm-pi-ai` 段的统一外壳 |
 | `src/probe-verdict.ts` `src/probe-plan.ts` `src/probe-report.ts` `src/probe-engine.ts` | 验证与探测式填充共用的判定 / 计划 / 汇报 / 执行四层 |
@@ -71,7 +71,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 - **解析与填充**：快照优先级（当前版本 → 更高版本降级 → 默认，非法或残缺按当前生效值规范化）；`allowUpdate` 含缺失补写、数据无档位不删已有值；`force` 单次绕过；`fix` 读 `descriptor.user` + revision 围栏；空壳字段一律删且**判据只有一处** `stripEmptyFields`（`reasoningEfforts`/`input`/`compat` 的空形态等同未声明，`fix`/`reset`/`restore`/`prune`/`fill` 五条写回路径共用，缺失补写也按清理后的值认）；`compat` 开关即增删且只写路由级。
 - **排除与列表**：`excludes` 是零操作排除而非撤销；允许填不存在的 id；不自动清理失效 id（列表顺序即录入意图）。
 - **参数来源**：图片模态只缓存正向信息；`99999999` / 0 视为无该字段；id 匹配宁可漏不错配；档位序取 `EFFORT_LEVELS`。
-- **推理级别记忆**：`efforts` 是运行时记忆而非用户配置；Node 半只持久化不自动设级别；`rememberEfforts` 关闭只停「保存新的」；`defaultHigh` 三条护栏；两个开关都不读 `excludes`。
+- **推理级别记忆**：`efforts` 是运行时记忆而非用户配置；Node 半只持久化不自动设级别；`rememberEfforts` 关闭只停「保存新的」；`defaultHigh` 三条护栏；两个开关都不读 `excludes`；`followParent` 只管委派出去的子 Agent、不碰模型配置写入，同样不读 `excludes`。
 - **写回端点**：重置只剔 `reasoningEfforts`、不写配置段；恢复备份只回退交集、绝不延迟补捕；写回端点以守卫互斥。卡片侧同理：五个动作键（强制更新 / 重置推理级别 / 恢复备份 / 验证模型 / 探测式填充）共用一个占用态 `configLocked` = 在途或任一弹层开着，任一处在途/开着时其余四个一并禁用。
 - **验证**：只读诊断、只由用户主动发起、即用即弃；受理**只认 `block-start`、不看内容**（`usage` 不算受理）；失败**只按** `LlmFailure` 的 `code` 分类（**全程不比对报错文案**，理由见 host-api），**限流与超时归瞬态**（既不判不可用也不短该模型的后续档位），端点不可达只认 `TRANSPORT`/`STREAM_CLOSED`、凭据无效即短路整组、额度耗尽只压该模型（额度多半按模型设，故**不否凭据**）；**短路只有一条判据：能断定后续必然失败才短**（模型级用 `shouldSkipModelTailAfterBaseline`——基线不带档位、失败天生与档位无关，故额度耗尽与「厂商确定性拒绝」够格短该模型剩余档位；上游 5xx、参数不正确、限流与超时一律不短），档位不支持只记录不短路；退化完成不算报错；每 provider 单并发、跨 provider ≤5 路、无退避；档位开关关态=**不发** `reasoningEffort`（端点可能有默认级别）；收尾统计随开关分两档（关=模型口径，开=级别口径且分母取 `plannedEfforts`）；浏览器半逐模型声明 `needTest`，为真的模型由执行器现发一次不带档位的**基线探测**（不进计划/明细/统计，跑通不发帧，不通则发一条模型级记录：够格的失败据此短该模型，限流与超时只记录、照常逐档验下去），基线已通且该档被判 `INVALID_REQUEST` 即判不支持且**不**短后续（控制变量法：两次请求唯一变量就是档位）；弹层自确认（记录区是弹层内与模型列表并列的第二个选项卡，点「验证」即切过去），SSE 流实时逐条展示、主键在途变「停止」、**关窗 / 断连即中止**且中止不发 `done`；跑完有明确不支持结论即弹剔除确认层（明细由 `unsupportedEfforts` 直接给出、经 Node 半写回，守卫不可省）。
 - **探测式填充**：逐档试出可用的推理级别并**立即写回**（与验证共用执行引擎，只差注入的 `runGroup`）；**必须先把候选档位临时预声明进配置**（宿主按配置里声明的档位本地校验，未声明的档位不出网），同轮结束时收敛回收回、增删统计以预声明之前那份为基线；**两级短路与验证同一条判据**（`providerBlockReason`：端点不通 / 凭据无效 / **本组首个请求超时**即短整组；`shouldSkipModelTail`：模型级只有**额度耗尽**够格、短到该模型自己的档位尾，被短模型按「没跑完」还原），「不支持」的第二条件是「同模型已有更低档跑通」——比基线探测更紧且零成本，故**不发那次额外的基线请求**；收敛口径由「剔除不支持」开关选（关=`可用 ∪ 原有`，开=`可用 ∪ (原有 − 明确判不支持)`，**该开关只对「探测所有」有效**——未填充者无档位可剔，那一轮按关下发并在途禁掉），只认明确状态，档位表算空即删键，**没跑满结论的一律还原、本轮被中止则整轮还原**（必须完全跑完才谈补全，不做「探到多少补多少」）；「忽略排除」是**唯一**突破「排除约束一切写入」的地方且同时管探测与写回；守卫**持有整轮**；**开跑前先把整段 providers 压一份兜底备份**（自有段顶层键 `probeBackup`，与 `version-N` 同级故不进快照、也**不递增 `CONFIG_VERSION`**），收敛落盘后清掉，**启动链末尾（首轮 fix 之后）见键即回退**（交集语义复用 `planRestore`，回退后再补一轮 `fix`，否则被撤掉预声明的模型会停在未填充态）；存不下备份即整轮中止；收敛写回在流内完成、终帧最后发，故统计随 `VerifySummary.fill` 回来而无独立写回端点；跑完**延迟 2.5s 再关窗**。

@@ -55,7 +55,7 @@ import {
 } from '@/client/model'
 import type { Flags, Group, RowKey, VerifyCandidate, VerifyTarget } from '@/client/model'
 import type { CardKey } from '@/client/locale-keys'
-import { ExcludesTile, GroupTile, SubagentTile, TILE_ORDER } from '@/client/tile'
+import { ExcludesTile, GroupTile, TILE_ORDER } from '@/client/tile'
 import { CardMeta } from '@/client/card-meta'
 import { ConfirmModal } from '@/client/confirm'
 import { VerifyDialog } from '@/client/verify-dialog'
@@ -76,6 +76,12 @@ const { Tag } = primitives
  * 停留更久用户自己会关，更短则来不及读。
  */
 const PROBE_CLOSE_DELAY_MS = 2_500
+
+/**
+ * 「用户体验」组里因宿主那条设置而不生效的行：宿主「允许 Agent 为子智能体选择模型」开着时，
+ * 子智能体的路由由模型自己在授权范围内挑，「跟随父智能体」这一行按下去也不会生效，故只置灰它。
+ */
+const FOLLOW_PARENT_DISABLED_ROWS: ReadonlySet<RowKey> = new Set(['followParent'])
 
 /** 宿主 TerminalBlock 的展示文案：该包无语言回退，字段缺一即类型报错，故整份照官方 terminalLabels(t) 提供 */
 function terminalLabelsOf(t: TranslateNS<'settings.modelFix'>): TerminalBlockLabels {
@@ -174,6 +180,11 @@ export function Card(props: CardProps) {
     const hostSelection = useSyncExternalStore(
         (listener) => hostScope?.subscribe(listener) ?? (() => {}),
         () => hostScope?.getSnapshot().value,
+    )
+    // 宿主开着那条设置时，路由由模型自己在授权范围内挑，「跟随父智能体」这一行不生效，故只置灰它
+    const userExperienceDisabledRows = useMemo(
+        () => (hostSelection === true ? FOLLOW_PARENT_DISABLED_ROWS : undefined),
+        [hostSelection],
     )
     // 验证候选与提供方 id 同源（同一份 llm-pi-ai user 层），故列表里出现的正是 fix 会遍历的那些模型
     const verifyCandidates = useMemo(
@@ -341,11 +352,6 @@ export function Card(props: CardProps) {
     const onMaster = (group: Group) => {
         setNotice(null)
         commitDraft(applyGroup(shown, group, !masterValue(shown, group)))
-    }
-    // 子智能体跟随开关取反：只改草稿（保存才落盘）；subagent 组只有这一个键，直接替换该组即可
-    const onFollow = () => {
-        setNotice(null)
-        commitDraft({ ...shown, subagent: { follow: !shown.subagent.follow } })
     }
     // 瓦片折叠：官方 toggleRow 同语义——点已开者即收起，否则切到该瓦片
     const onTileToggle = (key: string) => {
@@ -702,7 +708,7 @@ export function Card(props: CardProps) {
         <>
             {!ready ? <p className="dsh-mf-line" role="status">{t('loading')}</p> : null}
             {ready && !snap.writable ? <p className="dsh-mf-line dsh-mf-warn" role="status">{t('readOnly')}</p> : null}
-            {/* 四个布尔组由组枚举与键表派生，「排除提供方」与「子智能体」形状不同各自单独分发；顺序见 TILE_ORDER */}
+            {/* 四个布尔组由组枚举与键表派生，「排除提供方」形状不同单独分发；顺序见 TILE_ORDER */}
             <div className="dsh-mf-items">
                 {TILE_ORDER.map((tile) => tile === 'excludes' ? (
                     <ExcludesTile
@@ -716,17 +722,6 @@ export function Card(props: CardProps) {
                         onAdd={onAddExclude}
                         onRemove={onRemoveExclude}
                     />
-                ) : tile === 'subagent' ? (
-                    <SubagentTile
-                        key={tile}
-                        t={t}
-                        flags={shown}
-                        open={tileOpen === tile}
-                        disabled={!canWrite}
-                        hostSelection={hostSelection}
-                        onToggle={() => { onTileToggle(tile) }}
-                        onFollow={onFollow}
-                    />
                 ) : (
                     <GroupTile
                         key={tile}
@@ -735,6 +730,7 @@ export function Card(props: CardProps) {
                         flags={shown}
                         open={tileOpen === tile}
                         disabled={!canWrite}
+                        disabledRows={tile === 'userExperience' ? userExperienceDisabledRows : undefined}
                         onToggle={() => { onTileToggle(tile) }}
                         onMaster={() => { onMaster(tile) }}
                         onCell={(key) => { onCell(tile, key) }}

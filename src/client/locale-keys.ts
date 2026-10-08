@@ -36,6 +36,7 @@ export type CardKey =
     | 'rowRememberEfforts'
     | 'rowDefaultHigh'
     | 'rowForgetRemoved'
+    | 'rowFollowParent'
     | 'tipReasoning'
     | 'tipContext'
     | 'tipImage'
@@ -43,6 +44,7 @@ export type CardKey =
     | 'tipRememberEfforts'
     | 'tipDefaultHigh'
     | 'tipForgetRemoved'
+    | 'tipFollowParent'
     | 'excludePlaceholder'
     | 'excludeAdd'
     | 'excludeInvalid'
@@ -164,12 +166,6 @@ export type CardKey =
     | 'feedback'
     | 'issueBody'
 
-    // 「子智能体推理级别」瓦片
-    | 'subagentTitle'
-    | 'subagentHint'
-    | 'subagentFollow'
-    | 'subagentFollowTip'
-
 declare module '@deepseek-ai/dsh-client-ui-slots' {
     interface LocaleNamespaceMap {
         'settings.modelFix': CardKey
@@ -185,6 +181,7 @@ export const ROW_KEYS: Record<RowKey, CardKey> = {
     rememberEfforts: 'rowRememberEfforts',
     defaultHigh: 'rowDefaultHigh',
     forgetRemoved: 'rowForgetRemoved',
+    followParent: 'rowFollowParent',
 }
 
 /** 配置组（瓦片）标题键映射 */
@@ -212,4 +209,5 @@ export const TIP_KEYS: Record<RowKey, CardKey> = {
     rememberEfforts: 'tipRememberEfforts',
     defaultHigh: 'tipDefaultHigh',
     forgetRemoved: 'tipForgetRemoved',
+    followParent: 'tipFollowParent',
 }
