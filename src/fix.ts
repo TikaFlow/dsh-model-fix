@@ -33,16 +33,16 @@ export interface FillPlan {
  * 两类 op 在 `llm-pi-ai` 的**同一批 mutate** 内提交（二者互不影响）：
  * - 模型参数：缺失推理级别/容量/图片模态且有目录数据则填充（受 autoFill 对应字段控制），
  *   allowUpdate（force 时单次绕过，不落存储）开启则按目录最新值同步——含缺失补写与已有覆盖
- *   （旧值缺失经 deepEqualJson 判为不一致，属设计裁决，见 AGENTS.md「设计裁决」），并剔除空壳字段
+ *   （旧值缺失经 deepEqualJson 判为不一致，见 docs/decisions.md），并剔除空壳字段
  *   （`reasoningEfforts`/`input`/`compat`，判据唯一处在 src/empty.ts，缺失补写也按清理后的值为准）。
- *   读 descriptor.user（原始字段），按 provider 整数组写回 models（路径 op 不支持数组下标，故 value 为全量重建的数组，
- *   未变更元素原样保留）；数据无档位不删除已有配置。
+ *   读 descriptor.user（原始字段），按 provider 整段覆盖 models（不依赖路径 op 是否支持数组下标，
+ *   value 为全量重建的数组，未变更元素原样保留）；数据无档位不删除已有配置。
  * - 路由 compat：按 compat 规则组为 openai-completions 路由添加或**移除**字段（与模型填充不同，关闭即移除，
  *   见 src/compat.ts），只写路由级、不写模型级。
  * - 提供方排除：`excludes` 命中的 providerId 在循环入口即整条跳过，填充/compat/force 一律不作用其上
- *   （等效于对该提供方关闭插件；预防性——已写入的值原地保留，见 AGENTS.md 设计裁决）。
+ *   （等效于对该提供方关闭插件；预防性——已写入的值原地保留，见 docs/decisions.md）。
  * - `efforts` 记忆**不在此处理**：存取在浏览器半、失效清理在 `src/memory.ts`（判据是全量模型
- *   列表而非 llm-pi-ai，覆盖面是 UI 选型可见的全部模型），见 AGENTS.md 设计裁决。
+ *   列表而非 llm-pi-ai，覆盖面是 UI 选型可见的全部模型），见 docs/decisions.md。
  */
 export function planFill(
     cfg: PluginConfig,
@@ -143,7 +143,7 @@ export function planFill(
  * 填充与写回的编排体：读最新段 → `planFill` 出计划 → 写 `llm-pi-ai` → 返回变更模型数。
  *
  * 只写 `llm-pi-ai` 一段：本函数完全不碰自有 NS。`efforts` 记忆的存取在浏览器半、失效清理在
- * `src/memory.ts`（都按全量模型列表、与填充解耦），本函数不参与记忆生命周期（见 AGENTS.md 设计裁决）。
+ * `src/memory.ts`（都按全量模型列表、与填充解耦），本函数不参与记忆生命周期（见 docs/decisions.md）。
  * 模型写回失败
  * （冲突重试用尽等）先告警再抛出，由调用方决定后续处理（RPC 转失败结果回传，事件侧吞掉 rejection）。
  * 冲突重试时重读整段以取最新 revision。返回变更模型数（不含路由 compat 计数，保持 RPC 契约）。

@@ -6,10 +6,11 @@
  * 插件 adapter 动态注册的模型同样受管。取数只对**有记忆条目**的 provider 发请求，成本与条目数成正比。
  *
  * 与浏览器半的分工：那边只管存取（写入 / 恢复 / 自动设 `high`），这边只管整理。之所以能这样分，
- * 是因为「模型还在不在」是宿主路由的事实、与会话无关；而 `fix` 不参与记忆生命周期（见 AGENTS.md 裁决）。
+ * 是因为「模型还在不在」是宿主路由的事实、与会话无关；而 `fix` 不参与记忆生命周期（见 docs/decisions.md）。
  *
  * 触发面：`llm/adapters-updated`（provider 拓扑变化，天然在 commit 之后）+ `llm-pi-ai` 段变更
- * （模型级增删，settings 的 document-updated 在 describe 时发出、值已是最新的）+ 启动首轮。
+ * （模型级增删，settings 的 document-updated 在 describe 时发出、值已是最新的）+ 自有段变更
+ * （用户把 `forgetRemoved` 转开等时当场补一次，不必等下一个模型列表事件）+ 启动首轮。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { MAX_ATTEMPTS } from '@/constants'
@@ -38,7 +39,7 @@ export interface PrunePlan {
 /**
  * 按存活清单剪枝记忆（不改入参、产出不共享嵌套引用）。返回清理后的记忆，`null` = 无需写回。
  *
- * 口径（裁决见 AGENTS.md「设计裁决」）：
+ * 口径（见 docs/decisions.md）：
  * - **缺席即删除**：provider 已无活路由 ⇒ 整段删；模型不在其存活集合里 ⇒ 删该模型，
  *   段被删空则整个折叠掉，全删光归 `{}`（与写入侧同形态：字段恒存在、形态恒定）。
  *   记忆是可丢数据（丢了只是不自动设置级别），而「忘记已删除模型」更在意，故宁删勿留。

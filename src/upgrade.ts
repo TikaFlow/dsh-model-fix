@@ -11,7 +11,7 @@ import { isPlainObject } from '@/shared/types'
  * 本文件是**冻结形态的堆栈**，与当前版本的配置定义刻意不共享任何可演进来源：
  * 各级的 schema、默认常量、台阶默认值一律就地写字面量，也不引用 `CONFIG_VERSION`（产物版本号写死）——
  * 否则今天调整一个默认值，明天就会连带改写历史台阶的语义，破坏高版本快照的无损回退。
- * 配套的冻结类型 `V3`–`V7` 在 `src/types.ts`，增删台阶时两边同步（约定见 AGENTS.md）。
+ * 配套的冻结类型 `V3`–`V7` 在 `src/types.ts`，增删台阶时两边同步（约定见 docs/versioning.md）。
  *
  * 当前版本的规范化、旧快照清理与自愈不在这里，见 `src/migrate.ts`。
  */
@@ -380,7 +380,7 @@ function upgradeTo8(config: unknown, fromVersion: number): PluginConfigSnapshot 
 
 /**
  * 配置版本迁移入口：只调用最新一级台阶，产物即当前 CONFIG_VERSION 的快照形态。
- * 新版本发布时只追加 `upgradeToN` 并把本函数改指它，既有台阶的逻辑一律不改（约定见 AGENTS.md）。
+ * 新版本发布时只追加 `upgradeToN` 并把本函数改指它，既有台阶的逻辑一律不改（约定见 docs/versioning.md）。
  */
 export function upgradeConfig(config: unknown, fromVersion: number): PluginConfigSnapshot {
     return upgradeTo8(config, fromVersion)

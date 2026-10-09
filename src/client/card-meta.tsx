@@ -5,10 +5,10 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
  *
  * 抽出来的理由是它自成一体——一行里没有任何卡片状态，只有三个常量、四个图标和一次文案合成，
  * 却把六个 SVG path 与版本号内联声明都压进了卡片组件所在的文件。地址与图标各自有独立的出处
- * （README 的安装/反馈段、Octicons 图标集），随卡片状态一起读代码时只会互相干扰。
+ * （README 的安装段、Octicons 图标集），随卡片状态一起读代码时只会互相干扰。
  */
 
-/** 项目仓库与反馈入口：README「安装 / 问题反馈」同源，改地址只改这两行 */
+/** 项目仓库与反馈入口：仓库地址与 README「安装」段同源，改地址只改这两行 */
 const REPO_URL = 'https://github.com/TikaFlow/dsh-model-fix'
 const ISSUES_URL = `${REPO_URL}/issues/new`
 /** 行内展示的短地址（去掉协议前缀，不重复手写字面量） */

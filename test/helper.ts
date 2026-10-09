@@ -10,8 +10,8 @@ let modulePassed = 0
 let moduleFailed = 0
 
 /**
- * 断言一条用例。**通过时不逐条打印**——520 条全打印要刷十几屏，信噪比接近零；
- * 只累加计数，失败才记下来。失败明细在 summary 里统一列出，格式与原先逐字一致。
+ * 断言一条用例。**通过时不逐条打印**——全量用例有数百条，逐条打印会刷十几屏，信噪比接近零；
+ * 只累加计数，失败才记下来。失败明细在 summary 里统一列出。
  */
 export function check(name: string, ok: boolean, detail?: unknown): void {
     if (ok) {

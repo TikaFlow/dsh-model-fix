@@ -66,14 +66,14 @@ export function pruneOps(
 
 /**
  * 当前版本快照的规范化 op：以「当前生效值」物化规范完整快照（`resolveConfig` → `toStored`），
- * 与盘上 v7 逐键比较；不一致才产出 set op，幂等——第二轮同值零写入即收敛。
- * 仅在 migrateConfig 的「当前版本已存在」分支调用（无 v7 时由迁移分支直接写规范快照）。
+ * 与盘上当前版本键逐键比较；不一致才产出 set op，幂等——第二轮同值零写入即收敛。
+ * 仅在 migrateConfig 的「当前版本已存在」分支调用（当前版本键缺失时由迁移分支直接写规范快照）。
  *
  * 覆盖三类重写动因：
- * - 非法：`parseSnapshot(onDisk)` 判 undefined（如用户手改坏、或 v7 为非对象）——`resolveConfig` 回落到段内最高可解析快照或默认；
+ * - 非法：`parseSnapshot(onDisk)` 判 undefined（如用户手改坏、或快照为非对象）——`resolveConfig` 回落到段内最高可解析快照或默认；
  * - 残缺：`parseSnapshot` 对缺失字段一律补默认，会把只有 `efforts` 的 `{efforts:{…}}` 判为合法完整配置，
  *   单纯「非法才自愈」不足以保证盘上是规范完整快照；此处按规范化结果比对，残缺即重写（保留 efforts/excludes 现值，补齐四组默认与 configVersion）；
- * - 多余键：v7 含当前 schema 未知的键时，`toStored` 物化只保留已知键，比对不一致即剥离重写。
+ * - 多余键：当前版本键含当前 schema 未知的键时，`toStored` 物化只保留已知键，比对不一致即剥离重写。
  */
 export function canonicalizeCurrentOp(section: VersionedSection | undefined): SettingsPathOp[] {
     if (!section) return []
@@ -93,7 +93,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 
 /**
  * 启动时配置迁移：
- * - 有当前版本快照 → 规范化校验：以当前生效值物化规范完整快照，与盘上 v7 逐键比较；不一致（非法 / 字段残缺 / 含多余键）即重写自愈
+ * - 有当前版本快照 → 规范化校验：以当前生效值物化规范完整快照，与盘上当前版本键逐键比较；不一致（非法 / 字段残缺 / 含多余键）即重写自愈
  *   （幂等——第二轮同值零写入即收敛），两阶段清理低版本旧快照：先清低于最低支持版本，再清低于当前版本且超出上限的 excess（高版本快照保留）
  * - 无当前版本 → 段内所有 ≥ 最低支持版本中取最高可解析快照：高版本降级解析（按当前 schema，多余键忽略、efforts 宽松保留）、
  *   低版本走升级链；均不可解析或段内无版本则视为全新用户，直接写入规范默认快照，确保后续读取必有当前版本

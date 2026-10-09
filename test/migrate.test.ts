@@ -59,9 +59,9 @@ export function run(): void {
     // 无任何可用快照时自愈为默认（回退语义：不静默保留坏值；更高版本垃圾快照同样不计）
     const allBroken = { 'version-7': 42, 'version-9': 42 }
     check('无任何可用快照时自愈为默认', stable(resolveConfig({ 'version-7': toStored(resolveConfig(allBroken)) })) === stable(resolveConfig(allBroken)), resolveConfig(allBroken))
-    // v7 非法但段内有可用更高版本快照：自愈沿用高版本降级解析的当前生效值（而非落默认）
+    // 当前版本键非法但段内有可用更高版本快照：自愈沿用高版本降级解析的当前生效值（而非落默认）
     const v9Valid = { 'version-7': 42, 'version-9': { autoFill: { reasoning: false, context: false, image: false } } }
-    check('v7 非法时自愈用更高版本降级值', stable(resolveConfig({ 'version-7': toStored(resolveConfig(v9Valid)) })) === stable({
+    check('版本键非法时自愈用更高版本降级值', stable(resolveConfig({ 'version-7': toStored(resolveConfig(v9Valid)) })) === stable({
         autoFill: { reasoning: false, context: false, image: false },
         allowUpdate: { reasoning: false, context: false, image: false },
         compat: COMPAT,
@@ -97,27 +97,27 @@ export function run(): void {
         { op: 'unset', path: ['version-1'] }, { op: 'unset', path: ['version-2'] }, { op: 'unset', path: ['version-3'] },
     ]), pruneOps([1, 2, 3, 4, 5, 6], 8, 4, 3))
 
-    // canonicalizeCurrentOp：当前版本快照规范化——以当前生效值物化规范完整快照（resolveConfig → toStored），与盘上 v7 不一致才产出 op
-    const V7 = versionKey(CONFIG_VERSION)
-    // 残缺 v7（只有 efforts）→ parseSnapshot 补默认判为合法，但与规范完整快照不一致 → 重写（补四组默认 + configVersion，保留 efforts 记忆）
-    check('残缺 v7（只有 efforts）被规范化重写且保留记忆', stable(canonicalizeCurrentOp({ [V7]: { efforts: { 'z-ai': { 'glm-5.2': 'high' } } } })) === stable([{ op: 'set', path: [V7], value: { ...DEFAULT_STORED, efforts: { 'z-ai': { 'glm-5.2': 'high' } } } }]), canonicalizeCurrentOp({ [V7]: { efforts: { 'z-ai': { 'glm-5.2': 'high' } } } }))
-    // 残缺 v7（只有 excludes）→ 同理重写，保留 excludes 现值
-    check('残缺 v7（只有 excludes）被规范化重写且保留 excludes', stable(canonicalizeCurrentOp({ [V7]: { excludes: ['acme-gateway'] } })) === stable([{ op: 'set', path: [V7], value: { ...DEFAULT_STORED, excludes: ['acme-gateway'] } }]), canonicalizeCurrentOp({ [V7]: { excludes: ['acme-gateway'] } }))
-    // 残缺 v7 同时保留 efforts 与 excludes，并补齐四组默认
-    check('残缺 v7 同时保留 efforts 与 excludes 并补四组默认', stable(canonicalizeCurrentOp({ [V7]: { efforts: { 'z-ai': { 'glm-5.2': 'high' } }, excludes: ['acme-gateway'] } })) === stable([{ op: 'set', path: [V7], value: { ...DEFAULT_STORED, efforts: { 'z-ai': { 'glm-5.2': 'high' } }, excludes: ['acme-gateway'] } }]), canonicalizeCurrentOp({ [V7]: { efforts: { 'z-ai': { 'glm-5.2': 'high' } }, excludes: ['acme-gateway'] } }))
-    // 非法 v7（非对象）→ resolveConfig 无其他可用快照时回落默认，重写为 DEFAULT_STORED
-    check('非法 v7（非对象）按默认重写', stable(canonicalizeCurrentOp({ [V7]: 42 })) === stable([{ op: 'set', path: [V7], value: DEFAULT_STORED }]), canonicalizeCurrentOp({ [V7]: 42 }))
-    // 非法 v7 但段内有可用更高版本 → 沿用高版本降级值重写（不落默认，保留语义）
-    check('非法 v7 段内有高版本则沿用降级值重写', stable(canonicalizeCurrentOp({ [V7]: 42, 'version-9': { autoFill: { reasoning: false, context: false, image: false } } })) === stable([{ op: 'set', path: [V7], value: toStored(resolveConfig({ [V7]: 42, 'version-9': { autoFill: { reasoning: false, context: false, image: false } } })) }]), canonicalizeCurrentOp({ [V7]: 42, 'version-9': { autoFill: { reasoning: false, context: false, image: false } } }))
-    // 规范完整 v7 → 零 op（幂等：重写后第二轮同值不产出）
-    check('规范完整 v7 零 op', canonicalizeCurrentOp({ [V7]: DEFAULT_STORED }).length === 0, canonicalizeCurrentOp({ [V7]: DEFAULT_STORED }))
+    // canonicalizeCurrentOp：当前版本快照规范化——以当前生效值物化规范完整快照（resolveConfig → toStored），与盘上当前版本键不一致才产出 op
+    const CURRENT = versionKey(CONFIG_VERSION)
+    // 残缺当前版本键（只有 efforts）→ parseSnapshot 补默认判为合法，但与规范完整快照不一致 → 重写（补四组默认 + configVersion，保留 efforts 记忆）
+    check('残缺当前版本键（只有 efforts）被规范化重写且保留记忆', stable(canonicalizeCurrentOp({ [CURRENT]: { efforts: { 'z-ai': { 'glm-5.2': 'high' } } } })) === stable([{ op: 'set', path: [CURRENT], value: { ...DEFAULT_STORED, efforts: { 'z-ai': { 'glm-5.2': 'high' } } } }]), canonicalizeCurrentOp({ [CURRENT]: { efforts: { 'z-ai': { 'glm-5.2': 'high' } } } }))
+    // 残缺当前版本键（只有 excludes）→ 同理重写，保留 excludes 现值
+    check('残缺当前版本键（只有 excludes）被规范化重写且保留 excludes', stable(canonicalizeCurrentOp({ [CURRENT]: { excludes: ['acme-gateway'] } })) === stable([{ op: 'set', path: [CURRENT], value: { ...DEFAULT_STORED, excludes: ['acme-gateway'] } }]), canonicalizeCurrentOp({ [CURRENT]: { excludes: ['acme-gateway'] } }))
+    // 残缺当前版本键同时保留 efforts 与 excludes，并补齐四组默认
+    check('残缺当前版本键同时保留 efforts 与 excludes 并补四组默认', stable(canonicalizeCurrentOp({ [CURRENT]: { efforts: { 'z-ai': { 'glm-5.2': 'high' } }, excludes: ['acme-gateway'] } })) === stable([{ op: 'set', path: [CURRENT], value: { ...DEFAULT_STORED, efforts: { 'z-ai': { 'glm-5.2': 'high' } }, excludes: ['acme-gateway'] } }]), canonicalizeCurrentOp({ [CURRENT]: { efforts: { 'z-ai': { 'glm-5.2': 'high' } }, excludes: ['acme-gateway'] } }))
+    // 非法当前版本键（非对象）→ resolveConfig 无其他可用快照时回落默认，重写为 DEFAULT_STORED
+    check('非法当前版本键（非对象）按默认重写', stable(canonicalizeCurrentOp({ [CURRENT]: 42 })) === stable([{ op: 'set', path: [CURRENT], value: DEFAULT_STORED }]), canonicalizeCurrentOp({ [CURRENT]: 42 }))
+    // 非法当前版本键但段内有可用更高版本 → 沿用高版本降级值重写（不落默认，保留语义）
+    check('非法当前版本键段内有高版本则沿用降级值重写', stable(canonicalizeCurrentOp({ [CURRENT]: 42, 'version-9': { autoFill: { reasoning: false, context: false, image: false } } })) === stable([{ op: 'set', path: [CURRENT], value: toStored(resolveConfig({ [CURRENT]: 42, 'version-9': { autoFill: { reasoning: false, context: false, image: false } } })) }]), canonicalizeCurrentOp({ [CURRENT]: 42, 'version-9': { autoFill: { reasoning: false, context: false, image: false } } }))
+    // 规范完整当前版本键 → 零 op（幂等：重写后第二轮同值不产出）
+    check('规范完整当前版本键零 op', canonicalizeCurrentOp({ [CURRENT]: DEFAULT_STORED }).length === 0, canonicalizeCurrentOp({ [CURRENT]: DEFAULT_STORED }))
     // 规范完整但含多余键 → 物化时 toStored 剥离未知键，比对不一致即重写
-    check('v7 含多余键被规范化剥离', stable(canonicalizeCurrentOp({ [V7]: { ...DEFAULT_STORED, extra: 'x', unknown: 1 } })) === stable([{ op: 'set', path: [V7], value: DEFAULT_STORED }]), canonicalizeCurrentOp({ [V7]: { ...DEFAULT_STORED, extra: 'x', unknown: 1 } }))
+    check('当前版本键含多余键被规范化剥离', stable(canonicalizeCurrentOp({ [CURRENT]: { ...DEFAULT_STORED, extra: 'x', unknown: 1 } })) === stable([{ op: 'set', path: [CURRENT], value: DEFAULT_STORED }]), canonicalizeCurrentOp({ [CURRENT]: { ...DEFAULT_STORED, extra: 'x', unknown: 1 } }))
     // 用户改过四组布尔且完整 → 与规范物化结果一致（同值不同键序/引用），零 op（不误伤合法自定义配置）
     const customFull = { ...DEFAULT_STORED, autoFill: { reasoning: false, context: false, image: false }, allowUpdate: { reasoning: true, context: true, image: true }, compat: { disableDeveloper: false }, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: false, followParent: false } }
-    check('合法自定义完整 v7 零 op（不误伤）', canonicalizeCurrentOp({ [V7]: customFull }).length === 0, canonicalizeCurrentOp({ [V7]: customFull }))
-    // v7 不存在 → 零 op（交给迁移分支）
-    check('无 v7 零 op', canonicalizeCurrentOp({ 'version-5': { ...DEFAULT_STORED, configVersion: 5 } }).length === 0, canonicalizeCurrentOp({ 'version-5': { ...DEFAULT_STORED, configVersion: 5 } }))
+    check('合法自定义完整当前版本键零 op（不误伤）', canonicalizeCurrentOp({ [CURRENT]: customFull }).length === 0, canonicalizeCurrentOp({ [CURRENT]: customFull }))
+    // 当前版本键不存在 → 零 op（交给迁移分支）
+    check('无当前版本键零 op', canonicalizeCurrentOp({ 'version-5': { ...DEFAULT_STORED, configVersion: 5 } }).length === 0, canonicalizeCurrentOp({ 'version-5': { ...DEFAULT_STORED, configVersion: 5 } }))
     // 空段 / undefined → 零 op
     check('空段零 op', canonicalizeCurrentOp({}).length === 0 && canonicalizeCurrentOp(undefined).length === 0)
 

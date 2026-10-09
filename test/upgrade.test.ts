@@ -18,7 +18,7 @@ export function run(): void {
         autoFill: { reasoning: false, context: true, image: true },
         compat: { disableDeveloper: false },
     }
-    check('v3 快照升到 v7 且保留 compat 现值', stable(upgradeConfig(v3Stored, 3)) === stable({
+    check('v3 快照升到 v8 且保留 compat 现值', stable(upgradeConfig(v3Stored, 3)) === stable({
         configVersion: 8,
         allowUpdate: v3Stored.allowUpdate,
         autoFill: v3Stored.autoFill,
@@ -46,7 +46,7 @@ export function run(): void {
         efforts: EFFORTS,
         userExperience: USER_EXPERIENCE,
     }), upgradeConfig('garbage', 3))
-    // 台阶产物形态恒定：即便未来默认演进，v7 台阶补的仍是空对象与默认开关
+    // 台阶产物形态恒定：即便未来默认演进，历史各台阶补的仍是空对象与默认开关
     check('升级产物不携带用户段之外的多余键', Object.keys(upgradeConfig(v3Stored, 3)).sort().join(',') === 'allowUpdate,autoFill,compat,configVersion,efforts,excludes,userExperience', upgradeConfig(v3Stored, 3))
 
     // ---------- v4 → v8：三组布尔 + compat + excludes 原样沿用，补 efforts / userExperience（v5 起）、defaultHigh（v6 起）、forgetRemoved（v7 起）、followParent 默认（v8 起） ----------
@@ -57,7 +57,7 @@ export function run(): void {
         compat: { disableDeveloper: false },
         excludes: ['acme-gateway'],
     }
-    check('v4 快照升到 v7 且保留全部字段', stable(upgradeConfig(v4Stored, 4)) === stable({
+    check('v4 快照升到 v8 且保留全部字段', stable(upgradeConfig(v4Stored, 4)) === stable({
         configVersion: 8,
         allowUpdate: v4Stored.allowUpdate,
         autoFill: v4Stored.autoFill,
@@ -86,7 +86,7 @@ export function run(): void {
         efforts: { 'z-ai': { 'glm-5.2': 'high' } },
         userExperience: { rememberEfforts: false },
     }
-    check('v5 快照升到 v7 且保留 efforts 记忆与 userExperience 现值，补 defaultHigh / forgetRemoved 默认', stable(upgradeConfig(v5Stored, 5)) === stable({
+    check('v5 快照升到 v8 且保留 efforts 记忆与 userExperience 现值，补 defaultHigh / forgetRemoved 默认', stable(upgradeConfig(v5Stored, 5)) === stable({
         configVersion: 8,
         allowUpdate: v5Stored.allowUpdate,
         autoFill: v5Stored.autoFill,
@@ -130,7 +130,7 @@ export function run(): void {
         efforts: { 'z-ai': { 'glm-5.2': 'high' } },
         userExperience: { rememberEfforts: false, defaultHigh: true },
     }
-    check('v6 快照升到 v7 且保留 efforts 记忆与 userExperience 现值，补 forgetRemoved 默认', stable(upgradeConfig(v6Stored, 6)) === stable({
+    check('v6 快照升到 v8 且保留 efforts 记忆与 userExperience 现值，补 forgetRemoved 默认', stable(upgradeConfig(v6Stored, 6)) === stable({
         configVersion: 8,
         allowUpdate: v6Stored.allowUpdate,
         autoFill: v6Stored.autoFill,
