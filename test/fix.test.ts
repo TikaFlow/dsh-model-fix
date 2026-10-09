@@ -351,4 +351,23 @@ export async function run(): Promise<void> {
         check('providers 非纯对象：早退返回 0', changes === 0)
         check('providers 非纯对象：零 mutate', ctx.mutateCalls.length === 0)
     }
+
+    // ---------- 17. 容量只缺一半：已填 contextWindow 时 maxTokens 仍要补 ----------
+    // maxTokens 的补写判据只看它自己是否缺失，与 contextWindow 缺没缺无关
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-a', contextWindow: 128000 }] } } },
+        })
+        setConfig(cfg({ autoFill: { reasoning: false, context: true, image: false } }))
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('容量只缺一半：maxTokens 补上且 contextWindow 不动', stable(model) === stable({
+            id: 'model-a',
+            contextWindow: 128000,
+            maxTokens: 8192,
+        }))
+        check('容量只缺一半：变更计数为 1', changes === 1)
+    }
 }

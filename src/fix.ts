@@ -117,7 +117,7 @@ export function planFill(
                 const patched = { ...cleaned }
                 if (reasoningFillable || reasoningUpdatable) patched.reasoningEfforts = efforts
                 if (contextFillable || contextUpdatable) patched.contextWindow = ctxW
-                if (contextFillable || maxTokensUpdatable) patched.maxTokens = maxT
+                if (maxTokensFillable || maxTokensUpdatable) patched.maxTokens = maxT
                 if (imageFillable || imageUpdatable) patched.input = imageValue
                 next[i] = patched
             }
