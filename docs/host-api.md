@@ -2,7 +2,7 @@
 
 本文是**本插件实际在用的宿主面**的单一事实源：宿主服务与事件的调用方式、宿主类型的导入面、依赖宿主字面量的键与码、以及代码里依赖的宿主运行时行为假设。宿主有而本插件没用的 API 一律不写。
 
-- **更新纪律**（规则本体在 `AGENTS.md`「跨半与宿主契约」→「宿主契约文档纪律」，本文不重复纪律正文）：改动下列任一内容时，**必须同一轮改动同步更新本文**——① 宿主服务/事件的调用方式或签名假设；② 宿主类型导入（模块、符号、`/client` 还是包根、`import type {}` 声明合并还是具名导入、值导入还是 type-only）；③ 依赖宿主字面量的键、码、路由、slot 名；④ 宿主运行时行为假设（写入语义、装载时序、事件时机、连接生命周期）；⑤ 版本基线与平台模块表。升级宿主 devDep 时另须逐条复核「已知漂移与观察项」。
+- **更新纪律**（规则本体在 `AGENTS.md`「硬约束」→「宿主契约文档纪律」，本文不重复纪律正文）：改动下列任一内容时，**必须同一轮改动同步更新本文**——① 宿主服务/事件的调用方式或签名假设；② 宿主类型导入（模块、符号、`/client` 还是包根、`import type {}` 声明合并还是具名导入、值导入还是 type-only）；③ 依赖宿主字面量的键、码、路由、slot 名；④ 宿主运行时行为假设（写入语义、装载时序、事件时机、连接生命周期）；⑤ 版本基线与平台模块表。升级宿主 devDep 时另须逐条复核「已知漂移与观察项」。
 - 条目按主题分组，新增追加到对应分组末尾，不打散既有顺序；与 [`decisions.md`](decisions.md) 同一纪律：本文写「是什么」，`decisions.md` 写「为什么」。
 - **宿主侧的引用一律只写「包名 + 包内文件路径」**（如「`@deepseek-ai/dsh-settings` 的 `src/index.ts`」），**不写行号、不写宿主仓库内的完整目录路径**。理由：宿主源码不在本仓的跟踪范围内，它的内容随宿主版本整体漂移，行号与检出布局对本仓没有稳定含义；本文要锁住的是「这条契约来自宿主哪个包的哪个文件」，而不是某一行的快照。核对签名请对着**本仓 devDep 声明的那个版本**去查；本地另有一份宿主源码检出仅供翻阅便利。
 - 引用本仓自身代码时直接写 `src/`、`test/` 下的路径。
@@ -17,7 +17,7 @@
 - **服务面**：`ctx.settings`，服务名字面量 `'settings'`（`@deepseek-ai/dsh-settings` 的 `src/index.ts`，类名是 `SettingsForms`，`static inject = ['configEditor','profileContext']`）；`ctx.settings` 的声明合并在同一文件的头部。本插件把 `settings` 放进 `src/index.ts` 的 `inject`，非可选。
 - **`describe()`**：`describe(options?: { redactSecrets?: boolean }): SettingsDescriptor[]`。descriptor 字段为 `ns / autoGenerate / schema / value / revision / base? / user? / applies:'live' / secrets?`（同文件顶部的类型与 `describe` 返回字面量）——**没有** `namespace` / `userSettings` 之类别名。本插件只用 `{ ns, user, revision }`，且刻意不传 `redactSecrets`（要拿明文 user 层做比对）。**读取一律经 `src/section.ts` 的 `descriptorOf` / `sectionOf` / `ownSection`**（读 choke point，与写侧的 `src/host.ts` 的 `queueTask` 对称）：`descriptorOf(ctx, ns)` 取整张描述，`sectionOf(descriptor)` 把 `user` 收窄成整段（非常规对象即 `undefined`），`ownSection(ctx)` 是只读自有段的快捷方式。三者读不到都返回 `undefined` 而不抛错——「段不可读」该由调用方显式失败还是静默早退，由端点自己决定。
 - **`mutate()`**：`async mutate(ns: string, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>`，**返回 `void`**（同族 `update` / `replace` 亦然）。所以「变更数」只能自己数，不能指望返回值。
-- **`SettingsPathOp`**：`{ op:'set'; path: readonly string[]; value: unknown } | { op:'unset'; path: readonly string[] }`（同文件）。客户端面另有 `SettingsPathOpView`（`@deepseek-ai/dsh-settings` 的 `src/types.ts`，`path: string[]`、`value: JsonValue`）——`src/client/scope.ts` 的 mutate 因此要 `as Parameters<ConfigForm<unknown>['mutate']>[0]` 桥一次。
+- **`SettingsPathOp`**：`{ op:'set'; path: readonly string[]; value: unknown } | { op:'unset'; path: readonly string[] }`（同文件）。客户端面另有 `SettingsPathOpView`（`@deepseek-ai/dsh-settings` 的 `src/types.ts`，`path: string[]`、`value: JsonValue`）——只读面与宿主可变 `path` 的类型不兼容，故 `src/client/scope.ts` 的 mutate 转发时逐字段浅拷贝成线面 op。
 - **冲突**：revision 不符时 `mutate` **抛** `SettingsConflictError`（同文件，`readonly code = 'SETTINGS_CONFLICT'`，带 `expected` / `actual`），抛出点在 `mutate` 内的 revision 围栏检查处（抛 Error 而非返回失败值）。本插件一律按 `err.code === 'SETTINGS_CONFLICT'` 捕获重试，判定收口在 `src/writeback.ts` 的 `isSettingsConflict`（`reset` / `restore` / `prune` / `fill` 由该文件的写回外壳代劳，`fix` 与探测兜底回退直接调它）；**宿主换码或改成返回失败值都会让重试退化为一次失败**。
 - **写入语义（`applyPathOp`，同文件）**：
   - 根必须是纯对象：`if (!isPlainObject(result)) throw new TypeError('Config root must be a plain object')`，而 `isPlainObject`（同文件）显式排除数组 ⇒ 自有配置只能用 `version-N -> 快照` 的**映射**，不能用列表（这正是本仓形态的原因之一）。
@@ -45,7 +45,7 @@
 - **`INVALID_CREDENTIAL` 与 `AUTH` 是两个码**（`src/error.ts` 的注释明确区分：前者是「给了但不能用」，该改值；后者是上游鉴权失败），本仓凭据无效只认 `INVALID_CREDENTIAL` / `MISSING_CREDENTIAL`，不认 `AUTH`。
 - **`ReasoningEffortId`**：`@deepseek-ai/dsh-llm` 的 `src/brand.ts` 里是 `Branded<'ReasoningEffortId'>`，同时有运行期工厂 `ReasoningEffortId(id)`（**不做任何校验**）。本仓**只 type-only 引用类型、用 `as ReasoningEffortId` 断言**，不引运行期构造器（值面不落运行期依赖）。
 - **档位 id 取值由适配器自定**（宿主类型面 `src/types.ts` 的 `LlmReasoningEffortInfo{ id, name, description? }` 与 `LlmModelReasoningInfo{ efforts, defaultEffort? }`）；本仓的档位名来自 models.dev 目录（`src/lookup.ts` 的 `toReasoningEfforts`），不是宿主枚举。不传 `reasoningEffort` 时宿主按 `defaultEffort` 物化（`src/index.ts` 的 `stream` 实现内）——这正是「关档位 = 不发该字段，而不是取最低档」的宿主理由。
-- **宿主按模型公告的档位本地校验显式档位，未公告即拒绝、请求不出网**：`resolveCallWithInfo(config, info)`（`lib/index.js:2174-2188`）里 `info.reasoning === undefined` 时只要带 `reasoningEffort` 就抛 `UNSUPPORTED_REASONING_EFFORT`，否则该档位不在 `reasoning.efforts` 里同样抛（`requested ?? reasoning.defaultEffort` 物化后比对）。**这条决定「探测式填充」整个形态**：带档位的探测只可能落在配置里已声明的档位上，故 `src/probe.ts` 必须先把候选档位**临时预声明**进模型配置（否则七档全被本地拒绝、探测不到任何东西），并在同一轮结束时收敛写回。`info.reasoning` 来自适配器的 `resolveModel`（`resolveModelInfoFor`），每次请求现取。
+- **宿主按模型公告的档位本地校验显式档位，未公告即拒绝、请求不出网**：`resolveCallWithInfo(config, info)`（`@deepseek-ai/dsh-llm` 的 `src/index.ts`）里 `info.reasoning === undefined` 时只要带 `reasoningEffort` 就抛 `UNSUPPORTED_REASONING_EFFORT`，否则该档位不在 `reasoning.efforts` 里同样抛（`requested ?? reasoning.defaultEffort` 物化后比对）。**这条决定「探测式填充」整个形态**：带档位的探测只可能落在配置里已声明的档位上，故 `src/probe.ts` 必须先把候选档位**临时预声明**进模型配置（否则七档全被本地拒绝、探测不到任何东西），并在同一轮结束时收敛写回。`info.reasoning` 来自适配器的 `resolveModel`（`resolveModelInfoFor`），每次请求现取。
 
 ### llm：模型清单面（记忆剪枝的判据）
 
@@ -224,7 +224,7 @@
 
 ## 依赖宿主字面量的键与码
 
-改这些字面量必须确认宿主侧同名同值；它们散落在常量与内联处，AGENTS.md 只点名了 `PLUGIN_NS` 一处。
+改这些字面量必须确认宿主侧同名同值；命名空间键以 `PLUGIN_NS`（`src/shared/constants.ts`）为准，其余散落在常量与内联处。
 
 - **settings 命名空间**：`PLUGIN_NS = 'tikaflow-model-fix'`（= `cordis.patch.yml` 的 `id`，浏览器半 `configForms.get(ns)` 与 Node 半写回 NS 同一字面量）、`API_NS = 'llm-pi-ai'`（宿主自带段，本插件只读 user 层并在同段写 `providers.<id>.models` 与路由 `compat`）。
 - **子智能体相关的宿主字面量**：cordis 服务名 `subagentModelSelection`（宿主「允许 Agent 为子智能体选择模型」设置服务，**该服务在 CLI/TUI 组合缺席 ⇒ 一律按关闭处理**）、`SessionHeader.origin = 'subagent'`。同一设置在浏览器半的对应 settings 命名空间（`subagent-model-selection-settings`）**本仓不读**：卡片不判该开关的生效条件（见 `docs/decisions.md`），故该命名空间不是本仓的依赖面，CLI/TUI 缺席与否也不影响 UI。
@@ -240,10 +240,10 @@
 
 ## 装载与 HMR 契约
 
-- `package.json` 的 `dsh.client.inject` 按宿主权威注释是「**Informational package-name dependencies, not Cordis service injection**」（`@deepseek-ai/dsh-package-manifest` 的 `src/types.ts`）：它只决定模块工厂的**到达顺序**（`@deepseek-ai/dsh-client-modules` 的 `src/client/system.ts` 的 `arriveGraphRow`，先 `row.external` 再 `row.inject`，成环抛 `module arrival cycle`），**不决定 cordis 激活顺序**（激活顺序只由 fiber 等服务决定）。本仓填的是槽位所有者包（ui-renderer / ui-settings-plugins / ui-settings-models / ui-plugin-manager）以保证它们先物化；**cordis 服务名只写在 `src/client/index.tsx` 的 `export const inject = ['slots','locale','connection']`**。
-- client 模块须 `export const name`（宿主**不强制**等于包名，只影响显示名）与 `export const apply`，并复刻 `window.__ModuleLoader__.load` 闭包工厂契约（`tsdown.config.ts` 的 `outputOptions` banner/intro/footer 三段，逐字取自宿主 `@deepseek-ai/dsh-client-web` 的 `tsdown.client.ts`）。**禁用 default export**——宿主 `unwrapExports` 走 `exports.default ?? exports`，default 会吃掉 `inject`/`Config`。声明 `dsh.client` 后缺 `lib/client.js` 会让宿主激活期聚合抛错，故 **build 必须先于安装**。
+- `package.json` 的 `dsh.client.inject` 只影响模块物化顺序、不影响 cordis 激活顺序（语义与到达序遍历见上文「模块装载」节）：本仓列槽位所有者包以保证先物化，cordis 服务名只写 `src/client/index.tsx` 的 `export const inject`。
+- client 模块须 `export const name`（宿主不强制等于包名，只影响显示名）与 `export const apply`，复刻 `window.__ModuleLoader__.load` 闭包工厂契约（`tsdown.config.ts` 的 `outputOptions` banner/intro/footer 逐字取自宿主 `tsdown.client.ts`）。**禁用 default export**——宿主 `unwrapExports` 走 `exports.default ?? exports`，default 会吃掉 `inject`/`Config`。声明 `dsh.client` 后缺 `lib/client.js` 会让宿主激活期聚合抛错，故 **build 必须先于安装**。
 - Node 半 `export const inject = ['settings','connection','llm']`；`configForms` 只作子 fiber 标记（**不进父级 inject**），共享编排体一律走父 ctx。
-- **宿主 `ObservableSnapshot.subscribe` 一律不推首值**（`@deepseek-ai/dsh-client-store` 的 `src/index.ts` 的 `createSnapshotStore` 无 `fireImmediately`；`ctx.locale`、`sessions.retainInfo` 同语义）⇒ 本仓所有订阅都要手动补跑一次。
+- **宿主 `ObservableSnapshot.subscribe` 一律不推首值**（`@deepseek-ai/dsh-client-store` 的 `src/index.ts` 的 `createSnapshotStore` 无 `fireImmediately`）⇒ 本仓所有订阅都要手动补跑一次（同「sessions / modelDirectories」节末条）。
 - **`Config` 是实时引用**：`apply(ctx, config)` 第二参是冻结的 `Volatile<T>`，读值必须每次 `config.get()`，禁止缓存解引用结果（详见「cordis：config 的实时引用」）。
 - 浏览器半样式经模块级幂等 `<style>` 注入并带 `data-plugin` 标记供宿主 HMR 认领；`ctx.locale.register` 重复注册会抛错，disposer 必须经 `ctx.effect` 挂。
 - 卡片样式与文案的宿主同款来源写在 `docs/decisions.md` 与 `docs/ui-fusion.md`，本文不重复。
@@ -251,7 +251,7 @@
 ## 已知漂移与观察项
 
 - **查阅到的宿主源码可能比本仓 devDep 新**（本仓 devDep/engines 为 `0.1.7-rc.2`）：本文引用的宿主签名以本仓 devDep 声明为准，翻阅时看到的更新版差异记在此处，不顺手改代码。
-- **settings 路径 op 的数组下标中间段**：较新版本的 `applyPathOp`（`@deepseek-ai/dsh-settings` 的 `src/index.ts`）**已支持**数组下标中间段（`/^(0|[1-9][0-9]*)$/` 校验，越界抛 `Config array index "${head}" is out of range`），与本仓早期文档把「不支持数组下标中间段」当成前提的写法相反。本仓写法（按 provider 整段 `set` 覆盖 `models`）在两种语义下都成立，属安全子集，**不需要改代码**；`AGENTS.md` 的「宿主 settings 的脾气」已相应改写成「整段覆盖，两侧都成立」。升宿主到 `0.2.x` 后若要改用下标写法，须先在本仓 devDep 版本上实测。
+- **settings 路径 op 的数组下标中间段**：较新版本的 `applyPathOp`（`@deepseek-ai/dsh-settings` 的 `src/index.ts`）**已支持**数组下标中间段（`/^(0|[1-9][0-9]*)$/` 校验，越界抛 `Config array index "${head}" is out of range`）。本仓写法（按 provider 整段 `set` 覆盖 `models`）在「支持 / 不支持下标」两种语义下都成立，属安全子集，**不需要改代码**；升宿主到 `0.2.x` 后若要改用下标写法，须先在本仓 devDep 版本上实测。
 - **`unset` 不折叠空父对象**：本仓 devDep 与较新版本一致（只 `Reflect.deleteProperty(result, head)`）。若宿主将来改为折叠，本仓「删空壳必须整段 unset」的写法仍然安全（整段 unset 不依赖折叠）。
 - **平台模块表已扩**：`tsdown.config.ts` 的 `PLATFORM_MODULES` 副本比宿主 `@deepseek-ai/dsh-client-web` 的 `src/platform.ts` 少一项 `'@deepseek-ai/dsh-client-ui-dockkit'`（宿主另有 `PRELOADED_CLIENT_EXTERNALS = []`）。当前无碍（外置项越多宿主提供越多，本仓不引 dockkit 即可），但**宿主若反过来把本仓在用的模块移出表**，该模块就会被打进浏览器包而运行期拿不到宿主实例。升宿主时逐位比对。
 - **`connection` 不注入 `webServer`**：较新版本确认 `inject = ['credentials']`，webServer 是 apply 内二次注入（`@deepseek-ai/dsh-client-connection` 的 `src/index.ts`），与本仓「必须自己 inject 两个服务」的写法一致。
