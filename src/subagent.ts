@@ -22,7 +22,7 @@ import { PLUGIN_NAME } from '@/shared/constants'
  *
  * 原因：宿主富面 `Agent` 只在 `@deepseek-ai/dsh-agent` **包根**导出（`/types` 子路径只有 `{ id }`），
  * 「允许选择模型」设置住在 `@deepseek-ai/dsh-tool-subagent/model-selection-settings`；而这两个包
- * 都会把 `@deepseek-ai/dsh-session` 的**包根**类型拉进程序（如 `dsh-tool-subagent/lib/types/index.d.ts:13`
+ * 都会把 `@deepseek-ai/dsh-session` 的**包根**类型拉进程序（如 `dsh-tool-subagent/lib/types/index.d.ts`
  * 的 `import type { Session } from '@deepseek-ai/dsh-session'`），该包根对 `Context` 的
  * `sessions: SessionStore` 增补会顶掉 `@deepseek-ai/dsh-api-session-controller/client` 的同名增补，
  * 浏览器半的 `ctx.sessions` 于是由 `ISessions` 退化成 Node 侧的 `SessionStore`，

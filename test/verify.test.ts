@@ -102,7 +102,7 @@ export async function run(): Promise<void> {
     // ---------- classifyFailure：只认 code 与 status，绝不比对文案 ----------
     check('classifyFailure 档位不被支持', classifyFailure(failure('UNSUPPORTED_REASONING_EFFORT')) === 'unsupported-effort')
     check('classifyFailure 额度耗尽', classifyFailure(failure('QUOTA', 429)) === 'quota')
-    // 宿主给账户余额不足定的字面量就是 ACCOUNT_QUOTA（error.js:26），写成 ACCOUNT_QUOTA_EXCEEDED 永不命中
+    // 宿主给账户余额不足定的字面量就是 ACCOUNT_QUOTA（宿主 `error.js`），写成 ACCOUNT_QUOTA_EXCEEDED 永不命中
     check('classifyFailure 余额耗尽', classifyFailure(failure('ACCOUNT_QUOTA', 402)) === 'quota')
     check('classifyFailure 凭据无效', classifyFailure(failure('INVALID_CREDENTIAL', 401)) === 'credential')
     check('classifyFailure 凭据缺失', classifyFailure(failure('MISSING_CREDENTIAL', 401)) === 'credential')

@@ -100,7 +100,7 @@ const STYLE_TEXT = [
     '.dsh-mf-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
     '@media (max-width:680px){.dsh-mf-items{grid-template-columns:minmax(0,1fr)}}',
     '@media (prefers-reduced-motion:reduce){.dsh-mf-itemChevron{transition:none}}',
-    // 动作键行（强制更新 / 重置推理级别 / 恢复备份 / 验证模型）：独占一行、靠左起排，不设分割线——它承接上方瓦片，
+    // 动作键行（强制更新 / 重置推理级别 / 恢复备份 / 验证模型 / 探测式填充）：独占一行、靠左起排，不设分割线——它承接上方瓦片，
     // 分隔线留给其下的取消/保存行；键渐多后在本行内换行落位，不相互挤压。
     // 本行不带自己的上间距：与瓦片的距离已由 .dsh-mf-body 的 gap:12px 给出，再叠一层会算成 24px
     '.dsh-mf-bar{display:flex;align-items:center;justify-content:flex-start;gap:8px}',
@@ -160,7 +160,7 @@ const STYLE_TEXT = [
     '.dsh-mf-verifyDialog{width:min(560px,100%)}',
     // 提供方分组头：官方候选框本无分组，此处一行标题标明下一批条目归属（零自造色，仅用宿主 label 令牌）。
     // 排布照官方 candidateToolbar——align-items:center + gap:8px 的 flex 行；右侧分组全选键 margin-left:auto 顶到行尾。
-    // 纵向内边距取官方 candidateLabel 的 6px 8px，与候选行同档（原为 8px/4px，不在官方档位内）
+    // 纵向内边距取官方 candidateLabel 的 6px 8px，与候选行同档
     '.dsh-mf-verifyGroup{display:flex;align-items:center;gap:8px;padding:6px 8px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary,#81858c)}',
     '.dsh-mf-verifyGroupAll{margin-left:auto}',
     '.dsh-mf-verifyRow{border-radius:var(--dsw-radius-md,12px)}',

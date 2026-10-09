@@ -281,12 +281,12 @@ export type VerifyProbedFrame = Extract<VerifyProgressFrame, { type: 'probed' }>
 /** 非终帧：逐条回调的形状。`done` 帧由调用方单独接住——它带的是整轮汇总，不是可逐行展示的一条 */
 export type VerifyProgressUpdate = Exclude<VerifyProgressFrame, { type: 'done' }>
 
-/** 宿主 hmr 的 SSE 分帧格式：单行 `data: ` + 空行分隔（`.tmp-dsh/packages/client/hmr/src/index.ts:39-42`） */
+/** 宿主 hmr 的 SSE 分帧格式：单行 `data: ` + 空行分隔（`.tmp-dsh/packages/client/hmr/src/index.ts`） */
 const DATA_PREFIX = 'data: '
 
 /**
  * 把一帧编成线上文本。内容类型刻意用 `text/event-stream`：宿主的 gzip 中间件显式跳过它
- * （`host/webserver/src/index.ts:97`），普通内容类型可能被压缩缓冲住——一缓冲，流式就没了。
+ * （`host/webserver/src/index.ts`），普通内容类型可能被压缩缓冲住——一缓冲，流式就没了。
  */
 export function encodeProgressFrame(frame: VerifyProgressFrame): string {
     return `${DATA_PREFIX}${JSON.stringify(frame)}\n\n`

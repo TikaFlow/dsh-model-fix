@@ -171,7 +171,7 @@ export function Card(props: CardProps) {
     )
     // draft === null 表示未编辑、跟随已存值；首次点击即冻结当前显示值为草稿
     const [draft, setDraft] = useState<Flags | null>(null)
-    // 全部写操作（保存 / 强制更新 / 重置 / 恢复 / 清空记忆 / 验证）共用单一互斥标志：
+    // 全部写操作（保存 / 强制更新 / 重置 / 恢复 / 清空记忆 / 验证 / 探测 / 剔除）共用单一互斥标志：
     // 一者 in-flight 时其余入口与按钮全禁；后续新增动作只加成员，不必改既有互斥
     const [busy, setBusy] = useState<'save' | 'force' | 'reset' | 'restore' | 'clear' | 'verify' | 'probe' | 'prune' | null>(null)
     // 折叠态为卡片本地状态（读姿而非配置）：初始值取 defaultOpen（缺省收起、与官方插件卡一致）；草稿跨折叠存活
@@ -183,7 +183,7 @@ export function Card(props: CardProps) {
     const [tileOpen, setTileOpen] = useState<string | null>(null)
     // 内联结果提示：常驻至下一次操作（官方 .savedNotice 无定时器，故不设自动淡出）
     const [notice, setNotice] = useState<Notice | null>(null)
-    // 三个后端写回操作各控一个宿主 Modal 二次确认（执行态统一在 busy）
+    // 五层二次确认各控一个状态（执行态统一在 busy）：三个写回端点 + 清空记忆 + 剔除
     const [confirmOpen, setConfirmOpen] = useState(false)
     const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
     const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
@@ -592,7 +592,7 @@ export function Card(props: CardProps) {
         setProbeLines((current) => [...current, t('probeStoppedLine')])
     }
     // 关闭即丢弃本轮记录与计划，并把两个开关一并复位（下次打开回到「关」的初始态）。
-    // 与验证弹层同一处理（a8900c8）：开关是本轮的模式选择，留着会让下次打开时的模型数
+    // 与验证弹层同一处理：开关是本轮的模式选择，留着会让下次打开时的模型数
     // 与用户当下看到的开关状态对不上——尤其「忽略排除」直接决定候选范围。
     // 在途时关窗同时中止并撤掉关窗定时器；遮罩 / Escape / × / 「关闭」键四种关闭都汇到 Modal 的 onClose 与该键
     const closeProbe = () => {
@@ -717,7 +717,7 @@ export function Card(props: CardProps) {
             {/* 动作键独占一行、置于分隔线之上：键数增长后不再与取消/保存挤在同一行 */}
             <div className="dsh-mf-bar">
                 <span className="dsh-mf-actions">
-                    {/* 五个动作键共用一个占用态 configLocked：在途或任一弹层开着都算占用，其余四个一并禁用 */}
+                    {/* 五个动作键共用上方那个占用态：在途或任一弹层开着，其余四个一并禁用 */}
                     <button
                         type="button"
                         className="dsh-mf-force"

@@ -22,7 +22,7 @@ export interface ModelEntry {
 }
 
 /**
- * 磁盘缓存条目：缓存条目去 provider/id 两字段（分组键与嵌套键已承担），体积更小。
+ * 磁盘缓存条目：去掉 provider/id 两字段（分组键与嵌套键已承担），体积更小。
  * 内存索引（IndexEntry）为补全分组键的完整条目，供 lookup/fix 消费。
  */
 export interface CacheRecord {

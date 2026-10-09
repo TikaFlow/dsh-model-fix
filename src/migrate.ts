@@ -50,11 +50,9 @@ export function pruneOps(
     maxOld: number = MAX_OLD_SNAPSHOTS,
 ): SettingsPathOp[] {
     const ops: SettingsPathOp[] = []
-    // Phase A：清理低于最低支持版本的快照（已失效，不读取不处理）
     for (const version of versions) {
         if (version < minSupported) ops.push({ op: 'unset', path: [versionKey(version)] })
     }
-    // Phase B：低于当前版本且超出保留上限的，从最低版本起淘汰
     const olds = versions.filter((version) => version >= minSupported && version < configVersion)
     if (olds.length > maxOld) {
         for (const version of olds.slice(0, olds.length - maxOld)) {

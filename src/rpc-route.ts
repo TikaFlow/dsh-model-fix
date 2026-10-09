@@ -25,7 +25,7 @@ import type {
 const ENDPOINT_SEGMENT = /^[A-Za-z0-9_$.-]+$/
 /** 信封不合法且回显不出 rpcId 时的占位（宿主 INVALID_REQUEST_RPC_ID 的字面复制） */
 const INVALID_RPC_ID = 'invalid-request'
-/** 请求体上限：三个端点的 payload 都是小对象，设上限防无界缓冲 */
+/** 请求体上限：各端点的 payload 都是小对象，设上限防无界缓冲 */
 const MAX_BODY_BYTES = 64 * 1024
 
 /** 端点处理函数（与宿主 ConnectionRpcHandler 同形：省略只用于信任判定、浏览器侧用不到的 peer 参，返回值不带 attachments） */

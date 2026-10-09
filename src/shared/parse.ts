@@ -8,7 +8,7 @@
  * 解析约定：
  * - 整项缺失 → 落该项默认；存在但非对象、或字段存在但非布尔 → 返回 undefined（整段快照非法）
  * - `excludes` 缺失落空数组、非数组或元素非字符串判非法；`efforts` 宽松解析（结构不符回落 {}，不判非法）
- * - 产物只含 5 个已知键（剥离 configVersion 等运行时不消费的键）；缺省容器均为新对象/新数组，不与 `DEFAULT_CONFIG` 共享引用
+ * - 产物只含 6 个已知键（剥离 configVersion 等运行时不消费的键）；缺省容器均为新对象/新数组，不与 `DEFAULT_CONFIG` 共享引用
  */
 
 import { CONFIG_VERSION, VERSION_PREFIX } from '@/shared/constants'

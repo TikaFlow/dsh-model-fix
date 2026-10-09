@@ -139,7 +139,7 @@ export interface VerifyCandidate {
     efforts: string[]
 }
 
-/** 选择键：模型 id 可含 '/'，故取二元组序列化而非字符串拼接（同一口径与 Node 半 summarizeProbes 的去重键一致） */
+/** 选择键：模型 id 可含 '/'，故取二元组序列化而非字符串拼接（同一口径与 Node 半 `src/probe-report.ts` 的去重键一致） */
 export function verifyKey(provider: string, model: string): string {
     return JSON.stringify([provider, model])
 }
