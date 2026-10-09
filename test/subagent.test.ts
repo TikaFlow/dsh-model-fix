@@ -1,4 +1,4 @@
-// subagent.ts 纯逻辑测试：agent/request 注入的跟随父路由、父档位可得不与异常兜底
+// subagent.ts 纯逻辑测试：agent/request 注入的跟随父路由（待生效选择优先，请求头回落）、父档位可得不与异常兜底
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmCallConfig, LlmCallConfigAdapterDefaults, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -40,10 +40,11 @@ function makeAgent(init: {
     } as unknown as Agent
 }
 
-/** 最小 ctx 桩：只补中间件真正消费的三个面——`on` 注册、`get`（两个服务）、`logger.warn` */
+/** 最小 ctx 桩：只补中间件真正消费的三个面——`on` 注册、`get`（三个服务）、`logger.warn` */
 function makeCtx(init: {
     selection?: SelectionStub
     parentOf?: (id: string) => Agent | undefined
+    projections?: ProjectionStub
     getThrows?: boolean
 }) {
     const warns: string[] = []
@@ -61,6 +62,7 @@ function makeCtx(init: {
             if (init.getThrows === true) throw new Error('服务不可用')
             if (name === 'subagentModelSelection') return init.selection
             if (name === 'agents') return { get: (id: string) => init.parentOf?.(id) }
+            if (name === 'sessionProjections') return init.projections
             return undefined
         },
         logger: { info() {}, warn(msg: string) { warns.push(msg) }, error() {} },
@@ -79,6 +81,23 @@ interface SelectionStub {
     current(): { enabled: boolean }
 }
 
+/** 宿主 `modelSelection` 投影的待生效选择（用户在 UI 换模型/换档位后、尚未被请求消费的那份） */
+interface PendingSelection {
+    readonly provider: string
+    readonly model: string
+    readonly reasoningEffort?: string
+}
+
+/** 宿主会话投影服务桩（只实现中间件消费的 `stateOf`） */
+interface ProjectionStub {
+    stateOf(session: Agent['session'], key: 'modelSelection'): { readonly pending: PendingSelection | null } | undefined
+}
+
+/** 投影服务桩：`pending` 传 undefined 表示该键未注册投影 */
+function projectionsOf(pending: PendingSelection | null | undefined): ProjectionStub {
+    return { stateOf: () => (pending === undefined ? undefined : { pending }) }
+}
+
 interface RunInit {
     /** 只覆盖「用户体验」组（本测试的判据只有 followParent 一项） */
     config?: Partial<UserExperienceRules>
@@ -86,6 +105,7 @@ interface RunInit {
     host?: LlmCallConfig
     selection?: SelectionStub
     parentOf?: (id: string) => Agent | undefined
+    projections?: ProjectionStub
     getThrows?: boolean
 }
 
@@ -96,7 +116,12 @@ async function runOnce(init: RunInit): Promise<{ result: LlmCallConfig; warns: s
         userExperience: { ...DEFAULT_CONFIG.userExperience, ...init.config },
     }
     setConfigSource(() => config)
-    const stub = makeCtx({ selection: init.selection, parentOf: init.parentOf, getThrows: init.getThrows })
+    const stub = makeCtx({
+        selection: init.selection,
+        parentOf: init.parentOf,
+        projections: init.projections,
+        getThrows: init.getThrows,
+    })
     installSubagentFollowParent(stub.ctx)
     const listener = stub.listenerOf()
     const host: LlmCallConfig = init.host ?? { provider: 'pi', model: 'dsr' }
@@ -203,6 +228,78 @@ export async function run(): Promise<void> {
     })
     check('resolveRequest: 父尚无请求头 → 回落父 Agent 自身的 options（输出预算同样跟过来）',
         stable(offNoHeader.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'medium', maxTokens: 2048 }))
+
+    // ---------- 父会话待生效的选择优先：UI 换模型/换档位后，子智能体的下一次请求就用新值 ----------
+    const pending = await runOnce({
+        agent: subagent,
+        config: { followParent: true },
+        selection: OFF,
+        projections: projectionsOf({ provider: 'pi', model: 'switched', reasoningEffort: 'high' }),
+        parentOf: () => makeAgent({
+            header: { config: { provider: 'pi', model: 'parent-model', reasoningEffort: 'low', maxTokens: 2048 } },
+        }),
+        host: { provider: 'pi', model: 'dsr', maxTokens: 4096 } as LlmCallConfig,
+    })
+    check('resolveFollow: 父有待生效选择 → 用它而非最近一次请求头的旧路由（切换后下一次请求即生效；待生效选择无输出预算，保持子智能体自己那份）',
+        stable(pending.result) === stable({ provider: 'pi', model: 'switched', reasoningEffort: 'high', maxTokens: 4096 }))
+
+    const pendingNoEffort = await runOnce({
+        agent: subagent,
+        config: { followParent: true },
+        selection: OFF,
+        projections: projectionsOf({ provider: 'pi', model: 'switched' }),
+        parentOf: () => makeAgent({ header: { config: { provider: 'pi', model: 'parent-model', reasoningEffort: 'low' } } }),
+    })
+    check('pendingFollow: 待生效选择里没有档位 → 删掉 reasoningEffort 键（父此刻就是「选了模型未选档位」）',
+        stable(pendingNoEffort.result) === stable({ provider: 'pi', model: 'switched' }))
+
+    const consumed = await runOnce({
+        agent: subagent,
+        config: { followParent: true },
+        selection: OFF,
+        projections: projectionsOf(null),
+        parentOf: () => makeAgent({ header: { config: { provider: 'pi', model: 'parent-model', reasoningEffort: 'high' } } }),
+    })
+    const unregistered = await runOnce({
+        agent: subagent,
+        config: { followParent: true },
+        selection: OFF,
+        projections: projectionsOf(undefined),
+        parentOf: () => makeAgent({ header: { config: { provider: 'pi', model: 'parent-model', reasoningEffort: 'high' } } }),
+    })
+    check('pendingFollow: 待生效选择已被请求消费掉，或该键未注册投影 → 回落最近一次请求头',
+        stable(consumed.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'high' })
+        && stable(unregistered.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'high' }))
+
+    const blankProvider = await runOnce({
+        agent: subagent,
+        config: { followParent: true },
+        selection: OFF,
+        projections: projectionsOf({ provider: '', model: 'switched' }),
+        parentOf: () => makeAgent({ header: { config: { provider: 'pi', model: 'parent-model', reasoningEffort: 'high' } } }),
+    })
+    const blankModel = await runOnce({
+        agent: subagent,
+        config: { followParent: true },
+        selection: OFF,
+        projections: projectionsOf({ provider: 'pi', model: '' }),
+        parentOf: () => makeAgent({ header: { config: { provider: 'pi', model: 'parent-model', reasoningEffort: 'high' } } }),
+    })
+    check('pendingFollow: 待生效选择缺 provider 或 model → 当作没有该选择，回落请求头',
+        stable(blankProvider.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'high' })
+        && stable(blankModel.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'high' }))
+
+    const projThrows = await runOnce({
+        agent: subagent,
+        config: { followParent: true },
+        selection: OFF,
+        projections: { stateOf() { throw new Error('投影未初始化') } },
+        parentOf: () => makeAgent({ header: { config: { provider: 'pi', model: 'parent-model' } } }),
+    })
+    check('pendingFollow: 读投影抛错 → 记一条 warn 并原样放行，不拖垮子智能体这一请求',
+        stable(projThrows.result) === stable({ provider: 'pi', model: 'dsr' })
+        && projThrows.warns.length === 1
+        && projThrows.warns[0].includes('子智能体推理级别未生效'))
 
     const noParentId = await runOnce({ agent: subagent, config: { followParent: true }, selection: OFF })
     const orphan = await runOnce({

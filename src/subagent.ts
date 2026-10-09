@@ -14,11 +14,13 @@ import { PLUGIN_NAME } from '@/shared/constants'
  * `UNSUPPORTED_REASONING_EFFORT`，不在这里预检、不静默降级）。
  *
  * 每请求现算、不缓存结果：父 Agent 的档位与子智能体实际拿到的模型都可能在本会话内变动。
+ * 取的是父会话「下一次请求该用的路由」——UI 的待生效选择优先，其次才是最近一次请求头，
+ * 所以切换后子智能体的下一次请求与主智能体同步生效。
  */
 
 /**
- * 本模块用到的两项宿主契约——`Agent` 的只读面与「允许 Agent 为子智能体选择模型」设置服务，
- * **均按契约复制，不引宿主包类型**。
+ * 本模块用到的宿主契约——`Agent` 的只读面、「允许 Agent 为子智能体选择模型」设置服务、会话
+ * 投影服务的只读面，**均按契约复制，不引宿主包类型**。
  *
  * 原因：宿主富面 `Agent` 只在 `@deepseek-ai/dsh-agent` **包根**导出（`/types` 子路径只有 `{ id }`），
  * 「允许选择模型」设置住在 `@deepseek-ai/dsh-tool-subagent/model-selection-settings`；而这两个包
@@ -43,6 +45,22 @@ interface HostAgentRegistry { get(id: SessionId): SubagentHost | undefined }
 
 /** 宿主「允许 Agent 为子智能体选择模型」设置服务的只读面（只用到 `current().enabled`） */
 interface HostSelectionService { current(): { enabled: boolean } }
+
+/**
+ * 宿主 `ModelSelection` 投影状态的只读面（按契约复制）。`pending` 是 UI 换模型/换档位后、
+ * 尚未被任何一次请求消费掉的选择；`lastUsed` 是最近一次请求用过的选择。
+ */
+interface HostModelSelectionState {
+    readonly pending: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string } | null
+}
+
+/**
+ * 宿主会话投影服务的只读面（只用到 `stateOf`）。`modelSelection` 投影由会话控制器注册，
+ * 未注册时该键返回 `undefined`。
+ */
+interface HostSessionProjections {
+    stateOf(session: SubagentHost['session'], key: 'modelSelection'): HostModelSelectionState | undefined
+}
 
 /** `agent/request` 瀑布监听签名（与宿主 `AgentEvents` 一致，见 [`docs/host-api.md`](docs/host-api.md)） */
 type SubagentRequestListener = (
@@ -107,8 +125,14 @@ function hostSelectionEnabled(ctx: Context): boolean {
 }
 
 /**
- * 父 Agent 当前生效的路由四件套：先取会话日志的请求头（最新一次请求的配置即当前生效值，
- * 也是宿主委派时读取的那一份），无请求头则回落 Agent 自身的 options。取不到即 undefined。
+ * 父 Agent 下一次请求该用的路由：先取父会话「待生效的选择」，没有才取会话日志的请求头
+ * （最新一次请求的配置，也是宿主委派时读取的那一份），再无请求头则回落 Agent 自身的
+ * options。取不到即 undefined。
+ *
+ * 待生效的选择优先，是为了让子智能体与主智能体同规则：UI 里换模型/换档位即刻写入父会话的
+ * 投影 pending，主智能体的下一次请求直接用它，子智能体也读同一份，不必等父先发一次请求把
+ * 切换落到请求头上。待生效选择里没有 `maxTokens`（用户在 UI 选的是模型与档位），故输出预算
+ * 仍只看子智能体自身那份，见 `applyFollow`。
  *
  * 请求头里被 `adapterDefaults.reasoningEffort` 标记的档位是适配器兜底值而非用户所选，
  * 视作「父当前未选档位」而丢弃，避免把兜底值当作父的选择复制给子智能体。`maxTokens`
@@ -119,6 +143,29 @@ function resolveFollow(ctx: Context, agent: SubagentHost): FollowRoute | undefin
     if (parentId === undefined) return undefined
     const parent = (ctx.get as (name: string) => HostAgentRegistry | undefined)('agents')?.get(parentId)
     if (!parent) return undefined
+    return pendingFollow(ctx, parent.session) ?? headerFollow(parent)
+}
+
+/**
+ * 父会话待生效的选择：UI 的每次切换都落一条 `model/selection` 事件，投影据此置 `pending`，
+ * 直到匹配的那次请求把它消费掉。服务缺席（无会话投影的组合）或该投影未注册时读不到，
+ * 按「没有待生效选择」处理。`reasoningEffort` 缺项表示用户选了模型但没选档位。
+ */
+function pendingFollow(ctx: Context, session: SubagentHost['session']): FollowRoute | undefined {
+    const projections = (ctx.get as (name: string) => HostSessionProjections | undefined)('sessionProjections')
+    const pending = projections?.stateOf(session, 'modelSelection')?.pending
+    if (pending === undefined || pending === null) return undefined
+    if (typeof pending.provider !== 'string' || pending.provider === '') return undefined
+    if (typeof pending.model !== 'string' || pending.model === '') return undefined
+    return {
+        provider: pending.provider,
+        model: pending.model,
+        ...pending.reasoningEffort === undefined ? {} : { reasoningEffort: pending.reasoningEffort as ReasoningEffortId },
+    }
+}
+
+/** 父会话最近一次请求的配置；无请求头时回落 Agent 自身的 options。取不到即 undefined。 */
+function headerFollow(parent: SubagentHost): FollowRoute | undefined {
     const header = parent.session.requestHeader()
     const source = header?.config ?? parent.options
     if (typeof source.provider !== 'string' || source.provider === '') return undefined
