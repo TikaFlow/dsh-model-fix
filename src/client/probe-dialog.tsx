@@ -1,8 +1,9 @@
 /**
- * 「探测式填充」弹层（浏览器半）：两个发起键 + 记录区 + 两个开关。
+ * 「探测式填充」弹层（浏览器半）：两个发起键 + 记录区 + 三个开关。
  *
  * 没有候选列表——范围由 footer 那两个键与「忽略排除」开关决定，故正文依次是
- * 记录区（首次发起才出现，与验证同纪律）→ 范围提示 → 额度提示 → 两个开关；
+ * 记录区（首次发起才出现，与验证同纪律）→ 范围提示 → 额度提示 → 三个开关
+ * （自动写入 / 忽略排除 / 剔除不支持）；
  * footer 只留三键，直接吃宿主 .footer 的 flex-end 右对齐，不必自绘行容器。
  *
  * 抽出来的理由与 `verify-dialog.tsx` 同源：弹层是一块自足的展示，范围、开关、记录区内容与
@@ -38,6 +39,9 @@ export interface ProbeDialogProps {
     /** 发起一轮；入参即「只探未填充」，范围键据此下发 */
     onProbe: (unfilledOnly: boolean) => void
     onStop: () => void
+    /** 「自动写入」：关闭时探测结束后不写回、仅汇报结论（Node 半把预声明原样收回，`fill` 为「可补全」假设统计） */
+    autoWrite: boolean
+    onAutoWriteChange: (value: boolean) => void
     ignoreExcludes: boolean
     onIgnoreExcludesChange: (ignore: boolean) => void
     dropUnsupported: boolean
@@ -113,10 +117,26 @@ export function ProbeDialog(props: ProbeDialogProps) {
                         className="dsh-mf-verifyLog"
                     />
                 ) : null}
-            {/* 两个开关放正文末尾而非 footer：它们是这一轮的参数（探测范围与收敛口径），
+            {/* 三个开关放正文末尾而非 footer：它们是这一轮的参数（是否写回、探测范围与收敛口径），
                     与正文里正在发生的事同处一屏，改动即刻可见；footer 因此只剩「取消 / 探测」，
                     与其余弹层「footer 只放取消与确认」的形态一致 */}
                 <div className="dsh-mf-verifyOptions">
+                    <span className="dsh-mf-verifyOption">
+                        {/* 首位：它决定这轮「探完写不写」，另两个开关只有它开着才谈得上作用 */}
+                        <Switch
+                            checked={props.autoWrite}
+                            disabled={props.running}
+                            label={t('probeAutoWrite')}
+                            onChange={props.onAutoWriteChange}
+                        />
+                        <span>{t('probeAutoWrite')}</span>
+                        {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
+                        <Tooltip label={t('probeAutoWriteTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                            <button type="button" className="dsh-mf-help" aria-label={t('probeAutoWriteTip')}>
+                                <IconInfoOutlineRegular size={12} />
+                            </button>
+                        </Tooltip>
+                    </span>
                     <span className="dsh-mf-verifyOption">
                         <Switch
                             checked={props.ignoreExcludes}
@@ -125,7 +145,6 @@ export function ProbeDialog(props: ProbeDialogProps) {
                             onChange={props.onIgnoreExcludesChange}
                         />
                         <span>{t('probeIgnoreExcludes')}</span>
-                        {/* 释义走宿主 Tooltip 原语，锚点复刻瓦片内的 .helpButton；portal 必需（模态层自建层叠上下文会裁掉气泡） */}
                         <Tooltip label={t('probeIgnoreExcludesTip')} side="top" maxWidth={TIP_MAX_WIDTH} portal>
                             <button type="button" className="dsh-mf-help" aria-label={t('probeIgnoreExcludesTip')}>
                                 <IconInfoOutlineRegular size={12} />
@@ -136,8 +155,9 @@ export function ProbeDialog(props: ProbeDialogProps) {
                         <Switch
                             checked={props.dropUnsupported}
                             // 跑「未填充」时一并禁掉：这一轮压根不读它（见卡片侧 onProbe），让开关显形地失效，
-                            // 好过留一个亮着的开关骗人——用户在途时看得见这一轮是「只增不剔」
-                            disabled={props.running || props.scope === 'unfilled'}
+                            // 好过留一个亮着的开关骗人——用户在途时看得见这一轮是「只增不剔」。
+                            // 「自动写入」关闭时同样禁掉：整轮不落结论，收敛口径无从谈起
+                            disabled={props.running || props.scope === 'unfilled' || !props.autoWrite}
                             label={t('probeDropUnsupported')}
                             onChange={props.onDropUnsupportedChange}
                         />

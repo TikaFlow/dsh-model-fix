@@ -1,5 +1,5 @@
 // src/probe.ts 与 src/fill.ts 用例：预声明 → 逐档探测 → 收敛写回的整条链（档位不支持的两条件判据、
-// 与档位无关的失败短到模型尾而「参数不正确」不短、provider 级短路（含本组首个请求超时即短整组）、未跑完即还原、剔除不支持、忽略排除、帧序列与终帧里的写回统计）
+// 与档位无关的失败短到模型尾而「参数不正确」不短、provider 级短路（含本组首个请求超时即短整组）、未跑完即还原、关自动写入整轮还原、剔除不支持、忽略排除、帧序列与终帧里的写回统计）
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm/types'
@@ -307,6 +307,31 @@ export async function run(): Promise<void> {
         check('中止时零写入（整轮还原后与原值相同）', summary.fill?.models === 0, summary.fill)
     }
     {
+        // 关「自动写入」：探测照常预声明与执行，结论只算不写——全部模型原样还原预声明之前的
+        // 档位表（与中止同一形态），终帧的 fill 是「可补全」假设统计，兜底备份照存照清
+        const ctx = ctxOf()
+        const frames: VerifyProgressFrame[] = []
+        const { llm, calls } = stub({})
+        const summary = await probeAndFill(ctx as unknown as Context, llm, { models: [target('acme', 'm1'), target('acme', 'm2')], autoWrite: false }, {
+            onProgress: (f) => { frames.push(f) },
+        })
+        check('关自动写入：探测照常跑满且终帧照发', calls.length === 14 && frames.at(-1)?.type === 'done', { calls: calls.length, frames: frames.map((f) => f.type) })
+        check(
+            '关自动写入：整轮不落结论，m1 回到未声明、m2 回到原有两档（与中止同一形态）',
+            effortsOf(ctx, 'acme', 'm1') === undefined
+            && stable(effortsOf(ctx, 'acme', 'm2')) === stable({ off: null, high: 'high' }),
+            { m1: effortsOf(ctx, 'acme', 'm1'), m2: effortsOf(ctx, 'acme', 'm2') },
+        )
+        check(
+            '关自动写入：终帧带「可补全」假设统计（m1 全缺 +7、m2 缺五档 +5），兜底备份照存照清、还原照常写回',
+            stable(summary.fill) === stable({ models: 2, added: 12, removed: 0 })
+            && backupWrites(ctx).length === 2
+            && backupWrites(ctx)[0].ops[0]?.op === 'set' && backupWrites(ctx)[1].ops[0]?.op === 'unset'
+            && apiWrites(ctx).length === 2,
+            { fill: summary.fill, backup: backupWrites(ctx).map((c) => c.ops), api: apiWrites(ctx).length },
+        )
+    }
+    {
         // 忽略排除：同一个 ctx，开关开则被排除的提供方照常预声明与写回
         const ctx = ctxOf()
         const { llm, calls } = stub({})
@@ -328,6 +353,12 @@ export async function run(): Promise<void> {
             message = error instanceof Error ? error.message : String(error)
         }
         check('开关给非布尔值即拒绝且一个字都没写', message.includes('探测请求不合法') && ctx.mutateCalls.length === 0, { message, writes: ctx.mutateCalls.length })
+        try {
+            await probeAndFill(ctx as unknown as Context, llm, { models: [target('acme', 'm1')], autoWrite: 'yes' })
+        } catch (error) {
+            message = error instanceof Error ? error.message : String(error)
+        }
+        check('「自动写入」给非布尔值同样拒绝且一个字都没写', message.includes('探测请求不合法') && ctx.mutateCalls.length === 0, { message, writes: ctx.mutateCalls.length })
     }
     {
         // 配额：探测按模型展开（7×模型数），模型数封顶 200，超出整体拒绝而非静默截断

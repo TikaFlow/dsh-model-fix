@@ -122,8 +122,8 @@ export const en: Record<CardKey, string> = {
     pruneGo: 'Remove',
     pruneDone: 'Removed {count} unsupported reasoning effort(s).',
     pruneFailed: 'Failed to remove: {message}.',
-    // Probe & fill: the usable levels go straight back into the model config without asking, so the
-    // notice says both things it does — spends quota and writes config
+    // Probe & fill: whether the usable levels go back into the model config follows the auto-write
+    // switch (on by default, no asking)
     probe: 'Probe & fill',
     probeTitle: 'Probe reasoning levels and fill',
     probeDesc: 'Checks which reasoning levels are usable with real requests — the most reliable way; takes longer with more models.',
@@ -132,6 +132,8 @@ export const en: Record<CardKey, string> = {
     // The two counts map onto the two keys below: {models} is the "Probe all" scope,
     // {unfilled} is the "Probe unfilled" scope
     probePlan: '{models} model(s) in total, {unfilled} of them with no reasoning level filled in yet.',
+    probeAutoWrite: 'Auto-write',
+    probeAutoWriteTip: 'When on, the result is written back to the model config after probing; when off, nothing is written.',
     probeIgnoreExcludes: 'Ignore exclusions',
     probeIgnoreExcludesTip: 'When on, providers listed under "Excluded providers" are probed and written to as well.',
     probeDropUnsupported: 'Drop unsupported',
@@ -141,8 +143,9 @@ export const en: Record<CardKey, string> = {
     probeStop: 'Stop',
     probeCommand: 'Probe {total} item(s)',
     probeDone: 'Probed {models} model(s), {levels} reasoning effort(s): {usable} usable, {unsupported} unsupported.',
-    probeClosing: 'Closing this dialog shortly.',
     probeFilled: 'Filled reasoning levels for {models} model(s): {added} added, {removed} removed.',
+    // Pairs with probeFilled: the wording must make "nothing was written" unmistakable
+    probeFillSkipped: 'Could fill reasoning levels for {models} model(s): {added} added, {removed} removed; nothing was written.',
     probeFillFailed: 'Probe & fill failed: {message}.',
     probeStoppedLine: 'Stopped; this run does not continue.',
     terminalSignal: 'signal {signal}',

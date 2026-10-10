@@ -121,7 +121,7 @@ export const zh: Record<CardKey, string> = {
     pruneGo: '剔除',
     pruneDone: '已剔除 {count} 个不被支持的推理级别。',
     pruneFailed: '剔除失败：{message}。',
-    // 探测式填充：跑完立即把档位按结论补进模型配置（不询问），故 notice 除额度外还要说清「会写配置」
+    // 探测式填充：跑完按「自动写入」开关决定要不要把档位按结论补进模型配置（默认写、不询问）
     probe: '探测式填充',
     probeTitle: '探测推理级别并补全',
     probeDesc: '用真实请求来确定推理级别是否可用，最真实可靠；所耗时间随模型数量增加。',
@@ -129,6 +129,8 @@ export const zh: Record<CardKey, string> = {
     probeQuota: '探测会发起真实请求，可能消耗少量额度；并会把结论写回模型配置。',
     // 两个数分别对应下面那两个键：{models} 是「探测所有」的范围，{unfilled} 是「探测未填充」的范围
     probePlan: '共 {models} 个模型，其中 {unfilled} 个未填充推理级别。',
+    probeAutoWrite: '自动写入',
+    probeAutoWriteTip: '开启时，探测结束把结论写回模型配置；关闭时只探测不写入。',
     probeIgnoreExcludes: '忽略排除',
     probeIgnoreExcludesTip: '开启后，被「排除提供方」列出的提供方也照常探测并写入。',
     probeDropUnsupported: '剔除不支持',
@@ -138,8 +140,9 @@ export const zh: Record<CardKey, string> = {
     probeStop: '停止',
     probeCommand: '探测 {total} 项',
     probeDone: '共探测 {models} 个模型、{levels} 个推理级别：可用 {usable} 个、不支持 {unsupported} 个。',
-    probeClosing: '即将关闭本窗口。',
     probeFilled: '已为 {models} 个模型补全推理级别：新增 {added} 个、剔除 {removed} 个。',
+    // 与 probeFilled 的分工：措辞必须让人一眼看出「没有写入」，不能与已补全混淆
+    probeFillSkipped: '可为 {models} 个模型补全推理级别：新增 {added} 个、剔除 {removed} 个；未执行写入。',
     probeFillFailed: '探测式填充失败：{message}。',
     probeStoppedLine: '已停止，本轮不再继续探测。',
     terminalSignal: '信号 {signal}',

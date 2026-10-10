@@ -34,12 +34,13 @@ export interface RpcCarrier {
     ) => Promise<VerifySummary | undefined>
     /**
      * 探测式填充：走进度流端点，Node 半先把候选档位临时预声明进配置、再对每个模型逐档各发一次最小请求，
-     * 跑完按结论收敛写回（终帧的 `summary.fill` 带增删统计）。两个开关须与 Node 半的两次写回同值。
-     * 被中止（停止 / 关窗 / 断连）回 undefined——中止不发终帧，且未跑完的模型一律还原成预声明之前的形态。
+     * 跑完按「自动写入」开关收敛写回或整轮还原；终帧的 `summary.fill` 一律带收敛结论的增删统计
+     * （关闭时是「可补全」的假设统计）。三个开关须与 Node 半的两次写回同值。被中止（停止 / 关窗 / 断连）
+     * 回 undefined——中止不发终帧，且未跑完的模型一律还原成预声明之前的形态。
      */
     probeEfforts: (
         models: readonly VerifyTarget[],
-        flags: { ignoreExcludes: boolean; dropUnsupported: boolean },
+        flags: { ignoreExcludes: boolean; dropUnsupported: boolean; autoWrite: boolean },
         onFrame: (frame: VerifyProgressUpdate) => void,
         signal: AbortSignal,
     ) => Promise<VerifySummary | undefined>
@@ -123,15 +124,17 @@ export function makeRpcCarrier(ctx: ClientContext): RpcCarrier {
     const verifyModels = (models: readonly VerifyTarget[], onFrame: (frame: VerifyProgressUpdate) => void, signal: AbortSignal) =>
         streamSummary(VERIFY_STREAM_URL, { models }, onFrame, signal)
     /**
-     * 探测式填充：载荷与验证同形（每个模型一份「要试哪几档」的清单），另带两个开关。
+     * 探测式填充：载荷与验证同形（每个模型一份「要试哪几档」的清单），另带三个开关。
      *
-     * 两个开关必须与 Node 半的两次写回共用同一个值：「忽略排除」若只在这边放开而那边仍跳过排除，
-     * 等于白探测一轮；「剔除不支持」决定收敛口径（`可用 ∪ 原有` 还是 `可用 ∪ (原有 − 不支持)`）。
-     * 终帧里的 `summary.fill` 是收敛写回的增删统计——写回发生在整轮探测之后、终帧之前。
+     * 三个开关必须与 Node 半共用同一个值：「忽略排除」若只在这边放开而那边仍跳过排除，
+     * 等于白探测一轮；「剔除不支持」决定收敛口径（`可用 ∪ 原有` 还是 `可用 ∪ (原有 − 不支持)`）；
+     * 「自动写入」关闭时 Node 半在探测结束后只把预声明原样收回（与中止同一形态）。
+     * 终帧里的 `summary.fill` 一律是收敛结论的增删统计——开启即已写入的补全，关闭即「可补全」的
+     * 假设统计；收敛发生在整轮探测之后、终帧之前。
      */
     const probeEfforts = (
         models: readonly VerifyTarget[],
-        flags: { ignoreExcludes: boolean; dropUnsupported: boolean },
+        flags: { ignoreExcludes: boolean; dropUnsupported: boolean; autoWrite: boolean },
         onFrame: (frame: VerifyProgressUpdate) => void,
         signal: AbortSignal,
     ) => streamSummary(PROBE_STREAM_URL, { models, ...flags }, onFrame, signal)

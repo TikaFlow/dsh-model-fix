@@ -39,8 +39,13 @@
  *   模型回到未声明态，与剔除路径同一形态。
  * - 该模型没跑完（被 provider 级或模型级短路连带）即**原样还原**预声明之前的档位表：半截结论不足以动用户配置。
  * - 本轮被中止即**整轮**还原，一个模型都不补、不剔：必须完全跑完才谈补全。
+ * - **「自动写入」关闭时结论只算不写**：探测照常预声明与执行（不预声明就出不了网，与开关无关），
+ *   写回端走整轮还原（与中止同一形态、同一写回路径）；终帧的 `fill` 仍在，含义变为「可补全」的
+ *   假设统计（收敛结论若写入相对预声明之前的增删），浏览器半据此换措辞汇报。
  * - `ignoreExcludes` 同时作用于探测范围与两次写回（用户在本功能里显式要覆盖排除语义）；
  *   `dropUnsupported` 只影响收敛口径。两者都由浏览器半声明，Node 半不替它反推。
+ *   `autoWrite` 同样随载荷声明，但**缺省为开**：其余两开关缺省为关是「不做额外的事」，
+ *   本开关缺省为关会让不带该键的旧前端整轮白跑（探完全还原）。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
@@ -132,22 +137,22 @@ const runProbeGroup: GroupRunner = async (
     }
 }
 
-/** 两个开关的取值：缺省为关；显式给了却不是布尔值按非法入参拒绝（Node 半不替浏览器半反推语义） */
-function flagsOf(payload: unknown): { ignoreExcludes: boolean; dropUnsupported: boolean } {
+/** 三个开关的取值：「自动写入」缺省为开（不带该键的旧前端行为不变），其余缺省为关；显式给了却不是布尔值按非法入参拒绝（Node 半不替浏览器半反推语义） */
+function flagsOf(payload: unknown): { ignoreExcludes: boolean; dropUnsupported: boolean; autoWrite: boolean } {
     if (!isPlainObject(payload)) throw new Error(PROBE_REJECT_MESSAGE)
-    const read = (key: string): boolean => {
+    const read = (key: string, absent: boolean): boolean => {
         const value = payload[key]
-        if (value === undefined) return false
+        if (value === undefined) return absent
         if (typeof value !== 'boolean') throw new Error(PROBE_REJECT_MESSAGE)
         return value
     }
-    return { ignoreExcludes: read('ignoreExcludes'), dropUnsupported: read('dropUnsupported') }
+    return { ignoreExcludes: read('ignoreExcludes', false), dropUnsupported: read('dropUnsupported', false), autoWrite: read('autoWrite', true) }
 }
 
 /**
- * 收敛口径：逐模型算出最终档位表。
+ * 收敛结论：逐模型算出最终档位表（只算不写，是否落盘由 probeAndFill 按「自动写入」决定）。
  *
- * 「跑完没跑完」有两道闸，任一不过即原样还原预声明之前的档位表——半截结论不足以动用户配置：
+ * 结论是否生效有两道闸，任一不过即原样还原预声明之前的档位表——半截结论不足以动用户配置：
  * 1. 本轮被中止（`aborted`）：**整轮**还原，不按模型逐个判。用户按「停止」要的就是原样停下，
  *    不是「探到一半、填一半」；与「探到多少补多少」相比，全丢更可预期，也更不会把半截结论写成定论。
  * 2. 该模型自己的请求没拿满（被 provider 级或模型级短路连带）：只还原它，其余模型照常收敛。
@@ -178,6 +183,29 @@ function convergeEntries(
         entries.push({ provider: target.provider, model: target.model, levels: keep ? finalLevels(key, before, usable, unsupported, dropUnsupported) : before })
     }
     return entries
+}
+
+/**
+ * 收敛结论若写入相对预声明之前的增删统计（「自动写入」关闭时结论只算不写，供浏览器半汇报「可补全」）。
+ * 口径与 `planEffortApply` 的写回统计一致：档位表（集合）有变即计一个模型，逐级计增删。
+ */
+function plannedFillOf(
+    entries: readonly EffortApply[],
+    baseline: ReadonlyMap<string, readonly string[]>,
+): NonNullable<VerifySummary['fill']> {
+    let models = 0
+    let added = 0
+    let removed = 0
+    for (const entry of entries) {
+        const before = baseline.get(targetKey(entry.provider, entry.model))
+        if (before === undefined) continue
+        const after = new Set(entry.levels)
+        let changed = false
+        for (const level of after) if (!before.includes(level)) { added += 1; changed = true }
+        for (const level of before) if (!after.has(level)) { removed += 1; changed = true }
+        if (changed) models += 1
+    }
+    return { models, added, removed }
 }
 
 /** 收敛后的档位表：`可用 ∪ 原有`，开「剔除不支持」时再从原有里扣掉明确判不支持的那些；按 `EFFORT_LEVELS` 排序 */
@@ -212,8 +240,9 @@ function count(target: Map<string, number>, key: string): void {
 /**
  * 跑一轮探测式填充：预声明 → 逐档探测 → 收敛写回 → 发终帧。
  *
- * 两个开关（`ignoreExcludes` / `dropUnsupported`）随载荷走而不走参数：它们与模型清单同为浏览器半的声明，
- * 走载荷才与「入参按不可信输入校验」同一处收口。
+ * 三个开关（`ignoreExcludes` / `dropUnsupported` / `autoWrite`）随载荷走而不走参数：它们与模型清单同为
+ * 浏览器半的声明，走载荷才与「入参按不可信输入校验」同一处收口；`autoWrite` 缺省为开，
+ * 不带该键的旧前端行为不变。
  *
  * 事件流守卫**全程持有**（预声明到收敛之间不放开）：放开的话，用户或别的插件在这几分钟里改一次配置就会
  * 触发 `fix`，把预声明按 models.dev 改回去，探测剩余的请求会被宿主本地拒绝、结论全错。
@@ -246,14 +275,29 @@ export async function probeAndFill(
         const preexisting = await declareProbeEfforts(ctx, targets, flags.ignoreExcludes)
         const summary = await runProbeGroups(llm, groups, runProbeGroup, options)
         const entries = convergeEntries(groups, targets, preexisting, summary, flags.dropUnsupported, options.signal?.aborted === true)
-        const { models, added, removed } = await convergeProbeEfforts(ctx, entries, flags.ignoreExcludes, preexisting)
+        let fill: NonNullable<VerifySummary['fill']>
+        if (flags.autoWrite) {
+            const { models, added, removed } = await convergeProbeEfforts(ctx, entries, flags.ignoreExcludes, preexisting)
+            fill = { models, added, removed }
+        } else {
+            // 「自动写入」关闭：结论只算不写——写回端走整轮还原（与中止同一形态），
+            // 把预声明之前的档位表原样写回，统计交给 plannedFillOf
+            fill = plannedFillOf(entries, preexisting)
+            const restore: EffortApply[] = []
+            for (const target of targets) {
+                const before = preexisting.get(targetKey(target.provider, target.model))
+                if (before !== undefined) restore.push({ provider: target.provider, model: target.model, levels: before })
+            }
+            await convergeProbeEfforts(ctx, restore, flags.ignoreExcludes, preexisting)
+        }
         // 收敛已落盘即可撤掉兜底备份；撤不掉只告警（下次启动会把这轮补全回退掉，多探一次而已），
         // 不因清理失败把已经成功的补全报成失败
         await clearProbeBackup(ctx).catch((error: unknown) => {
             ctx.logger.warn(`${PLUGIN_NAME}: 探测兜底备份清理失败（下次启动会回退本轮补全）：${errorText(error)}`)
         })
-        // 终帧最后发：写回已经落盘，消费方拿到 done 时看到的已是最终配置
-        const filled: VerifySummary = { ...summary, fill: { models, added, removed } }
+        // 终帧最后发：写回已经落盘，消费方拿到 done 时看到的已是最终配置。
+        // `fill` 一律携带：开启即已写入的补全统计，关闭即「可补全」的假设统计，浏览器半据此选措辞
+        const filled: VerifySummary = { ...summary, fill }
         finishRun(filled, options)
         return filled
     } finally {

@@ -14,16 +14,17 @@
  * 按提供方分组多选模型，配「验证推理级别」开关，对每个勾选模型声明的每个推理级别发起真实探测；
  * 结论只留在该弹层内（实时记录区的末行），不写卡片状态行——验证即用即弃，不留任何配置痕迹。
  * 「探测式填充」是它的写回版：没有候选框（范围由「探测所有 / 探测未填充」两键与「忽略排除」开关决定，
- * 模型列表取**点按钮那一刻**的最新值并当场冻结），正文依次是「探测范围一句 → 额度提示 → 实时记录区 → 两个开关」，
+ * 模型列表取**点按钮那一刻**的最新值并当场冻结），正文依次是「探测范围一句 → 额度提示 → 实时记录区 → 三个开关」，
  * 两个范围的大小由那句提示交代（分别对应「探测所有 / 探测未填充」两键，键文本保持短）；
  * footer 只留 关闭 / 探测所有 / 探测未填充 三键（由宽到窄）；
- * 跑完把汇总与补全结果留在记录区并**延迟 PROBE_CLOSE_DELAY_MS 再关窗**，同一份结果另落卡片状态行。
+ * 跑完把结果留在记录区并**不自动关窗**（由用户自行关窗），
+ * 「自动写入」开启时同一份补全结果另落卡片状态行。
  * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，
  * 卡片不拥有该字段）；草稿跨折叠存活（header 挂「未保存」胶囊），写失败保持展开可重试。
  * 除验证外的操作结果一律走卡片内联状态行（挂在条件展开体之外，折叠不丢在途结果）。
  * 弹层不在本文件：样式表与它的注入、说明气泡宽度上限、两处展示数值统一见 card-styles.ts；末尾联系行（仓库地址 / 版本标记 / 反馈入口）见 card-meta.tsx；
  * 「验证模型」弹层（候选列表 + 记录区 + 档位开关 + 发跑/停止）见 verify-dialog.tsx，
- * 「探测式填充」弹层（两个范围键 + 记录区 + 两个开关）见 probe-dialog.tsx，卡片只递状态与回调。本文件只管卡片的状态与编排。
+ * 「探测式填充」弹层（两个范围键 + 记录区 + 三个开关）见 probe-dialog.tsx，卡片只递状态与回调。本文件只管卡片的状态与编排。
  */
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -69,13 +70,6 @@ import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 /** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
 const CHEVRON_DOWN = primitives.IconChevronDownOutlineRegular
 const { Tag } = primitives
-
-/**
- * 探测跑完到关窗之间的展示延时（毫秒）：补全写回很快，不留时间用户就读不到刚跑出来的结论。
- * 取 2.5s 是一句结论读完的量级，不做成可配置项——它服务的是「别让结论一闪而过」，
- * 停留更久用户自己会关，更短则来不及读。
- */
-const PROBE_CLOSE_DELAY_MS = 2_500
 
 /** 宿主 TerminalBlock 的展示文案：该包无语言回退，字段缺一即类型报错，故整份照官方 terminalLabels(t) 提供 */
 function terminalLabelsOf(t: TranslateNS<'settings.modelFix'>): TerminalBlockLabels {
@@ -213,12 +207,14 @@ export function Card(props: CardProps) {
     )
     const saveStarted = useRef(false)
 
-    // 「探测式填充」弹层：两个开关 + 点开弹层那一刻冻结的候选清单（两个键各一份）+ 记录区。
+    // 「探测式填充」弹层：三个开关 + 点开弹层那一刻冻结的候选清单（两个键各一份）+ 记录区。
     // 候选清单冻结在点开时而非渲染时：模型列表要取**点按钮那一刻**的最新值，
     // 弹层开着期间用户改了配置也不影响本轮（否则记录区的总项数与实际发的不一致）
     const [probeOpen, setProbeOpen] = useState(false)
     const [probeIgnoreExcludes, setProbeIgnoreExcludes] = useState(false)
     const [probeDropUnsupported, setProbeDropUnsupported] = useState(false)
+    // 「自动写入」默认开启，且每次开窗重置为开（见 onProbe）——它是本轮「探完写不写」的模式选择
+    const [probeAutoWrite, setProbeAutoWrite] = useState(true)
     const [probePlan, setProbePlan] = useState<{ unfilled: readonly VerifyTarget[]; all: readonly VerifyTarget[] } | null>(null)
     // 本轮跑的是哪个键：在途那个键就地变「停止」，故得记住发起时的选择
     const [probeScope, setProbeScope] = useState<'unfilled' | 'all' | null>(null)
@@ -227,14 +223,8 @@ export function Card(props: CardProps) {
     const [probeStopped, setProbeStopped] = useState(false)
     // 在途的 AbortController：点停止、关窗与组件卸载都靠它中止
     const probeAbort = useRef<AbortController | null>(null)
-    // 跑完到关窗之间的展示延时：补全写回很快，不留时间用户就读不到刚跑出来的结论。
-    // 定时器挂 ref 是为了关窗 / 卸载时能撤掉它——否则用户已经走了，回调还会把弹层状态再改一次
-    const probeClosing = useRef<ReturnType<typeof setTimeout> | null>(null)
-    // 卸载即中止在途探测并撤掉关窗定时器（与验证同一条纪律）
-    useEffect(() => () => {
-        probeAbort.current?.abort()
-        if (probeClosing.current !== null) clearTimeout(probeClosing.current)
-    }, [])
+    // 卸载即中止在途探测（与验证同一条纪律）
+    useEffect(() => () => { probeAbort.current?.abort() }, [])
     const probeTerminalLabels = useMemo<TerminalBlockLabels>(
         () => ({ ...terminalLabelsOf(t), done: probeStopped ? t('verifyStopped') : t('terminalDone') }),
         [t, probeStopped],
@@ -501,6 +491,8 @@ export function Card(props: CardProps) {
     const onProbe = () => {
         if (busy !== null) return
         setProbePlan(probePlanOf(probeIgnoreExcludes))
+        // 「自动写入」每次开窗重置为开：它是本轮的模式选择，带着上一轮的取值出现会与用户对不上
+        setProbeAutoWrite(true)
         setProbeOpen(true)
     }
     // 切「忽略排除」要重算计划：探测范围随它变，两个键上标的模型数与记录区的总项数不跟着变，
@@ -512,21 +504,17 @@ export function Card(props: CardProps) {
     /**
      * 跑一轮探测式填充。
      *
-     * 跑完不立刻关窗：Node 半在终帧之前已把档位按结论收敛写回（终帧的 `summary.fill` 带增删统计），
-     * 写回很快，不留一点时间的话用户刚看到记录区就被关掉，结论等于没给。故先把收尾行与补全结果
-     * 追加进记录区，延时 PROBE_CLOSE_DELAY_MS 再关窗，并把同一份结果落到卡片状态行。
-     * 在途被中止则不写回统计也不关窗：未跑完的模型已被 Node 半还原成本轮开始前的形态，
+     * 跑完不关窗：结论追加进记录区后留在窗内由用户自行关窗。
+     * 「自动写入」开启时，Node 半在终帧之前已把档位按结论收敛写回（终帧的 `summary.fill` 带增删统计），
+     * 补全结果追加进记录区并另落卡片状态行；关闭时 Node 半只把预声明原样收回（与中止同一形态），
+     * `fill` 是「可补全」的假设统计，这里换措辞报一行「可补全多少、未执行写入」，不落状态行——没写回就没有「已补全」可言。
+     * 在途被中止则两者都不做：未跑完的模型已被 Node 半还原成本轮开始前的形态，
      * 留在窗里让用户看见「探到哪一步」比报一个半截结论诚实。
      */
     const runProbe = (unfilledOnly: boolean) => {
         if (busy !== null || probePlan === null) return
         const models = unfilledOnly ? probePlan.unfilled : probePlan.all
         if (models.length === 0) return
-        // 重跑先撤掉上一次的关窗定时器：否则它在第二次探测跑到一半时把窗关了
-        if (probeClosing.current !== null) {
-            clearTimeout(probeClosing.current)
-            probeClosing.current = null
-        }
         setProbeLines([])
         setProbeTotal(0)
         setProbeStopped(false)
@@ -534,9 +522,11 @@ export function Card(props: CardProps) {
         const controller = new AbortController()
         probeAbort.current = controller
         setProbeScope(unfilledOnly ? 'unfilled' : 'all')
+        // 记下本次的「自动写入」取值：结果回来时不能现读，否则收尾文案会张冠李戴
+        const autoWrite = probeAutoWrite
         // 「剔除不支持」只对「探测所有」有意义：未填充的模型本来就没声明过档位，判不支持的那些
         // 压根不会写进去，没什么可剔。故这一档在这里被强制按关处理，不把用户的选择悄悄带进下一轮
-        props.probeEfforts(models, { ignoreExcludes: probeIgnoreExcludes, dropUnsupported: unfilledOnly ? false : probeDropUnsupported }, (frame) => {
+        props.probeEfforts(models, { ignoreExcludes: probeIgnoreExcludes, dropUnsupported: unfilledOnly ? false : probeDropUnsupported, autoWrite }, (frame) => {
             if (frame.type === 'opened') {
                 setProbeTotal(frame.total)
                 return
@@ -555,26 +545,30 @@ export function Card(props: CardProps) {
                     usable: String(summary.efforts),
                     unsupported: String(summary.unsupported),
                 })
-                const filled = t('probeFilled', {
-                    models: String(fill?.models ?? 0),
-                    added: String(fill?.added ?? 0),
-                    removed: String(fill?.removed ?? 0),
-                })
-                setNotice({ text: filled, tone: 'success' })
-                setProbeLines((current) => [...current, stats, filled, t('probeClosing')])
-                probeClosing.current = setTimeout(() => {
-                    probeClosing.current = null
-                    closeProbe()
-                }, PROBE_CLOSE_DELAY_MS)
+                setProbeLines((current) => [...current, stats])
+                // 只有「自动写入」开启才落卡片状态行——没写回就没有「已补全」可言
+                if (autoWrite) {
+                    const filled = t('probeFilled', {
+                        models: String(fill?.models ?? 0),
+                        added: String(fill?.added ?? 0),
+                        removed: String(fill?.removed ?? 0),
+                    })
+                    setNotice({ text: filled, tone: 'success' })
+                    setProbeLines((current) => [...current, filled])
+                } else {
+                    // 关闭自动写入：Node 半没落盘，这里换措辞交代「可补全多少」，与已写入的分支区分
+                    const held = t('probeFillSkipped', {
+                        models: String(fill?.models ?? 0),
+                        added: String(fill?.added ?? 0),
+                        removed: String(fill?.removed ?? 0),
+                    })
+                    setProbeLines((current) => [...current, held])
+                }
             })
             .catch((error: unknown) => {
                 const failed = t('probeFillFailed', { message: truncateMessage(errorText(error)) })
                 setNotice({ text: failed, tone: 'error' })
                 setProbeLines((current) => [...current, failed])
-                probeClosing.current = setTimeout(() => {
-                    probeClosing.current = null
-                    closeProbe()
-                }, PROBE_CLOSE_DELAY_MS)
             })
             .finally(() => {
                 probeAbort.current = null
@@ -591,16 +585,13 @@ export function Card(props: CardProps) {
         probeAbort.current.abort()
         setProbeLines((current) => [...current, t('probeStoppedLine')])
     }
-    // 关闭即丢弃本轮记录与计划，并把两个开关一并复位（下次打开回到「关」的初始态）。
+    // 关闭即丢弃本轮记录与计划，「忽略排除 / 剔除不支持」一并复位（下次打开回到「关」的初始态）；
+    // 「自动写入」不在关闭时复位——它每次开窗时重置为开（见 onProbe）。
     // 与验证弹层同一处理：开关是本轮的模式选择，留着会让下次打开时的模型数
     // 与用户当下看到的开关状态对不上——尤其「忽略排除」直接决定候选范围。
-    // 在途时关窗同时中止并撤掉关窗定时器；遮罩 / Escape / × / 「关闭」键四种关闭都汇到 Modal 的 onClose 与该键
+    // 在途时关窗同时中止；遮罩 / Escape / × / 「取消」键四种关闭都汇到 Modal 的 onClose 与该键
     const closeProbe = () => {
         probeAbort.current?.abort()
-        if (probeClosing.current !== null) {
-            clearTimeout(probeClosing.current)
-            probeClosing.current = null
-        }
         setProbeOpen(false)
         setProbePlan(null)
         setProbeScope(null)
@@ -872,7 +863,7 @@ export function Card(props: CardProps) {
                 onRun={runVerify}
                 onStop={stopVerify}
             />
-            {/* 「探测式填充」弹层见 probe-dialog.tsx：两个范围键 + 记录区 + 两个开关，本文件只递状态与回调 */}
+            {/* 「探测式填充」弹层见 probe-dialog.tsx：两个范围键 + 记录区 + 三个开关，本文件只递状态与回调 */}
             <ProbeDialog
                 t={t}
                 open={probeOpen}
@@ -884,6 +875,8 @@ export function Card(props: CardProps) {
                 allCount={allCount}
                 onProbe={runProbe}
                 onStop={stopProbe}
+                autoWrite={probeAutoWrite}
+                onAutoWriteChange={setProbeAutoWrite}
                 ignoreExcludes={probeIgnoreExcludes}
                 onIgnoreExcludesChange={toggleIgnoreExcludes}
                 dropUnsupported={probeDropUnsupported}

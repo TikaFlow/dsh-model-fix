@@ -126,6 +126,8 @@ export type CardKey =
     | 'probeQuota'
     | 'probePlan'
     | 'probeEmpty'
+    | 'probeAutoWrite'
+    | 'probeAutoWriteTip'
     | 'probeIgnoreExcludes'
     | 'probeIgnoreExcludesTip'
     | 'probeDropUnsupported'
@@ -135,8 +137,8 @@ export type CardKey =
     | 'probeStop'
     | 'probeCommand'
     | 'probeDone'
-    | 'probeClosing'
     | 'probeFilled'
+    | 'probeFillSkipped'
     | 'probeFillFailed'
     | 'probeStoppedLine'
     // 宿主 TerminalBlock 的展示文案：键名与 terminalLabels(t) 逐条对齐官方安装页的映射（ui-plugin-manager/…/locales.ts）
