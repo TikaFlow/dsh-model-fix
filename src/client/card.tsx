@@ -71,9 +71,15 @@ import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
 const CHEVRON_DOWN = primitives.IconChevronDownOutlineRegular
 const { Tag } = primitives
 
-/** 宿主 TerminalBlock 的展示文案：该包无语言回退，字段缺一即类型报错，故整份照官方 terminalLabels(t) 提供 */
-function terminalLabelsOf(t: TranslateNS<'settings.modelFix'>): TerminalBlockLabels {
+/** 宿主 TerminalBlock 的展示文案（该包无语言回退，整份照官方 terminalLabels(t) 提供）。
+ *  0.2.1-alpha.2 起新增必填字段 `commandLine`，而 devDep 停在 0.1.7-rc.2、编译面看不到它，
+ *  故并入期望类型：既避开 excess-property 检查，又保住其余字段的必填校验；
+ *  多带该字段在 0.1.7-rc.2 上被静默忽略，两端兼容。详见 docs/host-api.md */
+type TerminalLabels = TerminalBlockLabels & { commandLine: (line: number) => string }
+
+function terminalLabelsOf(t: TranslateNS<'settings.modelFix'>): TerminalLabels {
     return {
+        commandLine: (n) => t('terminalCommandLine', { n: String(n) }),
         signal: (signal) => t('terminalSignal', { signal }),
         exitCode: (code) => t('terminalExitCode', { code: String(code) }),
         noExitCode: t('terminalNoExitCode'),

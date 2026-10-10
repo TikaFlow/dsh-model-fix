@@ -202,7 +202,7 @@
 | `@deepseek-ai/dsh-client-connection` | `ConnectionRpcResult`、`HostConnectionService` | type-only | `src/rpc.ts`、`src/rpc-route.ts` |
 | `@deepseek-ai/dsh-host-webserver` | `WebServer` | type-only | `src/rpc.ts` |
 | `node:http` | `IncomingMessage`、`ServerResponse` | type-only | `src/rpc-route.ts` |
-| `@deepseek-ai/dsh-client-ui-primitives` | `import * as primitives`、`TerminalBlockLabels` | **值导入** + type-only | `src/client/card.tsx`、`src/client/tile.tsx`、`src/client/confirm.tsx`、`src/client/verify-dialog.tsx`、`src/client/probe-dialog.tsx`（浏览器半唯一的运行期宿主 UI 依赖） |
+| `@deepseek-ai/dsh-client-ui-primitives` | `import * as primitives`、`TerminalBlockLabels` | **值导入** + type-only | `src/client/card.tsx`、`src/client/tile.tsx`、`src/client/confirm.tsx`、`src/client/verify-dialog.tsx`、`src/client/probe-dialog.tsx`（浏览器半唯一的运行期宿主 UI 依赖）。**契约漂移点**：`TerminalBlockLabels` 在 `dsh-v0.2.1-alpha.2` 起新增必填字段 `commandLine: (line: number) => string`；devDep 停在 0.1.7-rc.2、编译面看不到它，故 `terminalLabelsOf` 以 `TerminalBlockLabels & { commandLine }` 声明产出类型（避开 excess-property 报错、又保住其余字段必填），词典键 `terminalCommandLine` 措辞照官方安装页；多余字段在 0.1.7-rc.2 上被静默忽略，两端兼容 |
 | `@deepseek-ai/dsh-client-ui-settings/client` | `ConfigForm`、`ConfigFormSnapshot` | type-only | `src/client/index.tsx`、`src/client/scope.ts` |
 | `@deepseek-ai/dsh-client-connection/client` | `ClientConnectionRpc` | type-only | `src/client/rpc-carrier.ts` |
 | `@deepseek-ai/dsh-client-connection` | `ConnectionRpcResult` | type-only | `src/client/rpc-carrier.ts`、`src/client/card.tsx`（读写回结果信封） |
@@ -265,6 +265,7 @@
 
 - 逐位比对 `PLATFORM_MODULES` 与宿主 `@deepseek-ai/dsh-client-web` 的 `src/platform.ts`。
 - 对本文每个宿主类型导入跑 typecheck（type-only 面断裂会直接报错；值导入的符号漂移 typecheck 抓不到，须人工比对 `@deepseek-ai/dsh-client-ui-primitives` 的全部用到的符号）。
+- 逐字段比对 `TerminalBlockLabels`（0.2.1-alpha.2 起新增必填 `commandLine`）：本仓 devDep 停在 0.1.7-rc.2，宿主新增**必填**字段时编译期不会报错、只在点「验证」/「探测」首次渲染记录区时崩（`TerminalBlock` 在 `commandLines.map` 内无条件调用该字段，未提供则整卡被 error boundary 收走）。比对宿主 `lib/types/TerminalBlock.d.ts` 的字段全集与 `src/client/card.tsx` 的 `terminalLabelsOf` 返回值，缺口补字段 + 词典键 + zh/en 文案三处（词典照官方安装页措辞取词）。
 - 逐条复核「宿主服务与运行时面」小节里的签名与行为假设，尤其是 settings 写入语义（纯对象根 / unset 不折叠 / 仅 volatile 可写）、命名空间登记时序（晚于 `apply`、无 ready）、连接断开语义（`request.signal` abort、fetch disposer 异步）。
 - 复核 `SETTINGS_CONFLICT` 与 LLM 失败码字面量是否仍是宿主的归一化取值（尤其 `@deepseek-ai/dsh-llm-pi-ai` 的 `src/stream.ts` 里 `classifyPiAiError` 文案正则是否改了——它决定 `TRANSPORT` / `STREAM_CLOSED` 的归一化来源）。
 - 复核四个 slot key、`rowConfigKey` 拼接、`SlotLabel` thunk 与 `PropsLocale`（`t` 只在声明 `locale:` 时上 props）。

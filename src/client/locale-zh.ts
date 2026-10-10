@@ -145,6 +145,7 @@ export const zh: Record<CardKey, string> = {
     probeFillSkipped: '可为 {models} 个模型补全推理级别：新增 {added} 个、剔除 {removed} 个；未执行写入。',
     probeFillFailed: '探测式填充失败：{message}。',
     probeStoppedLine: '已停止，本轮不再继续探测。',
+    terminalCommandLine: '命令第 {n} 行',
     terminalSignal: '信号 {signal}',
     terminalExitCode: '退出码 {code}',
     terminalNoExitCode: '未正常退出',

@@ -148,6 +148,7 @@ export const en: Record<CardKey, string> = {
     probeFillSkipped: 'Could fill reasoning levels for {models} model(s): {added} added, {removed} removed; nothing was written.',
     probeFillFailed: 'Probe & fill failed: {message}.',
     probeStoppedLine: 'Stopped; this run does not continue.',
+    terminalCommandLine: 'Command line {n}',
     terminalSignal: 'signal {signal}',
     terminalExitCode: 'exit code {code}',
     terminalNoExitCode: 'no exit code',
