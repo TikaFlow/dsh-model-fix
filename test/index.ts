@@ -17,6 +17,7 @@ import { run as runProbeBackup } from '@test/probe-backup.test'
 import { run as runReset } from '@test/reset.test'
 import { run as runRestore } from '@test/restore.test'
 import { run as runRpcRoute } from '@test/rpc-route.test'
+import { run as runSelfTune } from '@test/self-tune.test'
 import { run as runSubagent } from '@test/subagent.test'
 import { run as runVerify } from '@test/verify.test'
 import { section, summary } from '@test/helper'
@@ -57,6 +58,8 @@ section('probe-backup.test.ts')
 await runProbeBackup()
 section('rpc-route.test.ts')
 await runRpcRoute()
+section('self-tune.test.ts')
+await runSelfTune()
 section('fix.test.ts')
 await runFix()
 section('subagent.test.ts')

@@ -55,6 +55,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | 模型参数来源与 id 匹配 | [参数来源](docs/decisions.md#参数来源) |
 | 推理级别记忆的存取与剪枝 | [推理级别记忆](docs/decisions.md#推理级别记忆) |
 | 子智能体推理级别 | [子智能体](docs/decisions.md#子智能体) |
+| 档位自调 | [档位自调](docs/decisions.md#档位自调) |
 | 重置 / 恢复 / 剔除的写回端点 | [写回端点](docs/decisions.md#写回端点) |
 | 验证模型 | [验证](docs/decisions.md#验证) |
 | 探测式填充 | [探测式填充](docs/decisions.md#探测式填充) |
@@ -62,7 +63,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 
 ## 数据流
 
-数据流骨架（段变更双链、记忆清理支线、子智能体请求期链）见 [`docs/architecture.md`](docs/architecture.md)「数据流骨架」。
+数据流骨架（段变更双链、记忆清理支线、子智能体请求期链、档位自调工具链）见 [`docs/architecture.md`](docs/architecture.md)「数据流骨架」。
 
 ## 命令
 

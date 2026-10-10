@@ -75,6 +75,12 @@ export interface UserExperienceRules {
      * （而非建子那一刻的快照）。默认 false（即不干预，行为与没装本插件一致）。
      */
     followParent: boolean
+    /**
+     * 让 AI 自主调节推理档位：为 true 时向宿主注入两枚工具（查询当前模型可用档位 / 设置档位，
+     * 与 UI 模型选择器同一入口）及一段系统提示词，由 AI 按任务难度自行决定何时切换、切到哪个档位；
+     * 为 false 时卸载全部注入。默认 false（即不注入，行为与没装本插件一致）。
+     */
+    selfTune: boolean
 }
 
 /** 每模型推理级别记忆：provider id → model id → harness ModelThinkingLevel 字符串 */

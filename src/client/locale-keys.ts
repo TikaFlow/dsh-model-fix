@@ -37,6 +37,7 @@ export type CardKey =
     | 'rowDefaultHigh'
     | 'rowForgetRemoved'
     | 'rowFollowParent'
+    | 'rowSelfTuneEffort'
     | 'tipReasoning'
     | 'tipContext'
     | 'tipImage'
@@ -45,6 +46,7 @@ export type CardKey =
     | 'tipDefaultHigh'
     | 'tipForgetRemoved'
     | 'tipFollowParent'
+    | 'tipSelfTuneEffort'
     | 'excludePlaceholder'
     | 'excludeAdd'
     | 'excludeInvalid'
@@ -185,6 +187,7 @@ export const ROW_KEYS: Record<RowKey, CardKey> = {
     defaultHigh: 'rowDefaultHigh',
     forgetRemoved: 'rowForgetRemoved',
     followParent: 'rowFollowParent',
+    selfTune: 'rowSelfTuneEffort',
 }
 
 /** 配置组（瓦片）标题键映射 */
@@ -213,4 +216,5 @@ export const TIP_KEYS: Record<RowKey, CardKey> = {
     defaultHigh: 'tipDefaultHigh',
     forgetRemoved: 'tipForgetRemoved',
     followParent: 'tipFollowParent',
+    selfTune: 'tipSelfTuneEffort',
 }

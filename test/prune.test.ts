@@ -11,7 +11,7 @@ const base: PluginConfig = {
     compat: { disableDeveloper: true },
     excludes: ['lab'],
     efforts: {},
-    userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: true, followParent: false },
+    userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: true, followParent: false, selfTune: false },
 }
 
 const providers = {
