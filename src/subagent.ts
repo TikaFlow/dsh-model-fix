@@ -136,7 +136,7 @@ function hostSelectionEnabled(ctx: Context): boolean {
  *
  * 请求头里被 `adapterDefaults.reasoningEffort` 标记的档位是适配器兜底值而非用户所选，
  * 视作「父当前未选档位」而丢弃，避免把兜底值当作父的选择复制给子智能体。`maxTokens`
- * 只作为「更小者的候选」带回（见 `applyFollow`），不是覆盖值。
+ * 只作为预算合并的候选带回（见 `applyFollow`），不是覆盖值。
  */
 function resolveFollow(ctx: Context, agent: SubagentHost): FollowRoute | undefined {
     const parentId = agent.session.header.parentSession
@@ -187,20 +187,25 @@ interface FollowRoute {
     maxTokens?: number
 }
 
+/** 继承值更大时只抬升差值的八成：既不被旧的小预算卡死，也不一步顶到新值 */
+const BUDGET_SCALE = 0.8
+
 /**
- * 两处输出预算取更小的一个：跟随是把父会话的收缩带给子智能体，不是把子智能体的上限抬到父的
- * 水平——子智能体那一份可能来自工具侧声明的更小预算（它本来就是有意压低的一次性委派）。
- * 缺项视作不限，故只有一方给出时即取那一方，两方都没有则不写该键。
+ * 输出预算的合并：继承值（父当前那份）不大于现值（子智能体原本要用的那份）即取继承值；
+ * 继承值更大时只抬升差值的八成（`现值 + (继承值 − 现值) × BUDGET_SCALE`，向下取整）——
+ * 切到输出上限更大的模型后，旧的小预算会限制发挥，但直接顶到新值时部分端点会拒绝请求，
+ * 「刚切模型就报 400」比发挥受限更糟。缺项视作不限，故只有一方给出时即取那一方，两方都没有则不写该键。
  */
-function smallerBudget(current: number | undefined, inherited: number | undefined): number | undefined {
+function mergedBudget(current: number | undefined, inherited: number | undefined): number | undefined {
     if (current === undefined) return inherited
     if (inherited === undefined) return current
-    return Math.min(current, inherited)
+    if (inherited <= current) return inherited
+    return Math.floor(current + (inherited - current) * BUDGET_SCALE)
 }
 
-/** 整条覆盖为父的路由：provider / model / 档位照父的来，输出预算取两者更小的一个 */
+/** 整条覆盖为父的路由：provider / model / 档位照父的来，输出预算按 `mergedBudget` 合并 */
 function applyFollow(config: LlmCallConfig, follow: FollowRoute): LlmCallConfig {
-    const budget = smallerBudget(config.maxTokens, follow.maxTokens)
+    const budget = mergedBudget(config.maxTokens, follow.maxTokens)
     const next = { ...config }
     delete next.reasoningEffort
     delete next.maxTokens

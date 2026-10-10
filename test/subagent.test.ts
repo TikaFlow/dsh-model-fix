@@ -148,7 +148,7 @@ export async function run(): Promise<void> {
     check('resolveRequest: 非子智能体会话原样放行（跟随开关不碰主 Agent）',
         stable(top.result) === stable({ provider: 'pi', model: 'dsr' }))
 
-    // ---------- 宿主开关关闭：跟随父 Agent 的当前路由（输出预算另按「取更小」处理） ----------
+    // ---------- 宿主开关关闭：跟随父 Agent 的当前路由（输出预算另按合并规则处理） ----------
     const offIdle = await runOnce({
         agent: subagent,
         config: { followParent: false },
@@ -191,8 +191,8 @@ export async function run(): Promise<void> {
         }),
         host: { provider: 'pi', model: 'dsr', maxTokens: 4096 } as LlmCallConfig,
     })
-    check('resolveRequest: 父的输出预算比子智能体自带的大 → 保持子智能体自己的（跟随不放宽上限）',
-        stable(offParentLooser.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'high', maxTokens: 4096 }))
+    check('resolveRequest: 父的输出预算比子智能体自带的大 → 抬升差值的八成（4096 + 4096×0.8 = 7372.8 取整 7372）',
+        stable(offParentLooser.result) === stable({ provider: 'pi', model: 'parent-model', reasoningEffort: 'high', maxTokens: 7372 }))
 
     const offNoBudget = await runOnce({
         agent: subagent,
