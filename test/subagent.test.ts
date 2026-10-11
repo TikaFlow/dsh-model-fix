@@ -40,7 +40,7 @@ function makeAgent(init: {
     } as unknown as Agent
 }
 
-/** 最小 ctx 桩：只补中间件真正消费的三个面——`on` 注册、`get`（三个服务）、`logger.warn` */
+/** 最小 ctx 桩：支持 `inject` 子 fiber（deps 全就绪才激活回调，缺席则静默不激活） */
 function makeCtx(init: {
     selection?: SelectionStub
     parentOf?: (id: string) => Agent | undefined
@@ -50,6 +50,13 @@ function makeCtx(init: {
     const warns: string[] = []
     let listener: RequestListener | undefined
     let options: unknown
+    const get = (name: string) => {
+        if (init.getThrows === true) throw new Error('服务不可用')
+        if (name === 'subagentModelSelection') return init.selection ?? { current: () => ({ enabled: false }) }
+        if (name === 'agents') return { get: (id: string) => init.parentOf?.(id) }
+        if (name === 'sessionProjections') return init.projections ?? { stateOf: () => undefined }
+        return undefined
+    }
     const ctx = {
         on(name: string, fn: RequestListener, opts?: unknown) {
             if (name === 'agent/request') {
@@ -58,13 +65,15 @@ function makeCtx(init: {
             }
             return () => {}
         },
-        get(name: string) {
-            if (init.getThrows === true) throw new Error('服务不可用')
-            if (name === 'subagentModelSelection') return init.selection
-            if (name === 'agents') return { get: (id: string) => init.parentOf?.(id) }
-            if (name === 'sessionProjections') return init.projections
-            return undefined
+        inject(deps: readonly string[], callback: (child: Context) => void) {
+            try {
+                if (deps.every((name) => get(name) !== undefined)) callback(ctx as unknown as Context)
+            } catch {
+                // deps unavailable, fiber stays PENDING
+            }
+            return () => {}
         },
+        get,
         logger: { info() {}, warn(msg: string) { warns.push(msg) }, error() {} },
     }
     return {
@@ -324,7 +333,7 @@ export async function run(): Promise<void> {
         config: { followParent: true },
         parentOf: () => makeAgent({ options: { provider: 'pi', model: 'parent-model' } }),
     })
-    check('hostSelectionEnabled: 服务缺席（CLI/TUI 组合）按关闭处理，跟随分支照常生效',
+    check('hostSelectionEnabled: 宿主开关关闭 → 跟随父 Agent 的当前路由',
         stable(noService.result) === stable({ provider: 'pi', model: 'parent-model' }))
 
     const throwing: SelectionStub = {
@@ -339,17 +348,16 @@ export async function run(): Promise<void> {
     check('hostSelectionEnabled: current() 抛错（已开启但授权表为空）按关闭处理',
         stable(onThrow.result) === stable({ provider: 'pi', model: 'parent-model' }) && onThrow.warns.length === 0)
 
-    // ---------- 异常兜底：取父 Agent 抛错时记一条 warn 并原样放行，不拖垮子智能体这一请求 ----------
+    // ---------- 服务不可得：fiber 静默不激活，监听不注册 ----------
     const broken = await runOnce({
         agent: subagent,
         config: { followParent: true },
         selection: OFF,
         getThrows: true,
     })
-    check('installSubagentFollowParent: 取父 Agent 失败 → 记一条 warn 并原样放行，不拖垮子智能体这一请求',
-        stable(broken.result) === stable({ provider: 'pi', model: 'dsr' })
-        && broken.warns.length === 1
-        && broken.warns[0].includes('子智能体推理级别未生效'))
+    check('installSubagentFollowParent: 宿主服务不可得 → 子 fiber PENDING 静默（监听不注册，不拖垮子智能体）',
+        broken.listener === undefined
+        && broken.warns.length === 0)
 
     // 收尾把配置源放回默认，避免影响其余模块
     setConfigSource(() => DEFAULT_CONFIG)

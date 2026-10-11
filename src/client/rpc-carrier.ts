@@ -6,8 +6,6 @@
  * 本文件产出的 `RpcCarrier`，自己不发起请求。
  */
 
-import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// Connection RPC 调用面（宿主真类型，type-only）
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client'
 // channel RPC 的结果信封
 import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
@@ -49,12 +47,9 @@ export interface RpcCarrier {
 /**
  * 取一份调用面。
  *
- * @param ctx - 已声明 `connection` 依赖的 fiber ctx
+ * @param rpc - 宿主 connection 服务的 client RPC 面（由调用方在子 fiber 内取用后传入）
  */
-export function makeRpcCarrier(ctx: ClientContext): RpcCarrier {
-    // RPC channel 与 src/rpc.ts 的 `/${PLUGIN_NS}` 同源（同取 PLUGIN_NS 常量）；endpoint 名须与 rpc.ts 两侧同步。
-    // ctx.connection 的声明合并只有宿主 face（HostConnectionHandle），client face 无合并 ⇒ 经 unknown 桥接断言
-    const rpc = (ctx.get('connection') as unknown as { rpc: ClientConnectionRpc }).rpc
+export function makeRpcCarrier(rpc: ClientConnectionRpc): RpcCarrier {
     const forceUpdate = () => rpc.call(`/${MODEL_FIX_NS}`, 'forceUpdate', {})
     const resetModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'resetModels', {})
     const restoreModels = () => rpc.call(`/${MODEL_FIX_NS}`, 'restoreModels', {})

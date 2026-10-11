@@ -13,6 +13,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // ctx.configForms 服务面 + ConfigForm 类型
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
+// Connection RPC 调用面（宿主真类型，type-only）
+import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client'
 // SlotMap 的 'settings.models.footer' 键声明合并
 import type {} from '@deepseek-ai/dsh-client-ui-settings-models/client'
 // SlotMap 的 'plugins.bundle.config' / 'plugins.row.config' 键声明合并（宿主 ui-plugin-manager 类型面）
@@ -36,11 +38,14 @@ export const inject = ['slots', 'locale', 'connection']
 
 export function apply(ctx: ClientContext): void {
     // 宿主 get 只收一个 entryId 参数（无 decode spec），段值解码由 makeScope 的 decode 完成
-    ctx.inject(['configForms'], (child) => {
+    ctx.inject(['configForms', 'connection'], (child) => {
         const configForms = child.get('configForms') as { get: (ns: string) => ConfigForm<unknown> }
+        // connection 已在父级 inject 中声明（必然存在）；child fiber 只是提供类型安全的获取路径
+        const rpc = (child.get('connection') as unknown as { rpc: ClientConnectionRpc }).rpc
         boot(ctx,
             makeScope(configForms.get(MODEL_FIX_NS), decodeSection),
             makeScope(configForms.get(PI_AI_NS), () => PROVIDERS_VIEW),
+            rpc,
         )
     })
 }
@@ -48,14 +53,16 @@ export function apply(ctx: ClientContext): void {
 /**
  * 编排体：词典注册、调用面接线、席位注册、记忆监听子 fiber。
  * @param ctx - 父 fiber 的 ctx：共享编排一律在其上执行（ctx.<name> 属性读要求本 fiber
- *   声明过 inject，子 fiber 只声明了标记服务；子 ctx 只用于构造 scope）
+ *   声明过 inject，子 fiber 只声明了标记服务；子 ctx 只用于构造 scope 与获取 rpc）
  * @param scope - 本插件命名空间的 decode 后段视图（卡片与记忆监听消费）
  * @param providersScope - llm-pi-ai 命名空间的 decode 后段视图（只消费 user 层的提供方 id）
+ * @param rpc - 宿主 connection 的 client RPC 面（由子 fiber 取出后传入，避免 ctx.get）
  */
 function boot(
     ctx: ClientContext,
     scope: DecodedScope<Flags>,
     providersScope: DecodedScope<readonly unknown[]>,
+    rpc: ClientConnectionRpc,
 ): void {
     // 词典注册返回 disposer；经 effect 挂载，卸载/HMR 时自动撤销
     ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), `${name}: card dictionaries`)
@@ -63,7 +70,7 @@ function boot(
     ctx.effect(() => () => { scope.dispose(); providersScope.dispose() }, `${name}: scope disposal`)
     // 浏览器半调 Node 半的全部出口（四个写回端点 + 两条诊断链的读流）见 rpc-carrier.ts
     const { forceUpdate, resetModels, restoreModels, verifyModels, pruneEfforts, probeEfforts } =
-        makeRpcCarrier(ctx)
+        makeRpcCarrier(rpc)
     // 四席共用的卡片入参：载体与 scope 逐席相同，逐席展开只会让每行都长到读不动
     const cardProps = {
         scope,

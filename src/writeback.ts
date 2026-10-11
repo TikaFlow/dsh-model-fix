@@ -70,7 +70,7 @@ export async function writebackApi<R extends ApiWritebackPlan>(ctx: Context, spe
             return result
         }
         try {
-            await queueTask(ctx, () => ctx.settings.mutate(API_NS, result.modelOps, revision))
+            await queueTask(() => ctx.settings.mutate(API_NS, result.modelOps, revision))
             ctx.logger.info(`${PLUGIN_NAME}: ${spec.done(result)}`)
             return result
         } catch (error) {

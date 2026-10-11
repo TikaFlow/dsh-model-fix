@@ -4,6 +4,7 @@ import { readCache, setCatalog } from '@/catalog'
 import { PLUGIN_NS, API_NS, PLUGIN_NAME } from '@/shared/constants'
 import { errorText } from '@/shared/errors'
 import { resolveConfig, setConfigSource } from '@/config'
+import { setHmrExecuting } from '@/host'
 import { migrateConfig, selfHealConfig } from '@/migrate'
 import { cancelRefreshRetry, refreshIfStale } from '@/refresh'
 import { installRpc } from '@/rpc'
@@ -16,7 +17,7 @@ import { installSubagentFollowParent } from '@/subagent'
 import { installSelfTune } from '@/self-tune'
 
 export const name = PLUGIN_NAME
-export const inject = ['settings', 'connection', 'llm']
+export const inject = ['settings', 'llm']
 
 /**
  * 宿主 Config schema 面：宽松任意值（「比当前代码更新的版本快照」也能通过注册校验）+
@@ -131,6 +132,10 @@ export function apply(ctx: Context, config?: unknown): void {
     // 插件级卸载标记：启动链与事件驱动的异步续体都据此中止，卸载后不触碰已销毁上下文
     let disposed = false
     const isDisposed = (): boolean => disposed
+    // hmr 事务感知：子 fiber 注入 hmr 执行上下文（缺席时降级为裸 task()，不影响任何功能）
+    ctx.inject(['hmr'], (child) => {
+        setHmrExecuting((child.get('hmr') as { executing?: unknown } | undefined)?.executing)
+    })
     // 备份仅此一次，且必须早于一切写回（接线即起异步 fix）——晚了备份的就是被填充过的内容；
     // 此刻注册与文档装载都先于 apply，describe() 已含 API_NS，必可读
     captureBackup(ctx)

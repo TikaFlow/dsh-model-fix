@@ -53,7 +53,7 @@ async function mutateOwn(ctx: Context, ops: readonly SettingsPathOp[]): Promise<
         const descriptor = descriptorOf(ctx, PLUGIN_NS)
         if (!descriptor) throw new Error(`${PLUGIN_NAME}: 自有配置段 ${PLUGIN_NS} 不可读`)
         try {
-            await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, [...ops], descriptor.revision))
+            await queueTask(() => ctx.settings.mutate(PLUGIN_NS, [...ops], descriptor.revision))
             return
         } catch (error) {
             if (isSettingsConflict(error) && attempt < MAX_ATTEMPTS) continue
@@ -95,7 +95,7 @@ async function restoreProviders(ctx: Context, backup: Record<string, unknown>): 
         const { modelOps, changed } = planRestore(backup, providers)
         if (modelOps.length === 0) return 0
         try {
-            await queueTask(ctx, () => ctx.settings.mutate(API_NS, modelOps, descriptor?.revision || 0))
+            await queueTask(() => ctx.settings.mutate(API_NS, modelOps, descriptor?.revision || 0))
             return changed
         } catch (error) {
             if (isSettingsConflict(error) && attempt < MAX_ATTEMPTS) continue

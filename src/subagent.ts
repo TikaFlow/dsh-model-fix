@@ -75,50 +75,58 @@ type SubagentRequestListener = (
  * 本文件只服务 `userExperience.followParent` 这一个开关——它没有独立的配置组，判定读的就是
  * 该键；文件名沿用「子智能体」这一话题域。
  *
+ * 三个宿主服务（`agents` / `sessionProjections` / `subagentModelSelection`）经 `ctx.inject`
+ * 子 fiber 注入：全就绪才注册监听，任一缺席则子 fiber PENDING 静默（监听不注册）。
+ *
  * 监听用 `prepend` 钉成最外层：`agent/request` 的监听者由外而内依次执行，最外层 `next()`
  * 拿到的即宿主（含会话级模型切换）全部改写完成后的最终配置，父 Agent 的档位因此是「当前
  * 生效值」而非某个中间态。
  */
 export function installSubagentFollowParent(ctx: Context): void {
-    // 事件名与监听签名随 `SubagentHost` 一并按契约本地声明（引宿主包根会把 dsh-session 包根类型
-    // 拉进 typecheck 程序、顶掉浏览器半的 ctx.sessions），故此处对 `ctx.on` 做一次收窄断言；
-    // `this` 仍须是插件 ctx，故走 `.call` 而非裸调。
-    const on = ctx.on as unknown as (
-        this: Context,
-        name: string,
-        listener: SubagentRequestListener,
-        options?: { prepend?: boolean },
-    ) => unknown
-    on.call(ctx, 'agent/request', async (payload, next) => {
-        const config = await next()
-        try {
-            return resolveRequest(ctx, payload.agent, config)
-        } catch (error) {
-            // 读宿主设置/父 Agent 失败都不该拖垮子智能体的这一次请求：原样放行，交由宿主自身校验
-            ctx.logger.warn(`${PLUGIN_NAME}: 子智能体推理级别未生效：${errorText(error)}`)
-            return config
-        }
-    }, { prepend: true })
+    // 三个宿主服务经子 fiber 注入：全就绪才注册监听，任一缺席则 PENDING 静默（不注册监听）
+    ctx.inject(['agents', 'sessionProjections', 'subagentModelSelection'], (child) => {
+        const agents = child.get('agents') as HostAgentRegistry
+        const projections = child.get('sessionProjections') as HostSessionProjections
+        const selectionService = child.get('subagentModelSelection') as HostSelectionService
+        // 事件名与监听签名随 `SubagentHost` 一并按契约本地声明（引宿主包根会把 dsh-session 包根类型
+        // 拉进 typecheck 程序、顶掉浏览器半的 ctx.sessions），故此处对 `child.on` 做一次收窄断言；
+        // `this` 仍须是插件 ctx，故走 `.call` 而非裸调。
+        const on = child.on as unknown as (
+            this: Context,
+            name: string,
+            listener: SubagentRequestListener,
+            options?: { prepend?: boolean },
+        ) => unknown
+        on.call(child, 'agent/request', async (payload, next) => {
+            const config = await next()
+            try {
+                return resolveRequest(agents, projections, selectionService, payload.agent, config)
+            } catch (error) {
+                // 读宿主设置/父 Agent 失败都不该拖垮子智能体的这一次请求：原样放行，交由宿主自身校验
+                ctx.logger.warn(`${PLUGIN_NAME}: 子智能体推理级别未生效：${errorText(error)}`)
+                return config
+            }
+        }, { prepend: true })
+    })
 }
 
 /** 按配置算出本次请求该用的调用配置；非子智能体 Agent 或开关不适用时原样返回入参 */
-function resolveRequest(ctx: Context, agent: SubagentHost | undefined, config: LlmCallConfig): LlmCallConfig {
+function resolveRequest(agents: HostAgentRegistry, projections: HostSessionProjections, selectionService: HostSelectionService, agent: SubagentHost | undefined, config: LlmCallConfig): LlmCallConfig {
     if (agent?.session.header.origin !== 'subagent') return config
     // 宿主开着「允许 Agent 为子智能体选择模型」时，路由由模型自己在授权范围内挑，不该由插件覆盖
-    if (hostSelectionEnabled(ctx)) return config
+    if (hostSelectionEnabled(selectionService)) return config
     if (!getConfig().userExperience.followParent) return config
-    const follow = resolveFollow(ctx, agent)
+    const follow = resolveFollow(agents, projections, agent)
     return follow === undefined ? config : applyFollow(config, follow)
 }
 
 /**
  * 宿主是否开着「允许 Agent 为子智能体选择模型」——跟着关时跟随才生效。
- * 服务缺席（非 Web 组合）或 `current()` 因「已开启但授权表为空」抛错时，一律按关闭处理。
+ * `current()` 因「已开启但授权表为空」抛错时，一律按关闭处理。
  */
-function hostSelectionEnabled(ctx: Context): boolean {
-    const service = (ctx.get as (name: string) => HostSelectionService | undefined)('subagentModelSelection')
+function hostSelectionEnabled(service: HostSelectionService): boolean {
     try {
-        return service?.current().enabled === true
+        return service.current().enabled === true
     } catch {
         return false
     }
@@ -138,22 +146,21 @@ function hostSelectionEnabled(ctx: Context): boolean {
  * 视作「父当前未选档位」而丢弃，避免把兜底值当作父的选择复制给子智能体。`maxTokens`
  * 只作为预算合并的候选带回（见 `applyFollow`），不是覆盖值。
  */
-function resolveFollow(ctx: Context, agent: SubagentHost): FollowRoute | undefined {
+function resolveFollow(agents: HostAgentRegistry, projections: HostSessionProjections, agent: SubagentHost): FollowRoute | undefined {
     const parentId = agent.session.header.parentSession
     if (parentId === undefined) return undefined
-    const parent = (ctx.get as (name: string) => HostAgentRegistry | undefined)('agents')?.get(parentId)
+    const parent = agents.get(parentId)
     if (!parent) return undefined
-    return pendingFollow(ctx, parent.session) ?? headerFollow(parent)
+    return pendingFollow(projections, parent.session) ?? headerFollow(parent)
 }
 
 /**
  * 父会话待生效的选择：UI 的每次切换都落一条 `model/selection` 事件，投影据此置 `pending`，
- * 直到匹配的那次请求把它消费掉。服务缺席（无会话投影的组合）或该投影未注册时读不到，
- * 按「没有待生效选择」处理。`reasoningEffort` 缺项表示用户选了模型但没选档位。
+ * 直到匹配的那次请求把它消费掉。该投影未注册时读不到，按「没有待生效选择」处理。
+ * `reasoningEffort` 缺项表示用户选了模型但没选档位。
  */
-function pendingFollow(ctx: Context, session: SubagentHost['session']): FollowRoute | undefined {
-    const projections = (ctx.get as (name: string) => HostSessionProjections | undefined)('sessionProjections')
-    const pending = projections?.stateOf(session, 'modelSelection')?.pending
+function pendingFollow(projections: HostSessionProjections, session: SubagentHost['session']): FollowRoute | undefined {
+    const pending = projections.stateOf(session, 'modelSelection')?.pending
     if (pending === undefined || pending === null) return undefined
     if (typeof pending.provider !== 'string' || pending.provider === '') return undefined
     if (typeof pending.model !== 'string' || pending.model === '') return undefined

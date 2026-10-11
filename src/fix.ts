@@ -163,7 +163,7 @@ export async function fix(ctx: Context, force = false): Promise<number> {
         const plan = planFill(cfg, providers, getCatalog(), force)
         if (plan.ops.length === 0) return 0
         try {
-            await queueTask(ctx, () => ctx.settings.mutate(API_NS, plan.ops, descriptor.revision))
+            await queueTask(() => ctx.settings.mutate(API_NS, plan.ops, descriptor.revision))
             ctx.logger.info(`${PLUGIN_NAME}: 已变更 ${plan.changes} 个模型（补充/同步推理级别、容量字段、图片模态、清理空字段）、${plan.compatChanges} 个提供方的路由 compat（developer 角色兼容），跳过 ${plan.excluded} 个已排除提供方`)
             return plan.changes
         } catch (error) {

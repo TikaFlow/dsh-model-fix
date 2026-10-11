@@ -122,7 +122,7 @@ export async function migrateConfig(ctx: Context, disposed: () => boolean = () =
                 : `${PLUGIN_NAME}: ${CURRENT_KEY} 快照非规范（字段残缺或含多余键），已规范化重写`)
         }
         ops.push(...pruneOps(versions))
-        if (ops.length > 0) await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
+        if (ops.length > 0) await queueTask(() => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
         return
     }
     // 迁移源：versions 升序，从高到低取首个可解析快照——高版本降级解析、低版本走升级链，全不可解析则落默认
@@ -146,7 +146,7 @@ export async function migrateConfig(ctx: Context, disposed: () => boolean = () =
         { op: 'set', path: [CURRENT_KEY], value: stored },
         ...pruneOps(versions),
     ]
-    await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
+    await queueTask( () => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
     ctx.logger.info(`${PLUGIN_NAME}: ${action}，已写入 ${CURRENT_KEY} 快照`)
 }
 
@@ -176,6 +176,6 @@ export async function selfHealConfig(ctx: Context): Promise<void> {
     const section = sectionOf(descriptor)
     const ops = dedupeExcludesOp(section?.[versionKey(CONFIG_VERSION)])
     if (ops.length === 0) return
-    await queueTask(ctx, () => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
+    await queueTask( () => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
     ctx.logger.warn(`${PLUGIN_NAME}: 检测到排除列表存在重复项，已保留首次出现去重`)
 }

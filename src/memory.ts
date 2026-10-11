@@ -150,7 +150,7 @@ async function pruneOnce(ctx: Context): Promise<void> {
         const descriptor = descriptorOf(ctx, PLUGIN_NS)
         if (!descriptor) return
         try {
-            await queueTask(ctx, () => ctx.settings.mutate(
+            await queueTask(() => ctx.settings.mutate(
                 PLUGIN_NS,
                 [{ op: 'set', path: [versionKey(CONFIG_VERSION), 'efforts'], value: plan.memory }],
                 descriptor.revision,
