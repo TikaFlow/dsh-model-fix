@@ -1,16 +1,8 @@
 /**
  * 推理级别记忆的失效清理（Node 半）：按宿主的**全量**模型列表剪掉已不存在的条目。
  *
- * 覆盖面与 UI 选型一致而非「llm-pi-ai 配置段里登记过的模型」——判据取 `ctx.llm` 的活路由
- * （`listProviders` + `listModels`，与宿主模型目录 `buildModelCatalog` 同源），故官方提供方与
- * 插件 adapter 动态注册的模型同样受管。取数只对**有记忆条目**的 provider 发请求，成本与条目数成正比。
- *
- * 与浏览器半的分工：那边只管存取（写入 / 恢复 / 自动设 `high`），这边只管整理。之所以能这样分，
- * 是因为「模型还在不在」是宿主路由的事实、与会话无关；而 `fix` 不参与记忆生命周期（见 docs/decisions.md）。
- *
- * 触发面：`llm/adapters-updated`（provider 拓扑变化，天然在 commit 之后）+ `llm-pi-ai` 段变更
- * （模型级增删，settings 的 document-updated 在 describe 时发出、值已是最新的）+ 自有段变更
- * （用户把 `forgetRemoved` 转开等时当场补一次，不必等下一个模型列表事件）+ 启动首轮。
+ * 设计裁决（覆盖面取活路由、缺席即删、读失败不删、开关关闭不剪）见 docs/decisions.md「推理级别记忆」。
+ * 本文件独有的口径：三态 `LiveModels`（`undefined` = 未读 / `null` = 读失败 / 集合 = 成功）。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { MAX_ATTEMPTS } from '@/constants'

@@ -65,7 +65,7 @@ import type { RpcCarrier } from '@/client/rpc-carrier'
 import { errorText } from '@/shared/errors'
 import { isProviderBlocking } from '@/shared/verify-progress'
 import type { UnsupportedEffort, ProbeOutcome, VerifyProbedFrame } from '@/shared/verify-progress'
-import { DEFAULT_CONFIG as DEFAULT_FLAGS, toStored } from '@/shared/parse'
+import { DEFAULT_CONFIG, toStored } from '@/shared/parse'
 
 /** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
 const CHEVRON_DOWN = primitives.IconChevronDownOutlineRegular
@@ -172,7 +172,7 @@ export function Card(props: CardProps) {
     // draft === null 表示未编辑、跟随已存值；首次点击即冻结当前显示值为草稿
     const [draft, setDraft] = useState<Flags | null>(null)
     // 全部写操作（保存 / 强制更新 / 重置 / 恢复 / 清空记忆 / 验证 / 探测 / 剔除）共用单一互斥标志：
-    // 一者 in-flight 时其余入口与按钮全禁；后续新增动作只加成员，不必改既有互斥
+    // 一者 in-flight 时其余入口与按钮全禁
     const [busy, setBusy] = useState<'save' | 'force' | 'reset' | 'restore' | 'clear' | 'verify' | 'probe' | 'prune' | null>(null)
     // 折叠态为卡片本地状态（读姿而非配置）：初始值取 defaultOpen（缺省收起、与官方插件卡一致）；草稿跨折叠存活
     const [open, setOpen] = useState(props.defaultOpen ?? false)
@@ -237,7 +237,7 @@ export function Card(props: CardProps) {
     )
 
     const saved = snap.value
-    const shown = draft ?? saved ?? DEFAULT_FLAGS
+    const shown = draft ?? saved ?? DEFAULT_CONFIG
     const ready = snap.status === 'ready' && saved !== undefined
     const canWrite = ready && snap.writable === true
     // 五个动作键共用一个占用态：三个写回端点与两个弹层都牵动模型配置，任一处在途或任一弹层开着，其余四个一并禁用

@@ -1,8 +1,7 @@
 /**
  * 卡片词典·中文（浏览器半）。键名见 locale-keys.ts。
  *
- * 与 locale-en.ts 分文件而没并排：一份语言一份文件，加一条文案时不用在另一份语言里
- * 找位置；两侧都标注 `Record<CardKey, string>`，漏改一侧 typecheck 即报。
+ * 与 locale-en.ts 分文件：一份语言一份文件，两侧都标注 `Record<CardKey, string>`，漏改一侧 typecheck 即报。
  */
 
 import type { CardKey } from '@/client/locale-keys'

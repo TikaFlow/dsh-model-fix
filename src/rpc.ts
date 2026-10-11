@@ -1,37 +1,10 @@
 /**
- * Connection RPC 端点（前后端通信通道）：
- * - 「强制更新」→ fix(ctx, true) 单次绕过 allowUpdate 填充（不重新拉取 models.dev，用当前内存目录）；
- * - 「重置推理级别」→ resetModels(ctx) 仅剔除模型上的推理级别字段（reasoningEfforts），
- *   最大上下文 / 输出上限 / 图片模态可在模型页自行设置故不清除；配置段原样保留
- *   （开关不变，重置后修改配置仍按原开关触发填充），事件流守卫全程打开，
- *   写回触发的 settings/document-updated 一律短路，避免把刚删掉的字段重新填回。
- * - 「恢复备份」→ restoreModels(ctx) 把启动时备份（交集：备份与当前都存在的 provider+model）回退，
- *   事件流守卫全程打开，避免写回触发填充。
- * - 「验证模型」不在此列：它要回一个持续多帧的进度流，走独立的 `connection.fetch` 路由（见文末）。
- *   只读、不写 settings，故**不占事件流守卫**，也不与写回端点互斥。
- * - 「探测式填充」同样走独立流路由，但它**要写 settings**：一轮之内先把候选档位临时预声明进配置
- *   （宿主按配置里的声明校验档位，不先声明就出不了网）、跑完再收敛写回，故与写回端点同样以守卫互斥，
- *   且守卫持有整轮（理由见 `src/probe.ts`）。因此它入口也要先查守卫：别在别的写回在途时插进来，
- *   那样对方的 finally 会提前解掉它的守卫。
- * - 「剔除推理级别」→ pruneUnsupportedEfforts(ctx, targets) 按验证明细给出的档位清单剔除，
- *   同样经守卫与 `queueTask` 写回。守卫在这里不可省：浏览器半直写绕不过去，
- *   守卫一开，写回触发的 settings 事件就不会让事件链的 `fix` 把刚剔掉的档位又填回来。
- * 各写回端点共用同一守卫做互斥：入口一律先查，守卫已开（另一写回在途）即拒——后到者的 finally 会
- * 提前解除守卫，令先到者的写回失去保护；填充与写回语义也相互冲突。置位分工：forceUpdate 在本
- * handler 层置位（finally 解除），reset / restore / prune 由各自写回内部置位，探测式填充持有整轮。
- * 守卫互斥只覆盖查守卫的路径：
- * 事件链的 fix 只查不置位，在途窗口内本层入口仍可进入，该并发由 fix 自身的 revision 冲突重试兜底。
- * channel 为插件自有命名空间拼成的绝对前缀，浏览器半以 `/${PLUGIN_NS}` 配对（两侧同取 src/shared/constants.ts 的 `PLUGIN_NS`，改常量即两侧同步）。
- * connection / webServer 服务经 ctx.get 断言取得宿主真类型（type-only 导入 devDep 的
- * dsh-client-connection / dsh-host-webserver；断言范式与宿主内置插件 ui-settings-general 一致），信任围栏由宿主 connection 统一施加。
- * 路由由本插件自注册而不走宿主 `connection.rpc.handle`：后者在**服务自己的 ctx** 上求值
- * `owner.webServer`，而 connection 插件自 0.1.5 起不再注入 webServer，故它必然抛错（详见 rpc-route.ts）。
+ * Connection RPC 端点（前后端通信通道）：forceUpdate / resetModels / restoreModels / pruneEfforts 四个写回端点，
+ * 共用同一守卫做互斥；验证与探测式填充的进度各开一条 `connection.fetch` 的 exact 路由。
  *
- * 验证与探测式填充的进度各开一条 `connection.fetch` 的 exact 路由（`VERIFY_STREAM_ROUTE` / `PROBE_STREAM_ROUTE`）：
- * 一次调用要回一个持续多帧的响应，而 RPC 的「一次调用 = 一个 JSON 结果」形状装不下。走 Connection 的
- * Fetch 面还白拿信任围栏、浏览器认证与「客户端断开 → `request.signal`」——据此中止执行，
- * 不在用户已经离开之后继续烧他的额度。
- * 两条流共用同一份 Fetch 实现：线上形状逐字段同形，差别的只有执行器与措辞。
+ * 设计裁决（守卫互斥、两条进度流、各写回端点语义）见 docs/decisions.md「写回端点」与「验证」。
+ * 路由由本插件自注册而不走宿主 `connection.rpc.handle`：后者在**服务自己的 ctx** 上求值 `owner.webServer`，
+ * 而 connection 插件自 0.1.5 起不再注入 webServer，故它必然抛错（详见 rpc-route.ts）。
  */
 
 import type { Context } from '@deepseek-ai/cordis'

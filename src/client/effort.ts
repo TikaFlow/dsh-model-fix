@@ -67,18 +67,18 @@ export function classifyTransition(
     groups: readonly ModelProviderGroup[],
     defaultHigh: boolean,
 ): Transition {
-    if (prev === null || prev.provider !== next.provider || prev.model !== next.model) {
-        const remembered = lookupEffort(memory, next.provider, next.model)
-        if (remembered !== undefined && remembered !== next.reasoningEffort && advertisesEffort(groups, next.provider, next.model, remembered)) {
-            return { kind: 'model-change', resolved: { ...next, reasoningEffort: remembered } }
-        }
-        if (defaultHigh && remembered === undefined && next.reasoningEffort === undefined && advertisesEffort(groups, next.provider, next.model, 'high')) {
-            return { kind: 'model-change', resolved: { ...next, reasoningEffort: 'high' } }
-        }
-        return { kind: 'model-change', resolved: next }
+    if (prev !== null && prev.provider === next.provider && prev.model === next.model) {
+        if (next.reasoningEffort !== prev.reasoningEffort) return { kind: 'effort-change' }
+        return { kind: 'none' }
     }
-    if (next.reasoningEffort !== prev.reasoningEffort) return { kind: 'effort-change' }
-    return { kind: 'none' }
+    const remembered = lookupEffort(memory, next.provider, next.model)
+    if (remembered !== undefined && remembered !== next.reasoningEffort && advertisesEffort(groups, next.provider, next.model, remembered)) {
+        return { kind: 'model-change', resolved: { ...next, reasoningEffort: remembered } }
+    }
+    if (defaultHigh && remembered === undefined && next.reasoningEffort === undefined && advertisesEffort(groups, next.provider, next.model, 'high')) {
+        return { kind: 'model-change', resolved: { ...next, reasoningEffort: 'high' } }
+    }
+    return { kind: 'model-change', resolved: next }
 }
 
 /** 两个选择是否完全相同 */

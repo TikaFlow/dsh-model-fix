@@ -133,18 +133,9 @@ function hostSelectionEnabled(service: HostSelectionService): boolean {
 }
 
 /**
- * 父 Agent 下一次请求该用的路由：先取父会话「待生效的选择」，没有才取会话日志的请求头
- * （最新一次请求的配置，也是宿主委派时读取的那一份），再无请求头则回落 Agent 自身的
- * options。取不到即 undefined。
+ * 父 Agent 下一次请求该用的路由：先取父会话「待生效的选择」，没有才取会话日志的请求头，再无则回落 Agent 自身 options。
  *
- * 待生效的选择优先，是为了让子智能体与主智能体同规则：UI 里换模型/换档位即刻写入父会话的
- * 投影 pending，主智能体的下一次请求直接用它，子智能体也读同一份，不必等父先发一次请求把
- * 切换落到请求头上。待生效选择里没有 `maxTokens`（用户在 UI 选的是模型与档位），故输出预算
- * 仍只看子智能体自身那份，见 `applyFollow`。
- *
- * 请求头里被 `adapterDefaults.reasoningEffort` 标记的档位是适配器兜底值而非用户所选，
- * 视作「父当前未选档位」而丢弃，避免把兜底值当作父的选择复制给子智能体。`maxTokens`
- * 只作为预算合并的候选带回（见 `applyFollow`），不是覆盖值。
+ * 设计裁决（路由回落链、adapterDefaults 标记、maxTokens 合并）见 docs/decisions.md「子智能体」。
  */
 function resolveFollow(agents: HostAgentRegistry, projections: HostSessionProjections, agent: SubagentHost): FollowRoute | undefined {
     const parentId = agent.session.header.parentSession

@@ -1,18 +1,8 @@
 /**
  * 探测式填充的两步写回：把候选档位**临时预声明**进模型配置，探测跑完后再按结论**收敛**成最终形态。
  *
- * 为什么必须先写再用：宿主在派发前按**模型配置里声明的档位**做本地校验
- * （`@deepseek-ai/dsh-llm` 的 `resolveCallWithInfo`），未声明的档位根本不会出网、只会本地抛
- * `UNSUPPORTED_REASONING_EFFORT`。故想验「这个模型到底支持哪几档」，得先让宿主认为这些档位存在。
- * 预声明因此是本功能的必要前置，不是副作用——它在探测结束时被同一轮代码收回。
- *
- * 为什么在 Node 半而不是浏览器半直写 settings：写回会被本插件的事件链当成「配置变了」而触发 `fix`，
- * 事件流守卫（`src/guard.ts`）正是为此刻存在的。守卫是 Node 半的模块级标志，浏览器半跨不过半纯度门禁；
- * 本模块的两次写回只取写回壳，不置位也不解除守卫——持有范围与代价见 `src/probe.ts` 的 `probeAndFill`。
- *
- * 两次写回共用同一个纯函数 `planEffortApply`：给定「模型 → 目标档位表」，产出整段 `models` 写回 op
- * 与增删条数。它与 `src/prune.ts` 的 `planPruneEfforts` 同形（同一份遍历、同一套排除判定、
- * 同一处 `stripEmptyFields` 收尾），差别只在于它不「剔」而是「设」。
+ * 设计裁决（预声明必要性、写回壳理由、基线比对口径）见 docs/decisions.md「探测式填充」。
+ * 本文件独有的口径：`targetKey` 用 JSON.stringify([provider, model]) 序列化，因模型 id 可含 '/'，字符串拼接会歧义。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'

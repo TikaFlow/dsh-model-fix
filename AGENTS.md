@@ -71,7 +71,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 
 ## 专题文档
 
-`AGENTS.md` 只留索引与硬约束，大段细则各归一文件：
+`AGENTS.md` 只留索引与硬约束，大段细则各归一文件，均为 AGENTS.md 的子文档，AI 编码任务需按需加载：
 
 | 文档 | 内容 |
 | --- | --- |

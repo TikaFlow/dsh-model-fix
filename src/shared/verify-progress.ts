@@ -273,7 +273,7 @@ export type VerifyProgressFrame =
         done: number
         total: number
     }
-    /** 终帧：整轮跑完，`summary` 是与旧版 RPC 等价的完整结论 */
+    /** 终帧：整轮跑完，`summary` 承载完整结论 */
     | { type: 'done'; summary: VerifySummary }
 
 /** 单条探测结果帧；消费方逐条格式化展示，故单列一个名字 */

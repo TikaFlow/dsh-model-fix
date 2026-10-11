@@ -6,7 +6,8 @@ import type { V3CompatRules, V3FieldRules, V3PluginConfigSnapshot, V4CompatRules
 import { isPlainObject } from '@/shared/types'
 
 /**
- * 版本升级链：把任意历史版本快照逐级接力到当前版本，全链只有 `upgradeConfig` 一个对外入口。
+ * 版本升级链：把任意历史版本快照逐级接力到当前版本。生产路径只走 `upgradeConfig`；
+ * `upgradeTo5`/`upgradeTo6` 另为单测直接引用，其余台阶为模块内私有接力。
  *
  * 本文件是**冻结形态的堆栈**，与当前版本的配置定义刻意不共享任何可演进来源：
  * 各级的 schema、默认常量、台阶默认值一律就地写字面量，也不引用 `CONFIG_VERSION`（产物版本号写死）——
@@ -55,7 +56,7 @@ const V4_EXCLUDES_DEFAULT: readonly string[] = []
 /** 升到 v4（最低一级）：输入按 v3 冻结 schema 解析（非法整体回退 v3 默认），新增 excludes 数组并落默认 */
 function upgradeTo4(config: unknown, fromVersion: number): V4PluginConfigSnapshot {
     // 全链唯一的最低版本守卫：本函数是最低一级，其输入版本下限恰为 MIN_SUPPORTED_VERSION，
-    // 调用方已按该下限筛过迁移源，故此判断实际不会触发，只用于挡住误用。
+    // 调用方已按该下限筛过迁移源，此处为误用兜底。
     if (fromVersion < MIN_SUPPORTED_VERSION) {
         throw new Error(`无法从 v${fromVersion} 升级：低于最低支持版本 v${MIN_SUPPORTED_VERSION}`)
     }
@@ -126,7 +127,7 @@ export function upgradeTo5(config: unknown, fromVersion: number): V5PluginConfig
     try {
         parsed = V4ConfigSchema((isPlainObject(v4) ? v4 : {}) as unknown as Omit<V4PluginConfigSnapshot, 'configVersion'>)
     } catch {
-        // 同 upgradeTo4：展开拷贝防与 V4_BASE 共享嵌套引用
+        // 同 upgradeTo4：展开拷贝防共享嵌套引用
         parsed = {
             allowUpdate: { ...V4_BASE.allowUpdate },
             autoFill: { ...V4_BASE.autoFill },
@@ -200,7 +201,7 @@ export function upgradeTo6(config: unknown, fromVersion: number): V6PluginConfig
     try {
         parsed = V5ConfigSchema((isPlainObject(v5) ? v5 : {}) as unknown as Omit<V5PluginConfigSnapshot, 'configVersion' | 'efforts'>)
     } catch {
-        // 同 upgradeTo4：展开拷贝防与 V5_BASE 共享嵌套引用（efforts 不进 schema，不在 parsed 内）
+        // 同 upgradeTo4（efforts 不进 schema，不在 parsed 内）
         parsed = {
             allowUpdate: { ...V5_BASE.allowUpdate },
             autoFill: { ...V5_BASE.autoFill },
@@ -209,7 +210,7 @@ export function upgradeTo6(config: unknown, fromVersion: number): V6PluginConfig
             userExperience: { ...V5_BASE.userExperience },
         }
     }
-    // efforts 宽松保留（结构不符回落 {}）：记忆坏值不判整段快照非法，避免连累配置自愈重写丢配置
+    // efforts 宽松保留
     const efforts = parseEfforts(isPlainObject(v5) ? v5.efforts : undefined)
     return {
         configVersion: 6,
@@ -277,7 +278,7 @@ function upgradeTo7(config: unknown, fromVersion: number): V7PluginConfigSnapsho
     try {
         parsed = V6ConfigSchema((isPlainObject(v6) ? v6 : {}) as unknown as Omit<V6PluginConfigSnapshot, 'configVersion' | 'efforts'>)
     } catch {
-        // 同 upgradeTo4：展开拷贝防与 V6_BASE 共享嵌套引用（efforts 不进 schema，不在 parsed 内）
+        // 同 upgradeTo4（efforts 不进 schema，不在 parsed 内）
         parsed = {
             allowUpdate: { ...V6_BASE.allowUpdate },
             autoFill: { ...V6_BASE.autoFill },
@@ -286,7 +287,7 @@ function upgradeTo7(config: unknown, fromVersion: number): V7PluginConfigSnapsho
             userExperience: { ...V6_BASE.userExperience },
         }
     }
-    // efforts 宽松保留（结构不符回落 {}）：记忆坏值不判整段快照非法，避免连累配置自愈重写丢配置
+    // efforts 宽松保留
     const efforts = parseEfforts(isPlainObject(v6) ? v6.efforts : undefined)
     return {
         configVersion: 7,
@@ -363,7 +364,7 @@ function upgradeTo8(config: unknown, fromVersion: number): PluginConfigSnapshot 
     try {
         parsed = V7ConfigSchema((isPlainObject(v7) ? v7 : {}) as unknown as Omit<V7PluginConfigSnapshot, 'configVersion' | 'efforts'>)
     } catch {
-        // 同 upgradeTo4：展开拷贝防与 V7_BASE 共享嵌套引用（efforts 不进 schema，不在 parsed 内）
+        // 同 upgradeTo4（efforts 不进 schema，不在 parsed 内）
         parsed = {
             allowUpdate: { ...V7_BASE.allowUpdate },
             autoFill: { ...V7_BASE.autoFill },
@@ -372,7 +373,7 @@ function upgradeTo8(config: unknown, fromVersion: number): PluginConfigSnapshot 
             userExperience: { ...V7_BASE.userExperience },
         }
     }
-    // efforts 宽松保留（结构不符回落 {}）：记忆坏值不判整段快照非法，避免连累配置自愈重写丢配置
+    // efforts 宽松保留
     const efforts = parseEfforts(isPlainObject(v7) ? v7.efforts : undefined)
     return {
         configVersion: 8,
