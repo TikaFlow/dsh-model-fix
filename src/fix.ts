@@ -10,7 +10,7 @@ import { getConfig } from '@/config'
 import { stripEmptyFields } from '@/empty'
 import { queueTask } from '@/host'
 import { isCapacity, type IndexedCatalog } from '@/types'
-import { isPlainObject, providersOf, type PluginConfig } from '@/shared/types'
+import { isPlainObject, providersOf, type CompatRules, type PluginConfig } from '@/shared/types'
 import { descriptorOf } from '@/section'
 import { errorText } from '@/shared/errors'
 import { isSettingsConflict } from '@/writeback'
@@ -38,7 +38,8 @@ export interface FillPlan {
  *   读 descriptor.user（原始字段），按 provider 整段覆盖 models（不依赖路径 op 是否支持数组下标，
  *   value 为全量重建的数组，未变更元素原样保留）；数据无档位不删除已有配置。
  * - 路由 compat：按 compat 规则组为 openai-completions 路由添加或**移除**字段（与模型填充不同，关闭即移除，
- *   见 src/compat.ts），只写路由级、不写模型级。
+ *   见 src/compat.ts），只写路由级、不写模型级；非目标协议（如已从 completions 切到 responses）无论开关如何
+ *   仅做残留清理（只删不加），避免协议迁移后的 compat 字段永久残留。
  * - 提供方排除：`excludes` 命中的 providerId 在循环入口即整条跳过，填充/compat/force 一律不作用其上
  *   （等效于对该提供方关闭插件；预防性——已写入的值原地保留，见 docs/decisions.md）。
  * - `efforts` 记忆**不在此处理**：存取在浏览器半、失效清理在 `src/memory.ts`（判据是全量模型
@@ -126,8 +127,10 @@ export function planFill(
             }
         }
         // 路由级兼容性（与模型参数无关，故 models 缺失也要处理）；协议适用范围见 DEVELOPER_COMPAT_APIS
-        if (typeof api === 'string' && DEVELOPER_COMPAT_APIS.has(api)) {
-            const plan = planProviderCompat(compatRules, currentCompat)
+        // 非目标协议（如已从 completions 切到 responses）仅做残留清理（只删不加），无论开关如何。
+        if (typeof api === 'string') {
+            const effectiveCompat: CompatRules = DEVELOPER_COMPAT_APIS.has(api) ? compatRules : { disableDeveloper: false }
+            const plan = planProviderCompat(effectiveCompat, currentCompat)
             if (plan) {
                 compatChanges++
                 ops.push(plan.op === 'set'

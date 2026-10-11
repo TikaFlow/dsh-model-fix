@@ -284,6 +284,85 @@ export async function run(): Promise<void> {
         check('compat 移除：整段 unset', compatOf(ctx, 'testprovider') === undefined)
     }
 
+    // ---------- 11b. 非目标协议残留清理：开关开启仍移除（原 completions 迁移而来的残留） ----------
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: {
+                api: 'openai-responses',
+                compat: { supportsDeveloperRole: false },
+                models: [{ id: 'model-unknown' }],
+            } } },
+        })
+        setConfig(cfg()) // compat.disableDeveloper = true（默认）
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        check('非目标协议清理：开关开启仍移除残留', compatOf(ctx, 'testprovider') === undefined)
+        check('非目标协议清理：变更计数为 0', changes === 0)
+    }
+
+    // ---------- 11c. 非目标协议残留清理：保留用户其他 compat 字段，只删 supportsDeveloperRole ----------
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: {
+                api: 'openai-responses',
+                compat: { supportsDeveloperRole: false, supportsStore: true },
+                models: [{ id: 'model-unknown' }],
+            } } },
+        })
+        setConfig(cfg({ compat: { disableDeveloper: false } }))
+        setCatalog(CAT)
+        await fix(ctx as unknown as Context)
+        check('非目标协议清理：保留其他字段', compatOf(ctx, 'testprovider')?.supportsStore === true)
+        check('非目标协议清理：移除 supportsDeveloperRole', compatOf(ctx, 'testprovider')?.supportsDeveloperRole === undefined)
+    }
+
+    // ---------- 11d. 非目标协议无残留：不动（不为删除不存在的键发写） ----------
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { api: 'openai-responses', models: [{ id: 'model-unknown' }] } } },
+        })
+        setConfig(cfg())
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        check('非目标协议无残留：零 mutate', ctx.mutateCalls.length === 0)
+        check('非目标协议无残留：变更计数为 0', changes === 0)
+    }
+
+    // ---------- 11e. 非目标协议空对象 compat：整段 unset（不留空壳） ----------
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: {
+                api: 'openai-responses',
+                compat: {},
+                models: [{ id: 'model-unknown' }],
+            } } },
+        })
+        setConfig(cfg())
+        setCatalog(CAT)
+        await fix(ctx as unknown as Context)
+        check('非目标协议空对象：整段 unset', compatOf(ctx, 'testprovider') === undefined)
+    }
+
+    // ---------- 11f. provider 无 api 字段：compat 不处理（无 api 无法判定迁移，避免误删用户手动配置） ----------
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: {
+                compat: { supportsDeveloperRole: false },
+                models: [{ id: 'model-unknown' }],
+            } } },
+        })
+        setConfig(cfg())
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        check('无 api 字段：compat 原样保留', compatOf(ctx, 'testprovider')?.supportsDeveloperRole === false)
+        check('无 api 字段：变更计数为 0', changes === 0)
+    }
+
     // ---------- 12. 无目录数据：不变、零 mutate ----------
     {
         resetModules()
