@@ -189,7 +189,7 @@ export const en: Record<CardKey, string> = {
     tipShowInBuiltinPlugins: 'Shows this plugin\'s settings tab under Settings → Built-in plugins.',
     tipShowInComposer: 'Shows the "Model tuning" entry on the chat composer toolbar; clicking it opens the full settings.',
     tipShowFollowStatus: 'Shows the Follow status lamp on the toolbar (green while subagents actually follow the parent agent); clicking it toggles the setting.',
-    tipShowInPluginManager: 'This plugin always shows in the plugin manager and cannot be hidden — it is the only way back into any of the surfaces above.',
+    tipShowInPluginManager: 'This plugin always shows in the plugin manager and cannot be hidden — it is the only way back into other surfaces.',
     tipBackToChat: 'Shows a floating "Back to chat" button at the left edge in the content area; clicking it returns to the conversation in progress.',
     tipShowInFloat: 'Shows the card entry in the floating button group on the left of the content area.',
     tipClassicSetting: 'Turn this off to keep the host account menu (feedback and sign-in) in the sidebar.',
