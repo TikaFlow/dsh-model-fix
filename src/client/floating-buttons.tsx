@@ -8,7 +8,7 @@ import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { TIP_MAX_WIDTH } from '@/client/card-styles'
 import type { FloatingButton } from '@/client/floating-button'
 import { PLUGIN_NAME } from '@/shared/constants'
-import { EDGE_GAP, clampOffset, edgeDistances, nearestEdge, orientationOf, snappedOffset, type SnapEdge } from '@/client/floating-snap'
+import { EDGE_GAP, clampOffset, edgeDistances, nearestEdge, orientationOf, snappedOffset, tooltipSideOf, type SnapEdge } from '@/client/floating-snap'
 
 const CONTAINER_ID = 'tikaflow-model-fix-floating-buttons'
 const CONTAINER_CLASS = CONTAINER_ID
@@ -54,12 +54,16 @@ function centerColumn(): HTMLElement | null {
     return parent instanceof HTMLElement ? parent : null
 }
 
+/** Tooltip 的方向。宿主 `0.2.1-rc.3` 起才支持 `left`；不支持时宿主按自身默认方向退化。
+ * devDep 类型基线（0.1.7-rc.2）无 `left`，故按宿主的 prop 类型断言（运行时值原样传下去）*/
+type TooltipSide = 'right' | 'left' | 'bottom' | 'top'
+
 /** `active` 为假即不渲染，不占位不留 gap */
-function FloatingButtonItem(props: { button: FloatingButton }): ReactNode {
+function FloatingButtonItem(props: { button: FloatingButton; side: TooltipSide }): ReactNode {
     const state = useSyncExternalStore(props.button.subscribe, props.button.getSnapshot)
     if (!state.active) return null
     return (
-        <Tooltip label={state.title} side="right" portal maxWidth={TIP_MAX_WIDTH}>
+        <Tooltip label={state.title} side={props.side as 'right' | 'bottom' | 'top'} portal maxWidth={TIP_MAX_WIDTH}>
             <button
                 type="button"
                 id={`${BUTTON_ID_PREFIX}${props.button.id}`}
@@ -73,11 +77,11 @@ function FloatingButtonItem(props: { button: FloatingButton }): ReactNode {
     )
 }
 
-function FloatingButtons(props: { buttons: readonly FloatingButton[] }): ReactNode {
+function FloatingButtons(props: { buttons: readonly FloatingButton[]; side: TooltipSide }): ReactNode {
     return (
         <>
             {props.buttons.map((button) => (
-                <FloatingButtonItem key={button.id} button={button} />
+                <FloatingButtonItem key={button.id} button={button} side={props.side} />
             ))}
         </>
     )
@@ -97,10 +101,12 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
     let column: HTMLElement | null = null
     /** 当前吸附的边（null = 默认居中位） */
     let currentEdge: SnapEdge | null = null
+    /** Tooltip 方向：贴着容器所在的那一侧朝外，贴左边则朝右 */
+    let tooltipSide: TooltipSide = 'right'
 
     const render = (): void => {
         try {
-            root?.render(<FloatingButtons buttons={buttons} />)
+            root?.render(<FloatingButtons buttons={buttons} side={tooltipSide} />)
         } catch (error) {
             // 渲染抛错会清空整棵子树且无痕迹
             ctx.logger.error(`${PLUGIN_NAME}: 悬浮按钮组渲染失败：${String(error)}`)
@@ -265,12 +271,14 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         if (geometry === null) return
         const edge = nearestEdge(edgeDistances(geometry))
         currentEdge = edge
+        tooltipSide = tooltipSideOf(edge)
         container.style.flexDirection = orientationOf(edge) === 'vertical' ? 'column-reverse' : 'row'
         // 方向变了容器尺寸也变，重量一次再定吸附位置
         const after = geometryOf(column)
         if (after === null) return
         const snapped = snappedOffset(edge, after)
         place(snapped.x, snapped.y)
+        render()
     }
 
     // 中心列属宿主 React 树，宿主重挂即换节点 ⇒ 容器跟着搬（React 根随节点走，不重建）

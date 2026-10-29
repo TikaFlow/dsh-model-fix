@@ -43,6 +43,14 @@ export function orientationOf(edge: SnapEdge): Orientation {
     return edge === 'left' || edge === 'right' ? 'vertical' : 'horizontal'
 }
 
+/** Tooltip 朝向：贴着哪条边就朝那一侧的外方 */
+export function tooltipSideOf(edge: SnapEdge): 'right' | 'left' | 'bottom' | 'top' {
+    if (edge === 'left') return 'right'
+    if (edge === 'right') return 'left'
+    if (edge === 'top') return 'bottom'
+    return 'top'
+}
+
 /** 自由轴夹取：留出 gap 边距；父容器比容器还小时取 gap */
 export function clampOffset(offset: number, size: number, parentSize: number): number {
     const max = parentSize - size - EDGE_GAP
