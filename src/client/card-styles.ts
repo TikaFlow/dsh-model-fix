@@ -130,6 +130,8 @@ const STYLE_TEXT = [
     '.dsh-mf-verifyGroupAll{margin-left:auto}',
     '.dsh-mf-verifyRow{border-radius:var(--dsw-radius-md,12px)}',
     '.dsh-mf-verifyLabel{display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer}',
+    // 在途禁用：整行收掉手型并置灰
+    '.dsh-mf-verifyLabel:has(input:disabled){cursor:default;opacity:.5}',
     '.dsh-mf-verifyId{flex:auto;min-width:0;overflow:hidden;font-family:var(--ds-font-family-code);font-size:13px;text-overflow:ellipsis;white-space:nowrap}',
     // 空态 margin 归零（气口由容器 gap 给）
     '.dsh-mf-verifyEmpty{margin:0;color:var(--dsw-alias-label-secondary,#61666b);text-align:center;font-size:13px;line-height:20px}',
