@@ -1,6 +1,6 @@
 # 宿主契约：连接、路由与模块装载
 
-（契约基线：devDep `0.1.7-rc.2`，差异见 `drift.md`）
+（契约基线：devDep `0.2.1-rc.2`，差异见 `drift.md`）
 
 ## connection：RPC channel 与进度流
 

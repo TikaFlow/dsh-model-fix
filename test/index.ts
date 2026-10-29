@@ -11,13 +11,11 @@ import { run as runGuard } from '@test/guard.test'
 import { run as runLookup } from '@test/lookup.test'
 import { run as runMemory } from '@test/memory.test'
 import { run as runMigrate } from '@test/migrate.test'
-import { run as runOfficialFilter } from '@test/official-filter.test'
 import { run as runUpgrade } from '@test/upgrade.test'
 import { run as runVersion } from '@test/version.test'
 import { run as runProbe } from '@test/probe.test'
 import { run as runProbeBackup } from '@test/probe-backup.test'
 import { run as runRefresh } from '@test/refresh.test'
-import { run as runReset } from '@test/reset.test'
 import { run as runRestore } from '@test/restore.test'
 import { run as runRpcCarrier } from '@test/rpc-carrier.test'
 import { run as runRpcRoute } from '@test/rpc-route.test'
@@ -53,12 +51,8 @@ section('upgrade.test.ts')
 runUpgrade()
 section('version.test.ts')
 runVersion()
-section('official-filter.test.ts')
-runOfficialFilter()
 section('refresh.test.ts')
 await runRefresh()
-section('reset.test.ts')
-runReset()
 section('restore.test.ts')
 runRestore()
 section('verify.test.ts')

@@ -42,8 +42,6 @@ export interface UserExperienceRules {
     followParent: boolean
     /** 让 AI 自主调节推理档位：向宿主注入两枚工具（查询可用档位 / 设置档位，与 UI 模型选择器同一入口）及一段系统提示词，由 AI 按任务难度自行决定何时切换、切到哪个档位；为 false 时卸载全部注入。默认 false */
     selfTune: boolean
-    /** 隐藏官方 API：名单内（见 `src/official-filter.ts`）未配置密钥的官方提供方在 UI 模型选择列表里不显示。判定与「设置→模型」小红点同口径。默认 true */
-    hideOfficial: boolean
     /** 本地化推理级别名：把推理档位显示名换成中文——档位名由宿主适配器按档位 id 现算，本插件在 Node 半遮蔽 `ctx.llm.resolveModelInfo` 换名（见 `src/effort-name.ts`），UI 菜单与 AI 的 list-models 工具同受影响。只换显示名，档位 id 与 `defaultEffort` 原样保留。默认 true */
     localizeEfforts: boolean
     /** 同时显示原档位名：为 true 时，本地化推理级别开启后把中文与英文原档位一起显示（`中文名 · 原档位`，如 `最大 · Max`）；关闭则只显示中文。默认 true */

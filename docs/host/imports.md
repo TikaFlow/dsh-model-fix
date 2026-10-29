@@ -11,12 +11,11 @@
 | `@deepseek-ai/dsh-settings` | `SettingsPathOp`、`SettingsDescriptor` | type-only | 各写回端点与 `src/client/scope.ts`（前者）；`src/section.ts`（后者） |
 | `@deepseek-ai/dsh-settings/types` | `SettingsPathOpView` | type-only | `src/client/scope.ts`（**只引 `/types` 子路径**，包根未导出） |
 | `@deepseek-ai/dsh-util-values` | `deepEqualJson`（值）、`JsonValue`（type-only） | 值 + type-only | `src/fix.ts` `migrate.ts` `compat.ts` `restore.ts` `probe-backup.ts`（前者）；`src/client/scope.ts`（后者） |
-| `@deepseek-ai/dsh-llm` | `LlmRuntime`、`ReasoningEffortId`、`LlmResolvedModelInfo`、`LlmModelInfo` | type-only | `probe-engine.ts`、`verify.ts`、`probe.ts`、`effort-name.ts`、`official-filter.ts`；`src/rpc.ts` 另有合并导入 |
+| `@deepseek-ai/dsh-llm` | `LlmRuntime`、`ReasoningEffortId`、`LlmResolvedModelInfo`、`LlmModelInfo` | type-only | `probe-engine.ts`、`verify.ts`、`probe.ts`、`effort-name.ts`；`src/rpc.ts` 另有合并导入 |
 | `@deepseek-ai/dsh-llm` | `LlmCallConfig` / `LlmCallConfigAdapterDefaults` / `ReasoningEffortId` | type-only | `src/subagent.ts`（**必须包根**：`/types` 子路径不含 `LlmCallConfig`） |
 | `@deepseek-ai/dsh-llm/types` | `LlmFailure` | type-only | `probe-verdict.ts`、`probe-engine.ts`（**只在 `/types`**，包根未再导出） |
 | `@deepseek-ai/dsh-client-connection` | `ConnectionRpcResult`、`HostConnectionService` | type-only | `rpc.ts`、`rpc-route.ts`、`rpc-carrier.ts`、`card.tsx` |
 | `@deepseek-ai/dsh-host-webserver` | `WebServer` | type-only | `src/rpc.ts` |
-| `@deepseek-ai/dsh-credentials` | `credentialRef`、`isCredentialRefName` | **值导入** | `src/official-filter.ts`（Node 半宿主值导入，故登记进 `NODE_EXTERNALS`） |
 | `node:http` | `IncomingMessage`、`ServerResponse` | type-only | `src/rpc-route.ts` |
 
 ## 浏览器半
@@ -40,9 +39,9 @@
 
 ## 契约漂移点
 
-- **`TerminalBlockLabels` 自 `0.2.1-alpha.2` 起新增必填 `commandLine`**；devDep 停在 `0.1.7-rc.2` 编译面看不到，故 `terminalLabelsOf` 以 `TerminalBlockLabels & { commandLine }` 声明（避开 excess-property 报错、保住其余字段必填），多余字段在 `0.1.7-rc.2` 上被静默忽略。
+（暂无）
 
-## 按契约复制、不引宿主包的五处
+## 按契约复制、不引宿主包的四处
 
 冲突根源一致：`@deepseek-ai/dsh-session` 包根对 `Context.sessions` 的声明合并与 `@deepseek-ai/dsh-api-session-controller/client` 冲突，会把浏览器半 `ctx.sessions` 的 `ISessions` 退化成 Node 侧 `SessionStore`。下列宿主包只要出现在 `src/` 的 type-only 导入里就触发（`test/` 未触发但不可依赖）。
 
@@ -51,7 +50,6 @@
 | `src/subagent.ts` | `dsh-agent`、`dsh-tool-subagent/model-selection-settings` | `SubagentHost`（含 `model.select()`）/ `HostSelectionService` / `HostModelSelection` / 两条瀑布的监听签名 |
 | `src/client/back-to-chat.tsx` | `dsh-client-ui-workspace`、`dsh-subagent` | `UiWorkspaceNav`（只取 `openSession(sessionId: SessionId)`） |
 | `src/self-tune.ts` | `dsh-tools`、`dsh-system-prompt` | `HostToolsService` / `HostSystemPromptService` / `HostSessionController` / `HostSessionProjections` |
-| `src/host-version.ts` | `dsh-app-boot` 的 `pluginPackages` 服务面 | `HostPluginPackages`（只取 `packageOf` 的 `version`）；该包只服务 CLI 启动、传递依赖大，故不装 devDep |
 | `src/client/classic-setting.tsx` | `dsh-client-ui-layout` | `selectPanel` 最小面 |
 
 ⇒ `package.json` 不列这些包。升宿主时若该合并冲突已解，可改回直接导入并删本地复制。

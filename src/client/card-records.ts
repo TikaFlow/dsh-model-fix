@@ -6,10 +6,8 @@ import type { CardKey } from '@/client/locale-keys'
 import { isProviderBlocking } from '@/shared/verify-progress'
 import type { ProbeOutcome, VerifyProbedFrame } from '@/shared/verify-progress'
 
-/** 宿主 TerminalBlock 展示文案（该包无语言回退，经 t() 提供）；`commandLine` 是 devDep 未跟上的新增必填字段（见 docs/host/「契约漂移点」） */
-type TerminalLabels = TerminalBlockLabels & { commandLine: (line: number) => string }
-
-export function terminalLabelsOf(t: TranslateNS<'settings.modelFix'>): TerminalLabels {
+/** 宿主 TerminalBlock 展示文案（该包无语言回退，经 t() 提供） */
+export function terminalLabelsOf(t: TranslateNS<'settings.modelFix'>): TerminalBlockLabels {
     return {
         commandLine: (n) => t('terminalCommandLine', { n: String(n) }),
         signal: (signal) => t('terminalSignal', { signal }),

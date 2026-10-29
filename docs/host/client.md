@@ -1,6 +1,6 @@
 # 宿主契约：浏览器半服务面
 
-契约基线 devDep `0.1.7-rc.2`（差异见 `drift.md`）；本片覆盖 slots、locale、configForms、会话与布局类服务。
+契约基线 devDep `0.2.1-rc.2`（差异见 `drift.md`）；本片覆盖 slots、locale、configForms、会话与布局类服务。
 
 ## slots：六席注册
 
@@ -37,7 +37,7 @@
 ## configForms：配置表单
 
 - `get<T>(entryId)` 只有 entryId 一个形参；查无 NS 不抛错（`status='unavailable'`，与 loading 可区分——本仓卡片依赖此差异）。decode 只存在于包内 `ConfigFormSpec`，不对外 ⇒ 本仓解码全在 `src/client/scope.ts` 的 `makeScope`。
-- `ConfigFormSnapshot<T>`：`status / value / base / user / revision / writable`（devDep 版本另有 `mode`，较新宿主已移除）。
+- `ConfigFormSnapshot<T>`：`status / value / base / user / revision / writable`。
 - 写方法 `mutate` / `set` / `unset` 返回 **boolean**：被拒或跳过返回 false、**传输失败 reject**。写入实际路径 `this.ctx.remote.settings.mutate(ns, ops, revision)`；持久化模式 `isLoopback ? 'host' : 'memory'` ⇒ 非 loopback 下本仓所有保存返回 false（以 `writable === true` 才允许保存）。
 - **`mutate` 入参形态**：宿主签名写的 `SettingsPathOpView` 来自未装的 `@deepseek-ai/dsh-api-remotes/client`（`skipLibCheck` 下退化成 `any`），故不能用 `Parameters<>` 取形态；`src/client/scope.ts` 直接标成 `dsh-settings` 的 `/types` 子路径同名导出（两包各持一份同形声明）。
 

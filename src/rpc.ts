@@ -1,4 +1,4 @@
-/** RPC 端点：forceUpdate / resetModels / restoreModels 三个写回端点（共用事件流守卫互斥）+ reportLocale 语言上报；
+/** RPC 端点：forceUpdate / restoreModels 两个写回端点（共用事件流守卫互斥）+ reportLocale 语言上报；
  * 验证与探测档位的进度各开一条 `connection.fetch` exact 路由。
  * 路由自注册而非宿主 `connection.rpc.handle` 的原因见 docs/decisions-config.md「写回端点」 */
 
@@ -9,7 +9,7 @@ import type { } from '@deepseek-ai/dsh-llm'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import {
     ENDPOINT_FORCE_UPDATE, ENDPOINT_REPORT_LOCALE,
-    ENDPOINT_RESET_MODELS, ENDPOINT_RESTORE_MODELS,
+    ENDPOINT_RESTORE_MODELS,
     PLUGIN_NAME, PLUGIN_NS, PROBE_STREAM_ROUTE, VERIFY_STREAM_ROUTE,
 } from '@/shared/constants'
 import { errorText } from '@/shared/errors'
@@ -20,7 +20,6 @@ import { fix } from '@/fix'
 import { reportLocale } from '@/effort-name'
 import { endIgnoreAll, isIgnoreAll, startIgnoreAll } from '@/guard'
 import { probeAndFill } from '@/probe'
-import { resetModels } from '@/reset'
 import { restoreModels } from '@/restore'
 import { verifyModels } from '@/verify'
 import { createChannelRoute } from '@/rpc-route'
@@ -48,16 +47,6 @@ async function handleForceUpdate(ctx: Context): Promise<ConnectionRpcResult<unkn
     }
 }
 
-/** 重置推理级别：守卫已开即拒 */
-async function handleResetModels(ctx: Context): Promise<ConnectionRpcResult<unknown>> {
-    if (isIgnoreAll()) return writeInProgress()
-    try {
-        return { ok: true, value: { changed: await resetModels(ctx) } }
-    } catch (error) {
-        return { ok: false, error: { code: 'model-fix/reset-models-failed', message: errorText(error), details: {} } }
-    }
-}
-
 /** 恢复备份：守卫已开即拒 */
 async function handleRestoreModels(ctx: Context): Promise<ConnectionRpcResult<unknown>> {
     if (isIgnoreAll()) return writeInProgress()
@@ -74,7 +63,7 @@ function handleReportLocale(payload: unknown): ConnectionRpcResult<unknown> {
     return { ok: true, value: {} }
 }
 
-/** 注册一个 channel（三个写回端点 + 语言上报）；register 返回 disposer，经 ctx.effect 挂卸载自动回收 */
+/** 注册一个 channel（两个写回端点 + 语言上报）；register 返回 disposer，经 ctx.effect 挂卸载自动回收 */
 export function installRpc(ctx: Context): void {
     // 子 fiber 声明 connection + webServer；无 webServer 的 profile（如 headless）下子 fiber 不启动，其余功能不受影响
     ctx.inject(['connection', 'webServer'], (rpcCtx) => {
@@ -82,11 +71,10 @@ export function installRpc(ctx: Context): void {
         const webServer = rpcCtx.get('webServer') as WebServer
         rpcCtx.effect(function* () {
             const channel = `/${PLUGIN_NS}`
-            // 三个写回端点都不读载荷（各按整份配置重算、或剔除模型上的推理级别）；只有语言上报读
+            // 两个写回端点都不读载荷（各按整份配置重算）；只有语言上报读
             const handler: EndpointHandler = async (endpoint, payload) => {
                 switch (endpoint) {
                     case ENDPOINT_FORCE_UPDATE: return handleForceUpdate(ctx)
-                    case ENDPOINT_RESET_MODELS: return handleResetModels(ctx)
                     case ENDPOINT_RESTORE_MODELS: return handleRestoreModels(ctx)
                     case ENDPOINT_REPORT_LOCALE: return handleReportLocale(payload)
                     default:

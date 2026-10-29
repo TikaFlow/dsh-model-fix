@@ -15,7 +15,6 @@ import { captureBackup } from '@/restore'
 import { restoreProbeBackup } from '@/probe-backup'
 import { installSubagentFollowParent } from '@/subagent'
 import { installSelfTune } from '@/self-tune'
-import { installOfficialFilter } from '@/official-filter'
 import { installEffortNameLocale } from '@/effort-name'
 
 export const name = PLUGIN_NAME
@@ -127,9 +126,8 @@ export function apply(ctx: Context, config?: unknown): void {
         ctx.on('llm/adapters-updated', () => pruneMemory(ctx))
         installSubagentFollowParent(ctx) // 「跟随父智能体」：agent/request 瀑布最外层，每请求现算
         installSelfTune(ctx) // 「自主调节档位」：按 userExperience.selfTune 装/卸工具与提示词段
-        installOfficialFilter(ctx) // 「隐藏官方API」：判定实时现算，无事件接线
         installEffortNameLocale(ctx) // 「本地化推理级别」：判定实时现算，无事件接线
-        installRpc(ctx) // 浏览器半三个写回端点的 RPC channel
+        installRpc(ctx) // 浏览器半的 RPC channel
         runStartupChain(ctx)
         yield cancelRefreshRetry // 卸载后取消待触发的拉取重试
     }, `${PLUGIN_NAME}: 启动链`)

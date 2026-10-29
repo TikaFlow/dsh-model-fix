@@ -69,15 +69,14 @@ function boot(
     ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), `${name}: 卡片词典`)
     // scope 的 form 订阅释放挂入本 fiber
     ctx.effect(() => () => { scope.dispose(); providersScope.dispose(); hostModelScope.dispose() }, `${name}: 设置作用域 释放`)
-    // 浏览器半调 Node 半的全部出口（三个写回端点 + 两条诊断链的读流）见 rpc-carrier.ts
-    const { forceUpdate, resetModels, restoreModels, verifyModels, probeEfforts } =
+    // 浏览器半调 Node 半的全部出口（写回端点 + 诊断链的读流）见 rpc-carrier.ts
+    const { forceUpdate, restoreModels, verifyModels, probeEfforts } =
         makeRpcCarrier(rpc)
     // 共用的卡片入参：载体与 scope 逐席相同
     const cardProps = {
         scope,
         providersScope,
         forceUpdate,
-        resetModels,
         restoreModels,
         verifyModels,
         probeEfforts,

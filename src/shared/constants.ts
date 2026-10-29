@@ -41,15 +41,10 @@ export const EFFORT_NAME_SEP = ' · '
 
 /** 卡片「强制更新」按钮调用的 endpoint 名 */
 export const ENDPOINT_FORCE_UPDATE = 'forceUpdate'
-/** 卡片「重置推理级别」按钮调用的 endpoint 名 */
-export const ENDPOINT_RESET_MODELS = 'resetModels'
 /** 卡片「恢复备份」按钮调用的 endpoint 名 */
 export const ENDPOINT_RESTORE_MODELS = 'restoreModels'
 /** 浏览器半启动时上报探测语言的 endpoint 名（Node 侧没有 locale 服务） */
 export const ENDPOINT_REPORT_LOCALE = 'reportLocale'
-
-/** 宿主自此版本起自带「未配置密钥的官方提供方自动隐藏」；≥ 此值时本插件的「隐藏官方API」空转 */
-export const HOST_AUTO_HIDE_SINCE = '0.2.1-alpha.2'
 
 /** 宿主自此版本起 `agent/request` 禁止修改路由，必须在 `agent/pre-step` 中 `agent.model.select()` */
 export const HOST_MODEL_SELECT_SINCE = '0.2.2-alpha.2'
@@ -57,5 +52,5 @@ export const HOST_MODEL_SELECT_SINCE = '0.2.2-alpha.2'
 /** settings 写回冲突与语言上报共用的重试次数（跨半共享）。值变更须同步两端 */
 export const MAX_ATTEMPTS = 3
 
-/** 三个写回端点的等待上限（毫秒，跨半共享）：宿主 `rpc.call` 自身无计时器，不给就有永久占着卡片占用态的挂死路径（取舍见 docs/decisions-config.md「写回端点」） */
+/** 写回端点的等待上限（毫秒，跨半共享）：宿主 `rpc.call` 自身无计时器，不给就有永久占着卡片占用态的挂死路径（取舍见 docs/decisions-config.md「写回端点」） */
 export const WRITEBACK_MS = 10_000

@@ -1,5 +1,5 @@
 /** 模型参数填充卡片（浏览器半）：复刻官方插件卡的可折叠卡片。六处挂载点（四个席位 + 输入框 / 悬浮按钮两处弹层）共用同一外壳，差异只有折叠态策略与是否允许折叠。
- * 本文件只做**卡片外壳的编排**：草稿与保存、三个写回动作、四层二次确认、瓦片与 footer 渲染；诊断两条链在 `card-verify.ts` / `card-probe.ts`，弹层外壳在 `diagnose-dialog.tsx`，记录区文案层在 `card-records.ts`。
+ * 本文件只做**卡片外壳的编排**：草稿与保存、写回动作、二次确认、瓦片与 footer 渲染；诊断两条链在 `card-verify.ts` / `card-probe.ts`，弹层外壳在 `diagnose-dialog.tsx`，记录区文案层在 `card-records.ts`。
  * 展开体为六张瓦片（顺序由 TILE_ORDER 单一分发），瓦片手风琴：默认收起、同时只开一个。编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，卡片不拥有该字段）。
  * 样式数值见 `card-styles.ts`。行为细节见 docs/decisions-ui.md「卡片与编排」 */
 
@@ -87,9 +87,8 @@ export function Card(props: CardProps) {
     const [tileOpen, setTileOpen] = useState<string | null>(null)
     // 内联结果提示：常驻至下一次操作（官方 .savedNotice 无定时器，故不设自动淡出）
     const [notice, setNotice] = useState<Notice | null>(null)
-    // 四层二次确认各控一个状态（执行态统一在 busy）：三个写回端点 + 清空记忆
+    // 二次确认各控一个状态（执行态统一在 busy）：写回端点 + 清空记忆
     const [confirmOpen, setConfirmOpen] = useState(false)
-    const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
     const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
     const saveStarted = useRef(false)
@@ -148,7 +147,7 @@ export function Card(props: CardProps) {
     }
 
     /**
-     * 三个写回动作的结果汇报同形：成功按条数出一句、失败取原因出一句、传输层 reject 与 `ok:false`
+     * 写回动作的结果汇报同形：成功按条数出一句、失败取原因出一句、传输层 reject 与 `ok:false`
      * 走同一条展示路径、收尾一律清占用态，差异只有文案键。
      */
     const reportWriteback = (
@@ -249,22 +248,7 @@ export function Card(props: CardProps) {
             (message) => setNotice({ text: t('forceFailed', { message: truncateMessage(message) }), tone: 'error' }),
         )
     }
-    // 重置推理级别：与强制更新同形（危险键 + 二次确认）；配置段零写入（开关不变），竞态防护由 Node 半事件流守卫负责
-    const onReset = () => {
-        if (!ready || busy) return
-        setNotice(null)
-        setResetConfirmOpen(true)
-    }
-    const runReset = () => {
-        setResetConfirmOpen(false)
-        setBusy('reset')
-        reportWriteback(
-            props.resetModels(),
-            (count) => setNotice({ text: t('resetDone', { count }), tone: 'success' }),
-            (message) => setNotice({ text: t('resetFailed', { message: truncateMessage(message) }), tone: 'error' }),
-        )
-    }
-    // 恢复备份：与重置同形（次级样式 + 二次确认）；回退「备份与当前都存在」的 provider+model，其下被删的 model 复活
+    // 恢复备份：与强制更新同形（次级样式 + 二次确认）；回退「备份与当前都存在」的 provider+model，其下被删的 model 复活
     const onRestore = () => {
         if (!ready || busy) return
         setNotice(null)
@@ -372,14 +356,6 @@ export function Card(props: CardProps) {
                     </button>
                     <button
                         type="button"
-                        className="dsh-mf-force"
-                        disabled={!ready || configLocked}
-                        onClick={onReset}
-                    >
-                        {busy === 'reset' ? t('resetBusy') : t('reset')}
-                    </button>
-                    <button
-                        type="button"
                         className="dsh-mf-discard"
                         disabled={!ready || configLocked}
                         onClick={onRestore}
@@ -421,17 +397,6 @@ export function Card(props: CardProps) {
                 cancelLabel={t('cancel')}
                 confirmLabel={t('forceGo')}
                 onConfirm={runForce}
-                danger
-            />
-            <ConfirmModal
-                open={resetConfirmOpen}
-                onClose={() => { setResetConfirmOpen(false) }}
-                title={t('reset')}
-                closeLabel={t('close')}
-                description={t('resetConfirm')}
-                cancelLabel={t('cancel')}
-                confirmLabel={t('resetGo')}
-                onConfirm={runReset}
                 danger
             />
             {/* 恢复不上 danger：操作不删用户任何东西，红色与语义不符 */}

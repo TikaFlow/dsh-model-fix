@@ -18,7 +18,6 @@
 | `src/fix.ts` | 填充与写回：纯计划 `planFill` 出 op，`fix` 只做编排 |
 | `src/memory.ts` | 推理级别记忆失效清理：存活清单 → 纯 `planPruneMemory` → 只写 `efforts` 键 |
 | `src/empty.ts` | 空壳字段判据 `stripEmptyFields`，所有写回路径共用 |
-| `src/reset.ts` | 重置推理级别（仅剔除 `reasoningEfforts`） |
 | `src/restore.ts` | 启动备份捕获与恢复 |
 | `src/guard.ts` | 事件流守卫：写回期间短路整条事件链 |
 | `src/host.ts` | settings 写回必经的 `queueTask` 收口（HMR 事务感知） |
@@ -32,11 +31,9 @@
 | `src/probe-plan.ts` | 共用的计划层（入参校验、展开、分组、配额） |
 | `src/probe-report.ts` | 共用的汇报层（逐组结论、全局统计） |
 | `src/probe-engine.ts` | 共用执行引擎（单次请求受理判定、并发、进度帧） |
-| `src/rpc.ts` | 三个写回端点 + 两条 SSE 进度流端点（channel 自注册） |
+| `src/rpc.ts` | 写回端点 + SSE 进度流端点（channel 自注册） |
 | `src/rpc-route.ts` | RPC 信封解码与路由分发 |
 | `src/refresh.ts` | 目录保鲜刷新（窗口过期才拉取，失败限次重试） |
-| `src/official-filter.ts` | 「隐藏官方API」：遮蔽 `listModels`，未配密钥返回空清单；宿主已自带时整层不装 |
-| `src/host-version.ts` | 宿主版本判据（Node 半）：经 `pluginPackages` 读宿主版本 |
 | `src/effort-name.ts` | 档位名本地化：遮蔽 `resolveModelInfo`，按开关 + 界面语言换显示名 |
 | `src/subagent.ts` | 「跟随父智能体」：`agent/request` 瀑布最外层改写路由 |
 | `src/self-tune.ts` | 「自主调节档位」：装/卸两枚工具与一段系统提示词 |
@@ -53,7 +50,7 @@
 | `src/shared/errors.ts` | `errorText` 与 `isSettingsConflict`（两半写回重试共用） |
 | `src/shared/config-schema.ts` | 当前版本 schema、默认值、键清单、解析与存储物化 |
 | `src/shared/types.ts` | 跨半类型声明与纯类型守卫（含各规则组行键表） |
-| `src/shared/version.ts` | 宿主版本比较与「宿主是否已自带隐藏」判据 |
+| `src/shared/version.ts` | 宿主版本比较（子智能体路由分流用） |
 | `src/shared/verify-progress.ts` | 探测/验证的进度帧契约与逐字段解码 |
 
 ### 浏览器半（`src/client/`）
@@ -79,7 +76,6 @@
 | `src/client/memory-listener.ts` | 记忆存取监听（换模型恢复、换级别写回 + 自动设置） |
 | `src/client/rpc-carrier.ts` | 浏览器半调 Node 半的唯一出口 |
 | `src/client/effort-name.ts` | 浏览器界面语言上报（补 Node 侧探测盲区） |
-| `src/client/host-version.ts` | 宿主版本判据（浏览器半）：读 `__DSH_BOOT__.release.version` |
 | `src/client/locale-patch.ts` | 宿主 model NS 词典的 Default 词条本地化 |
 | `src/client/locale-keys.ts` | 卡片文案键契约（键并入宿主 `LocaleNamespaceMap`） |
 | `src/client/locale-zh.ts` `src/client/locale-en.ts` | 卡片词典（中 / 英） |
@@ -113,7 +109,7 @@
 - **段变更按 ns 分流**：自有段「自愈 → 填充 → 记忆清理」，`llm-pi-ai` 段「填充 → 保鲜刷新 → 记忆清理」，入口先判事件流守卫。
 - **记忆三条链**：浏览器半 `memory-listener` 管存取；Node 半 `memory.ts` 按宿主全量模型列表做失效清理；两条诊断链路（验证只读 / 探测写回）共用 probe 四层，进度走 SSE。
 - **请求期链**：`agent/request` 瀑布判定「跟随父智能体」；`self-tune` 按开关装/卸注入面。两者均不写配置。
-- **只读遮蔽支线**：`official-filter` 遮 `listModels`、`effort-name` 遮 `resolveModelInfo`，判定逐次现算，不挂事件。
+- **只读遮蔽支线**：`effort-name` 遮 `resolveModelInfo`，判定逐次现算，不挂事件。
 - **启动链**（`runStartupChain`）：迁移 → 读缓存 → 填充 → 探测兜底回退 → 保鲜刷新 → 记忆清理；备份捕获在这一切之前。
 
 ## 跨半边界

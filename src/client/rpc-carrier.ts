@@ -1,23 +1,21 @@
-/** 浏览器半调 Node 半的唯一出口：三个 channel RPC 写回端点、一条语言上报与两条进度流的读流。
+/** 浏览器半调 Node 半的唯一出口：channel RPC 写回端点、语言上报与进度流的读流。
  * 卡片只消费本文件产出的 `RpcCarrier`，自己不发起请求 */
 
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client'
 // channel RPC 的结果信封
 import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import {
-    ENDPOINT_FORCE_UPDATE, ENDPOINT_REPORT_LOCALE, ENDPOINT_RESET_MODELS,
+    ENDPOINT_FORCE_UPDATE, ENDPOINT_REPORT_LOCALE,
     ENDPOINT_RESTORE_MODELS, PLUGIN_NS, PROBE_STREAM_URL, VERIFY_STREAM_URL, WRITEBACK_MS,
 } from '@/shared/constants'
 import { decodeProgressFrame } from '@/shared/verify-progress'
 import type { VerifyProgressUpdate, VerifySummary } from '@/shared/verify-progress'
 import type { VerifyTarget } from '@/client/model'
 
-/** 浏览器半经本文件调 Node 半的调用面：三个写回端点（各带 `WRITEBACK_MS` 等待上限）、语言上报与两条诊断链的读流 */
+/** 浏览器半经本文件调 Node 半的调用面：写回端点（带 `WRITEBACK_MS` 等待上限）、语言上报与诊断链的读流 */
 export interface RpcCarrier {
     /** 强制更新 RPC：channel 与端点在入口拼好，卡片只消费结果 */
     forceUpdate: () => Promise<ConnectionRpcResult<unknown>>
-    /** 重置推理级别 RPC：仅剔除模型上的 reasoningEfforts（上下文 / 输出上限 / 图片模态可在模型页自行设置，不清除；excludes 命中跳过），配置段原样保留；返回受影响的模型数 */
-    resetModels: () => Promise<ConnectionRpcResult<unknown>>
     /** 恢复备份 RPC：回退启动时备份到当前配置（共有 provider 的共有 model 回退，其下被删的 model 复活）；返回被恢复与复活的模型数 */
     restoreModels: () => Promise<ConnectionRpcResult<unknown>>
     /** 语言上报：把浏览器界面语言告知 Node 半（取值链见 `src/effort-name.ts`）；无等待上限——失败由调用方重报 */
@@ -41,7 +39,6 @@ export interface RpcCarrier {
 export function makeRpcCarrier(rpc: ClientConnectionRpc): RpcCarrier {
     const channel = `/${PLUGIN_NS}`
     const forceUpdate = () => rpc.call(channel, ENDPOINT_FORCE_UPDATE, {}, AbortSignal.timeout(WRITEBACK_MS))
-    const resetModels = () => rpc.call(channel, ENDPOINT_RESET_MODELS, {}, AbortSignal.timeout(WRITEBACK_MS))
     const restoreModels = () => rpc.call(channel, ENDPOINT_RESTORE_MODELS, {}, AbortSignal.timeout(WRITEBACK_MS))
     const reportLocale = (locale: string) => rpc.call(channel, ENDPOINT_REPORT_LOCALE, locale)
     /** 读一条进度流：POST 载荷，逐帧回调非终帧，收于终帧时返回整轮汇总。
@@ -103,5 +100,5 @@ export function makeRpcCarrier(rpc: ClientConnectionRpc): RpcCarrier {
         onFrame: (frame: VerifyProgressUpdate) => void,
         signal: AbortSignal,
     ) => streamSummary(PROBE_STREAM_URL, { models, ...flags }, onFrame, signal)
-    return { forceUpdate, resetModels, restoreModels, reportLocale, verifyModels, probeEfforts }
+    return { forceUpdate, restoreModels, reportLocale, verifyModels, probeEfforts }
 }

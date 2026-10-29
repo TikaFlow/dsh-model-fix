@@ -57,7 +57,6 @@ const V7ConfigSchema: z<Omit<V7PluginConfigSnapshot, 'configVersion' | 'efforts'
 /** v8 新增键的台阶默认值（同组新增不递增 CONFIG_VERSION；字面量不引用当前版本定义，台阶语义须恒定） */
 const V8_FOLLOW_PARENT_DEFAULT = false
 const V8_SELF_TUNE_DEFAULT = false
-const V8_HIDE_OFFICIAL_DEFAULT = true
 const V8_LOCALIZE_EFFORTS_DEFAULT = true
 const V8_SHOW_ORIGINAL_EFFORTS_DEFAULT = true
 const V8_DISABLE_STORE_DEFAULT = true
@@ -120,7 +119,6 @@ function upgradeTo8(config: unknown, fromVersion: number): PluginConfigSnapshot 
             ...parsed.userExperience,
             followParent: V8_FOLLOW_PARENT_DEFAULT,
             selfTune: V8_SELF_TUNE_DEFAULT,
-            hideOfficial: V8_HIDE_OFFICIAL_DEFAULT,
             localizeEfforts: V8_LOCALIZE_EFFORTS_DEFAULT,
             showOriginalEfforts: V8_SHOW_ORIGINAL_EFFORTS_DEFAULT,
             looseMatch: V8_LOOSE_MATCH_DEFAULT,

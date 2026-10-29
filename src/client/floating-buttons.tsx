@@ -55,7 +55,7 @@ function centerColumn(): HTMLElement | null {
 }
 
 /** Tooltip 的方向。宿主 `0.2.1-rc.3` 起才支持 `left`；不支持时宿主按自身默认方向退化。
- * devDep 类型基线（0.1.7-rc.2）无 `left`，故按宿主的 prop 类型断言（运行时值原样传下去）*/
+ * devDep 类型基线（0.2.1-rc.2）无 `left`，故按宿主的 prop 类型断言（运行时值原样传下去）*/
 type TooltipSide = 'right' | 'left' | 'bottom' | 'top'
 
 /** `active` 为假即不渲染，不占位不留 gap */

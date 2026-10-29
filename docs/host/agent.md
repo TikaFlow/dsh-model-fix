@@ -1,6 +1,6 @@
 # 宿主契约：子智能体与档位自调注入面
 
-契约基线 devDep `0.1.7-rc.2`（差异见 `drift.md`）。
+契约基线 devDep `0.2.1-rc.2`（差异见 `drift.md`）。
 
 ## `agent/pre-step` 与 `agent/request`：子智能体路由改写
 

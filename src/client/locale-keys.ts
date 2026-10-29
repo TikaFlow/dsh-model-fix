@@ -31,7 +31,6 @@ export type CardKey =
     | 'rowForgetRemoved'
     | 'rowFollowParent'
     | 'rowSelfTuneEffort'
-    | 'rowHideOfficial'
     | 'rowLocalizeEfforts'
     | 'rowShowOriginalEfforts'
     | 'rowLooseMatch'
@@ -47,8 +46,6 @@ export type CardKey =
     | 'tipForgetRemoved'
     | 'tipFollowParent'
     | 'tipSelfTuneEffort'
-    | 'tipHideOfficial'
-    | 'tipHideOfficialHostBuiltIn'
     | 'tipLocalizeEfforts'
     | 'tipShowOriginalEfforts'
     | 'tipLooseMatch'
@@ -77,12 +74,6 @@ export type CardKey =
     | 'forceDone'
     | 'forceNone'
     | 'forceFailed'
-    | 'reset'
-    | 'resetBusy'
-    | 'resetConfirm'
-    | 'resetGo'
-    | 'resetDone'
-    | 'resetFailed'
     | 'restore'
     | 'restoreBusy'
     | 'restoreConfirm'
@@ -230,7 +221,6 @@ export const ROW_KEYS: Record<RowKey, CardKey> = {
     showInFloat: 'rowShowInFloat',
     classicSetting: 'rowClassicSetting',
     selfTune: 'rowSelfTuneEffort',
-    hideOfficial: 'rowHideOfficial',
     localizeEfforts: 'rowLocalizeEfforts',
     showOriginalEfforts: 'rowShowOriginalEfforts',
     looseMatch: 'rowLooseMatch',
@@ -275,7 +265,6 @@ export const TIP_KEYS: Record<RowKey, CardKey> = {
     showInFloat: 'tipShowInFloat',
     classicSetting: 'tipClassicSetting',
     selfTune: 'tipSelfTuneEffort',
-    hideOfficial: 'tipHideOfficial',
     localizeEfforts: 'tipLocalizeEfforts',
     showOriginalEfforts: 'tipShowOriginalEfforts',
     looseMatch: 'tipLooseMatch',

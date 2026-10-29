@@ -113,7 +113,7 @@ export async function run(): Promise<void> {
     check('信封不合法且无 rpcId 用占位', JSON.parse(badEnvelopeNoId.body ?? '').rpcId === 'invalid-request', badEnvelopeNoId.body)
 
     // method 与路径不一致：回 bad-request
-    const mismatch = await runRoute(undefined, { body: envelope('r1', 'resetModels') })
+    const mismatch = await runRoute(undefined, { body: envelope('r1', 'restoreModels') })
     check('method 与端点不一致回 bad-request', mismatch.status === 200 && JSON.parse(mismatch.body ?? '').result.error.code === 'gateway/bad-request', mismatch.body)
 
     // 正常往返：端点与 payload 原样送达，rpcId 原样回显

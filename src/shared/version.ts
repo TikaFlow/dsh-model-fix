@@ -1,6 +1,26 @@
 /** 宿主版本比较（跨半共享）：`a.b.c` + 可选 `-<alpha|rc>.N`，阶段序 alpha < rc < 正式版；解析失败返回 undefined */
 
-import { HOST_AUTO_HIDE_SINCE } from '@/shared/constants'
+import type { Context } from '@deepseek-ai/cordis'
+
+/** 宿主 `pluginPackages` 服务面（按契约复制：该包只服务 CLI 启动、传递依赖大，故不装 devDep，也不单列文件） */
+interface HostPluginPackages {
+    packageOf: (specifier: string, parentURL: string) => { readonly version: string | undefined } | undefined
+}
+
+/** 版本号所在的宿主包 */
+const HOST_VERSION_PACKAGE = '@deepseek-ai/dsh-app-boot'
+
+/** 读宿主版本号；服务缺席或读不到返回 undefined */
+export function hostVersionNow(ctx: Context): string | undefined {
+    const packages = ctx.get('pluginPackages') as HostPluginPackages | undefined
+    if (packages === undefined) return undefined
+    try {
+        const version = packages.packageOf(HOST_VERSION_PACKAGE, ctx.baseUrl ?? import.meta.url)?.version
+        return typeof version === 'string' && version.length > 0 ? version : undefined
+    } catch {
+        return undefined
+    }
+}
 
 const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-(alpha|rc)\.(\d+))?$/
 
@@ -38,11 +58,4 @@ export function compareHostVersion(a: string, b: string): number | undefined {
         || left.patch - right.patch
         || left.stageRank - right.stageRank
         || left.revision - right.revision
-}
-
-/** 宿主是否已自带隐藏；版本未知返回 false（不空转） */
-export function hostHidesOfficialSince(version: string | undefined): boolean {
-    if (version === undefined) return false
-    const order = compareHostVersion(version, HOST_AUTO_HIDE_SINCE)
-    return order !== undefined && order >= 0
 }

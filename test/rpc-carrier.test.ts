@@ -1,4 +1,4 @@
-// rpc-carrier.ts 测试：三个写回端点各带一份等待上限——超时是卡片唯一的解占用出口，漏传即挂死
+// rpc-carrier.ts 测试：两个写回端点各带一份等待上限——超时是卡片唯一的解占用出口，漏传即挂死
 import { check } from '@test/helper'
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client'
 import { makeRpcCarrier } from '@/client/rpc-carrier'
@@ -17,7 +17,6 @@ export async function run(): Promise<void> {
     const signals: (AbortSignal | undefined)[] = []
     const carrier = makeRpcCarrier(fakeRpc(signals))
     await carrier.forceUpdate()
-    await carrier.resetModels()
     await carrier.restoreModels()
-    check('三个写回都带等待上限', signals.length === 3 && signals.every((signal) => signal instanceof AbortSignal && !signal.aborted), signals)
+    check('两个写回都带等待上限', signals.length === 2 && signals.every((signal) => signal instanceof AbortSignal && !signal.aborted), signals)
 }

@@ -33,8 +33,8 @@
 
 - channel `/tikaflow-model-fix`。
 - 流路由（`connection.fetch` exact 路由，须落 `/api` 下）：`VERIFY_STREAM_ROUTE = /api/tikaflow-model-fix/verify`、`PROBE_STREAM_ROUTE = /api/tikaflow-model-fix/probe`；浏览器 `fetch` 用同名的 `*_URL`（`ROUTE.slice(1)` 的文档相对路径）。两条流共用 `src/rpc.ts` 的 `progressStreamFetch`；探测那条入口先查守卫（一轮写两次配置），已开回 409 + 中文文案。
-- endpoint：`forceUpdate` / `resetModels` / `restoreModels` / `reportLocale`，结果信封 `{ ok: true, value: { changed } }`。
-- 本仓错误码（`ConnectionRpcResult` 的 `error.code`）：`model-fix/write-in-progress`、`model-fix/force-update-failed`、`model-fix/reset-models-failed`、`model-fix/restore-models-failed`、`model-fix/unknown-endpoint`。
+- endpoint：`forceUpdate` / `restoreModels` / `reportLocale`，结果信封 `{ ok: true, value: { changed } }`。
+- 本仓错误码（`ConnectionRpcResult` 的 `error.code`）：`model-fix/write-in-progress`、`model-fix/force-update-failed`、`model-fix/restore-models-failed`、`model-fix/unknown-endpoint`。
 - 宿主错误码：`SETTINGS_CONFLICT`；信封层 `gateway/bad-request`；传输层 `gateway/internal`；`invalid-request`（本仓自复刻的非法 rpcId 哨兵，非宿主常量）。
 
 ## LLM 失败码
@@ -46,4 +46,3 @@
 - slot 席位名：`client.md` 六席表；`plugins.row.config` 的 `key` 拼接规则 `${包名}#${patch 条目 id}`。
 - 逐字复制的宿主正则：`EXCLUDE_ID_PATTERN`（宿主 models 页提供方 id 校验）、`ENDPOINT_SEGMENT`（宿主 RPC 路径段校验）；宿主改这两处须同步。
 - 逐字复制的宿主构建串：`transport.md`「模块装载」的 banner / intro / footer 三行。
-- 官方 API key 环境名回退常量 `DEFAULT_OFFICIAL_API_KEY_ENV`（宿主 `llm-deepseek-api-key` 的 `Config.apiKeyEnv` 默认值 `"DEEPSEEK_API_KEY"`）。

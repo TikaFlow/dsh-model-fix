@@ -31,7 +31,7 @@
 
 `test/` 只收不依赖 DSH 运行时的纯函数与零 ctx 编排：
 
-- 配置解析与迁移、目录构建与缓存条目校验、id 匹配与档位转换、compat 计划、`planResetModels` / `planRestore`。
+- 配置解析与迁移、目录构建与缓存条目校验、id 匹配与档位转换、compat 计划、`planRestore`。
 - probe 四层（`planProbes` / `groupProbesByProvider` / `classifyFailure` / `reportProvider` / `summarizeProviders` / `planEffortApply` / `declaredEffortsOf`）。
 - 两个执行器带桩全链路（进度帧序列、`skipped`、`done ≤ total` 不变量、早停不发终帧、中止不入账也不短路、未开跑的组不进汇报、探测预声明→收敛写回与终帧统计）。
 - `probeOnce` 超时兜底（`timeoutMs` / `graceMs` 可选参数传小值毫秒级验证）、守卫、`rpc-route` 纯信封 + node:http 桩、`rpc` 进度流（标准 `Request`/`Response` 驱动）、`refresh` 卸载清理（替换全局 `fetch` 桩）。

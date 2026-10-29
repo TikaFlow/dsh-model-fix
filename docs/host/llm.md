@@ -1,6 +1,6 @@
 # 宿主契约：LLM 面
 
-契约基线 devDep `0.1.7-rc.2`（差异见 `drift.md`）；本片覆盖 `ctx.llm` 的验证请求、模型清单与 `resolveModelInfo`。
+契约基线 devDep `0.2.1-rc.2`（差异见 `drift.md`）；本片覆盖 `ctx.llm` 的验证请求、模型清单与 `resolveModelInfo`。
 
 ## 验证请求
 
@@ -26,7 +26,7 @@
 
 ## `resolveModelInfo`：档位显示名的唯一出口
 
-- `reasoning.efforts[].name` 只在它返回里出现（`buildModelCatalog` 原样搬进目录载荷；UI 菜单 / 触发器标题 / subagent 工具全取它）⇒ 遮这一处全链覆盖（与 `official-filter` 遮 `listModels` 同一 `LlmRuntime` 实例、同一形态）。
+- `reasoning.efforts[].name` 只在它返回里出现（`buildModelCatalog` 原样搬进目录载荷；UI 菜单 / 触发器标题 / subagent 工具全取它）⇒ 遮这一处全链覆盖（与 Node 半其余遮蔽同一 `LlmRuntime` 实例、同一形态）。
 - 消费者影响面已核实：除 `tool-subagent` 的 list-models 把 `effort.name` 拼进给 AI 的文本外，其余消费者只取 `context` 与 `inputModalities` ⇒ 开关开时 AI 看到的档位名也是中文（已知取舍）。
 - `defaultEffort` 不可翻译：它是档位 id，`LlmRuntime` 校验它落在 `efforts[].id` 内（不合法抛 `INVALID_MODEL_REASONING`）。
 - 名字来路：适配器按档位 id 现算（`id` 首字母大写），配置侧只有 id 无名字字段；宿主词典刻意不本地化档位名。`normalizeModelInfo` 只校验/分离、返回新建对象，换名不动入参。
