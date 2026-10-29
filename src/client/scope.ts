@@ -28,7 +28,6 @@ export function makeScope<T>(form: ConfigForm<unknown>, decode: (raw: unknown) =
         user: undefined,
         revision: undefined,
         writable: false,
-        mode: 'host',
     }
     const listeners = new Set<() => void>()
     /** 重建快照而非就地改：useSyncExternalStore 要求变化前引用稳定 */
@@ -41,7 +40,6 @@ export function makeScope<T>(form: ConfigForm<unknown>, decode: (raw: unknown) =
             user: s.user,
             revision: s.revision,
             writable: s.writable,
-            mode: s.mode,
         }
         for (const listener of [...listeners]) listener()
     }
