@@ -2,12 +2,14 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { LlmCallConfig, LlmCallConfigAdapterDefaults, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { getConfig } from '@/config'
+import { hostVersionNow } from '@/host-version'
 import { errorText } from '@/shared/errors'
-import { PLUGIN_NAME } from '@/shared/constants'
+import { compareHostVersion } from '@/shared/version'
+import { HOST_MODEL_SELECT_SINCE, PLUGIN_NAME } from '@/shared/constants'
 
-/** 子智能体推理级别的注入面：在宿主 `agent/request` 瀑布里改写子 Agent 本次请求的调用配置。
- * 子 Agent 无推理级别设置面，委派调用配置流经此瀑布；按 `followParent` 开关在 `next()` 后改写，宿主随后照常校验（不预检不降级）。
- * 每请求现算不缓存（父档位与子实际模型可能变动）。裁决见 docs/decisions-session.md「子智能体」 */
+/** 子智能体跟随父智能体的注入面。
+ * 子 Agent 无推理级别设置面，委派调用流经 `agent/pre-step`（新宿主）/`agent/request`（旧宿主）与 `agent/request` 预算侧；每步现算不缓存。
+ * 裁决见 docs/decisions-session.md「子智能体」 */
 
 /** 宿主契约（`Agent` 只读面、子智能体选模型设置服务、会话投影服务）——按契约复制，不引宿主包类型。
  * 原因：宿主富面 `Agent` 只在 `@deepseek-ai/dsh-agent` 包根导出，「允许选择模型」设置住在 `@deepseek-ai/dsh-tool-subagent/model-selection-settings`；这两个包都会把 `@deepseek-ai/dsh-session` 包根类型拉进程序，顶掉浏览器半 `ctx.sessions` 的增补（`ISessions` → `SessionStore`）。
@@ -19,6 +21,9 @@ interface SubagentHost {
     }
     /** 宿主 `AgentOptions` 的路由四项（provider/model 可缺，故逐项判后再用） */
     readonly options: { readonly provider?: string; readonly model?: string; readonly reasoningEffort?: ReasoningEffortId; readonly maxTokens?: number }
+    readonly model: {
+        select(selection: { provider: string; model: string; reasoningEffort?: ReasoningEffortId }): void
+    }
 }
 
 /** 宿主 `AgentRegistry` 的只读面（按契约复制） */
@@ -37,48 +42,126 @@ interface HostSessionProjections {
     stateOf(session: SubagentHost['session'], key: 'modelSelection'): HostModelSelectionState | undefined
 }
 
-/** `agent/request` 瀑布监听签名（与宿主 `AgentEvents` 一致，见 [`docs/host/`](docs/host/)） */
+/** 宿主 `agent/pre-step` 瀑布的 `ModelSelection` */
+interface HostModelSelection {
+    readonly provider: string
+    readonly model: string
+    readonly reasoningEffort?: string
+}
+
+/** 宿主 `agent/pre-step` 瀑布的裁决 */
+type HostPreStepDecision =
+    | { readonly kind: 'reject' }
+    | { readonly kind: 'enter'; readonly messages: unknown[]; readonly startsRequestSeries?: true }
+
+/** `agent/pre-step` 瀑布监听签名 */
+type SubagentPreStepListener = (
+    payload: { agent: SubagentHost; messages: unknown[]; turn: number; step: number; signal: AbortSignal; modelSelection: HostModelSelection },
+    next: () => Promise<HostPreStepDecision>,
+) => Promise<HostPreStepDecision>
+
+/** `agent/request` 瀑布监听签名 */
 type SubagentRequestListener = (
     payload: { agent: SubagentHost },
     next: () => Promise<LlmCallConfig>,
 ) => Promise<LlmCallConfig>
 
-/** 装上「跟随父智能体」：单个 `agent/request` 监听覆盖全部 Agent（含 `origin === 'subagent'` 会话），作用域随 ctx 销毁自动卸载。
- * 只服务 `followParent` 一个开关。三个宿主服务经 `ctx.inject` 子 fiber 注入：全就绪才注册，任一缺席 PENDING 静默。
- * 监听用 `prepend` 钉成最外层：最外层 `next()` 拿到的是宿主全部改写完成后的最终配置 */
+/** 装上「跟随父智能体」，监听用 `prepend` 钉成最外层
+ * 两步：切路由 + 并输出预算（`mergedBudget`）。
+ * 分支由注入时读一次的宿主版本决定，此后每步只读这个 flag。 */
 export function installSubagentFollowParent(ctx: Context): void {
     ctx.inject(['agents', 'sessionProjections', 'subagentModelSelection'], (child) => {
         const agents = child.get('agents') as HostAgentRegistry
         const projections = child.get('sessionProjections') as HostSessionProjections
         const selectionService = child.get('subagentModelSelection') as HostSelectionService
+        const canSelect = selectsSince(ctx, HOST_MODEL_SELECT_SINCE)
         // 事件名与监听签名随 SubagentHost 一并按契约本地声明，故对 child.on 收窄断言；`this` 须是插件 ctx，故走 `.call`
         const on = child.on as unknown as (
             this: Context,
             name: string,
-            listener: SubagentRequestListener,
+            listener: SubagentRequestListener | SubagentPreStepListener,
             options?: { prepend?: boolean },
-        ) => unknown
-        on.call(child, 'agent/request', async (payload, next) => {
+        ) => () => boolean
+
+        const onRequest: SubagentRequestListener = async (payload, next) => {
             const config = await next()
             try {
-                return resolveRequest(agents, projections, selectionService, payload.agent, config)
+                return canSelect
+                    ? mergeBudgetOnly(agents, projections, selectionService, payload.agent, config)
+                    : applyFollowRoute(agents, projections, selectionService, payload.agent, config)
             } catch (error) {
-                // 读宿主设置/父 Agent 失败都不该拖垮子智能体的这一次请求：原样放行，交由宿主自身校验
-                ctx.logger.warn(`${PLUGIN_NAME}: 子智能体推理级别未生效：${errorText(error)}`)
+                ctx.logger.warn(`${PLUGIN_NAME}: 子智能体跟随未生效：${errorText(error)}`)
                 return config
             }
-        }, { prepend: true })
+        }
+
+        const onPreStep: SubagentPreStepListener = async (payload, next) => {
+            const decision = await next() 
+            if (decision.kind === 'reject' || payload.signal.aborted) return decision
+            try {
+                selectFollow(agents, projections, selectionService, payload.agent, payload.modelSelection)
+            } catch (error) {
+                ctx.logger.warn(`${PLUGIN_NAME}: 子智能体跟随未生效：${errorText(error)}`)
+            }
+            return decision
+        }
+
+        child.effect(() => {
+            const requestDisposer = on.call(child, 'agent/request', onRequest, { prepend: true })
+            const preStepDisposer = canSelect ? on.call(child, 'agent/pre-step', onPreStep, { prepend: true }) : undefined
+            return () => {
+                requestDisposer()
+                preStepDisposer?.()
+            }
+        }, `${PLUGIN_NAME}: 子智能体跟随监听`)
     })
 }
 
-/** 按配置算出本次请求该用的调用配置；非子智能体 Agent 或开关不适用时原样返回入参 */
-function resolveRequest(agents: HostAgentRegistry, projections: HostSessionProjections, selectionService: HostSelectionService, agent: SubagentHost | undefined, config: LlmCallConfig): LlmCallConfig {
-    if (agent?.session.header.origin !== 'subagent') return config
+/** 宿主版本是否已达某个起点；版本未知按未达处理（不空转） */
+function selectsSince(ctx: Context, since: string): boolean {
+    const version = hostVersionNow(ctx)
+    if (version === undefined) return false
+    return (compareHostVersion(version, since) ?? -1) >= 0
+}
+
+/** 门控链：不跟随则返回 undefined */
+function followRoute(agents: HostAgentRegistry, projections: HostSessionProjections, selectionService: HostSelectionService, agent: SubagentHost | undefined): FollowRoute | undefined {
+    if (agent?.session.header.origin !== 'subagent') return undefined
     // 宿主开着「允许 Agent 为子智能体选择模型」时，路由由模型自己在授权范围内挑，不该由插件覆盖
-    if (hostSelectionEnabled(selectionService)) return config
-    if (!getConfig().userExperience.followParent) return config
-    const follow = resolveFollow(agents, projections, agent)
+    if (hostSelectionEnabled(selectionService)) return undefined
+    if (!getConfig().userExperience.followParent) return undefined
+    return resolveFollow(agents, projections, agent)
+}
+
+/** `agent/pre-step` 层：本步选择与父的路由有差异时，用宿主命令面 `agent.model.select()` 切过去。 */
+function selectFollow(agents: HostAgentRegistry, projections: HostSessionProjections, selectionService: HostSelectionService, agent: SubagentHost | undefined, selection: HostModelSelection): void {
+    const follow = followRoute(agents, projections, selectionService, agent)
+    if (follow === undefined) return
+    const differs = follow.provider !== selection.provider
+        || follow.model !== selection.model
+        || (follow.reasoningEffort ?? '') !== (selection.reasoningEffort ?? '')
+    if (!differs) return
+    agent?.model.select({
+        provider: follow.provider,
+        model: follow.model,
+        ...follow.reasoningEffort === undefined ? {} : { reasoningEffort: follow.reasoningEffort },
+    })
+}
+
+/** `agent/request` 旧宿主：整条覆盖为父的路由 */
+function applyFollowRoute(agents: HostAgentRegistry, projections: HostSessionProjections, selectionService: HostSelectionService, agent: SubagentHost | undefined, config: LlmCallConfig): LlmCallConfig {
+    const follow = followRoute(agents, projections, selectionService, agent)
     return follow === undefined ? config : applyFollow(config, follow)
+}
+
+/** `agent/request` 新宿主：只并输出预算 */
+function mergeBudgetOnly(agents: HostAgentRegistry, projections: HostSessionProjections, selectionService: HostSelectionService, agent: SubagentHost | undefined, config: LlmCallConfig): LlmCallConfig {
+    const follow = followRoute(agents, projections, selectionService, agent)
+    if (follow === undefined) return config
+    const budget = mergedBudget(config.maxTokens, follow.maxTokens)
+    const next = { ...config }
+    delete next.maxTokens
+    return { ...next, ...budget === undefined ? {} : { maxTokens: budget } }
 }
 
 /** 宿主是否开着「允许 Agent 为子智能体选择模型」——跟着关时跟随才生效。`current()` 因「已开启但授权表为空」抛错时一律按关闭处理 */
