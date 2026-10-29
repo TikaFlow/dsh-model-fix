@@ -158,6 +158,69 @@ export async function run(): Promise<void> {
         check('allowUpdate 关非 force：无变更、零 mutate', changes === 0 && ctx.mutateCalls.length === 0)
     }
 
+    // ---------- 5b. 缺失侧：autoFill 关着但 allowUpdate 开着 → 仍补写目录值（allowUpdate 含缺失补写） ----------
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-a' }] } } },
+        })
+        setConfig(cfg({
+            autoFill: { reasoning: false, context: false, image: false },
+            allowUpdate: { reasoning: true, context: true, image: true },
+        }))
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('缺失侧：autoFill 全关 + allowUpdate 全开 → 四个字段都按目录补写', stable(model) === stable({
+            id: 'model-a',
+            reasoningEfforts: { off: 'none', low: 'low', high: 'high' },
+            contextWindow: 128000,
+            maxTokens: 8192,
+            input: ['text', 'image'],
+        }), model)
+        check('缺失侧：autoFill 全关 + allowUpdate 全开 ⇒ 变更计数为 1', changes === 1)
+    }
+
+    // ---------- 5c. 缺失侧：两个开关都关 → 不补写 ----------
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-a' }] } } },
+        })
+        setConfig(cfg({
+            autoFill: { reasoning: false, context: false, image: false },
+            allowUpdate: { reasoning: false, context: false, image: false },
+        }))
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('缺失侧：autoFill 与 allowUpdate 都关 → 四个字段都不动', stable(model) === stable({ id: 'model-a' }), model)
+        check('缺失侧：autoFill 与 allowUpdate 都关 ⇒ 零变更、零 mutate', changes === 0 && ctx.mutateCalls.length === 0)
+    }
+
+    // ---------- 5d. 已有值侧：autoFill 开着但 allowUpdate 关 → 已有值不覆盖、缺失值仍补写 ----------
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-a', reasoningEfforts: { low: 'low' } }] } } },
+        })
+        setConfig(cfg({
+            autoFill: { reasoning: true, context: true, image: true },
+            allowUpdate: { reasoning: false, context: false, image: false },
+        }))
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('已有值侧：allowUpdate 关 → 已有档位不覆盖，缺失的容量与图片照填', stable(model) === stable({
+            id: 'model-a',
+            reasoningEfforts: { low: 'low' },
+            contextWindow: 128000,
+            maxTokens: 8192,
+            input: ['text', 'image'],
+        }), model)
+        check('已有值侧：allowUpdate 关 ⇒ 变更计数为 1', changes === 1)
+    }
+
     // ---------- 6. excludes：命中的提供方填充与 compat 一律不作用 ----------
     {
         resetModules()
@@ -574,5 +637,83 @@ export async function run(): Promise<void> {
             maxTokens: 32000,
         }), model)
         check('安全填充开：当前已有值时变更计数为 1', changes === 1)
+    }
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-a' }] } } },
+        })
+        setConfig(cfg({ autoFill: { reasoning: false, context: false, image: false }, userExperience: { ...DEFAULT_CONFIG.userExperience, safeFill: true } }))
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('安全填充开：容量填充与更新都关着（目录有值）→ 不动容量', model.contextWindow === undefined && model.maxTokens === undefined, model)
+        check('安全填充开：容量填充与更新都关着 ⇒ 零变更', changes === 0, changes)
+    }
+
+    // ---------- 22. 总有推理：目录查不到可用档位、当前也没写时声明一条 off 档位 ----------
+    const ALWAYS_CONFIG = cfg({ autoFill: { reasoning: true, context: true, image: true }, userExperience: { ...DEFAULT_CONFIG.userExperience, alwaysReasoning: true } })
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-c' }] } } },
+        })
+        setConfig(ALWAYS_CONFIG)
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('总有推理开：目录无档位且当前无值 → 声明 off 档位', stable(model) === stable({
+            id: 'model-c',
+            reasoningEfforts: { off: null },
+        }), model)
+        check('总有推理开：变更计数为 1', changes === 1)
+    }
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-c' }] } } },
+        })
+        setConfig(cfg({ autoFill: { reasoning: false, context: true, image: true }, userExperience: { ...DEFAULT_CONFIG.userExperience, alwaysReasoning: true } }))
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('总有推理开：推理级别自动填充关着 → 不声明（不越过 autoFill）', model.reasoningEfforts === undefined, model)
+        check('总有推理开：推理级别自动填充关着 ⇒ 零变更', changes === 0, changes)
+    }
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-c' }] } } },
+        })
+        setConfig(cfg({ autoFill: { reasoning: true, context: true, image: true } }))
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('总有推理关：目录无档位且当前无值 → 不声明', model.reasoningEfforts === undefined, model)
+        check('总有推理关：目录无可用数据 ⇒ 零变更', changes === 0, changes)
+    }
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-a' }] } } },
+        })
+        setConfig(ALWAYS_CONFIG)
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('总有推理开：目录有档位 → 用目录档位，不声明 off', stable(model?.reasoningEfforts) === stable({ off: 'none', low: 'low', high: 'high' }), model)
+        check('总有推理开：目录有档位时变更计数为 1', changes === 1)
+    }
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-c', reasoningEfforts: { off: null } }] } } },
+        })
+        setConfig(ALWAYS_CONFIG)
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('总有推理开：当前已有 off 档位 → 保留不被清理', stable(model?.reasoningEfforts) === stable({ off: null }), model)
+        check('总有推理开：当前已有 off 档位 ⇒ 零变更', changes === 0, changes)
     }
 }

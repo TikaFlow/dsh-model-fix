@@ -21,9 +21,13 @@ const EMPTY_IS_ABSENT: readonly (readonly [string, (value: unknown) => boolean])
 ]
 
 /** 剔除空壳字段；无变化时返回原引用（调用方以引用相等判「无需重建」，不能无条件拷贝） */
-export function stripEmptyFields(model: Record<string, unknown>): Record<string, unknown> {
+export function stripEmptyFields(model: Record<string, unknown>, keepOffOnly = false): Record<string, unknown> {
     let next: Record<string, unknown> | undefined
     for (const [key, isEmpty] of EMPTY_IS_ABSENT) {
+        if (key === 'reasoningEfforts' && keepOffOnly) {
+            const value = model[key]
+            if (isPlainObject(value) && Object.keys(value).length === 1 && Object.hasOwn(value, 'off')) continue
+        }
         if (!isEmpty(model[key])) continue
         next ??= { ...model }
         delete next[key]

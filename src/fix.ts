@@ -24,6 +24,61 @@ const SAFE_CONTEXT_WINDOW = 256_000
 /** 安全填充的单次输出上限（十进制 32K） */
 const SAFE_MAX_TOKENS = 32_000
 
+/** 字段决策结果：要改（`newValue` 即写入值，缺省表示删键）还是不改 */
+interface FieldDecision {
+    readonly change: boolean
+    readonly newValue?: unknown
+}
+
+function decideReasoning(
+    autoFill: boolean,
+    allowUpdate: boolean,
+    oldValue: unknown,
+    newValue: Record<string, string | null> | undefined,
+    fallback?: Record<string, string | null>,
+): FieldDecision {
+    if (!autoFill && !allowUpdate) return { change: false }
+    if (oldValue === undefined) {
+        if (newValue !== undefined) return { change: true, newValue }
+        if (fallback !== undefined) return { change: true, newValue: fallback }
+        return { change: false }
+    }
+    if (allowUpdate && isPlainObject(newValue) && !deepEqualJson(oldValue, newValue)) return { change: true, newValue }
+    return { change: false }
+}
+
+function decideCapacity(
+    autoFill: boolean,
+    allowUpdate: boolean,
+    oldValue: unknown,
+    newValue: unknown,
+    fallback?: number,
+): FieldDecision {
+    if (!autoFill && !allowUpdate) return { change: false }
+    if (oldValue === undefined) {
+        if (isCapacity(newValue)) return { change: true, newValue }
+        if (fallback !== undefined) return { change: true, newValue: fallback }
+        return { change: false }
+    }
+    if (allowUpdate && isCapacity(newValue) && newValue !== oldValue) return { change: true, newValue }
+    return { change: false }
+}
+
+function decideImage(
+    autoFill: boolean,
+    allowUpdate: boolean,
+    oldValue: unknown,
+    newValue: string[] | undefined,
+): FieldDecision {
+    if (!autoFill && !allowUpdate) return { change: false }
+    if (oldValue === undefined) {
+        if (newValue !== undefined) return { change: true, newValue }
+        return { change: false }
+    }
+    if (allowUpdate && newValue !== undefined && !deepEqualJson(oldValue, newValue)) return { change: true, newValue }
+    return { change: false }
+}
+
 /** 填充计划：`llm-pi-ai` 段的写回 op（纯计算产物，不含 revision 与日志文案） */
 interface FillPlan {
     readonly ops: SettingsPathOp[]
@@ -40,11 +95,8 @@ function planFill(
     indexed: IndexedCatalog,
     force: boolean,
 ): FillPlan {
-    const allowRules = cfg.allowUpdate
-    const autoRules = cfg.autoFill
-    const compatRules = cfg.compat
-    const looseMatch = cfg.userExperience.looseMatch
-    const safeFill = cfg.userExperience.safeFill
+    const { allowUpdate, autoFill, compat } = cfg
+    const { looseMatch, safeFill, alwaysReasoning } = cfg.userExperience
     // 提供方级排除：命中的 id 整条跳过（模型写回与路由 compat 都不作用其上）
     const excludes = new Set(cfg.excludes)
     const ops: SettingsPathOp[] = []
@@ -65,60 +117,51 @@ function planFill(
                 if (!isPlainObject(model) || model.id === undefined || model.id === null) continue
                 const modelId = String(model.id)
                 // 缺失补写按剔除空壳后的值认（空壳等同未声明，否则既不被填又被清、要等下一轮才补上）
-                const cleaned = stripEmptyFields(model)
-                const { reasoningEfforts, contextWindow, maxTokens } = cleaned as {
+                const cleaned = stripEmptyFields(model, alwaysReasoning)
+                const { reasoningEfforts, contextWindow, maxTokens: currentMaxTokens } = cleaned as {
                     reasoningEfforts?: unknown
                     contextWindow?: unknown
                     maxTokens?: unknown
                 }
                 const entry = lookup(indexed, providerId, typeof baseURL === 'string' ? baseURL : undefined, modelId, looseMatch)
                 const efforts = toReasoningEfforts(entry)
-                // 图片模态同上：判据取自 cleaned.input
                 const input = cleaned.input
                 const imageValue = toInputValue(entry?.image)
-                // 推理级别
-                const reasoningFillable = autoRules.reasoning
-                    && reasoningEfforts === undefined && !!efforts
-                const reasoningUpdatable = (force || allowRules.reasoning)
-                    && isPlainObject(efforts)
-                    && !deepEqualJson(reasoningEfforts, efforts)
-                // 容量新值须为正整数且非哨兵（写 0 会被宿主 schema 拒绝并连累整批写入）
-                let ctxW = entry?.contextWindow
-                let maxT = entry?.maxTokens
-                let contextFillable = autoRules.context
-                    && contextWindow === undefined && isCapacity(ctxW)
-                const contextUpdatable = (force || allowRules.context)
-                    && ctxW !== contextWindow
-                    && isCapacity(ctxW)
-                let maxTokensFillable = autoRules.context
-                    && maxTokens === undefined && isCapacity(maxT)
-                const maxTokensUpdatable = (force || allowRules.context)
-                    && maxT !== maxTokens
-                    && isCapacity(maxT)
-                const imageFillable = autoRules.image
-                    && input === undefined && !!imageValue
-                const imageUpdatable = (force || allowRules.image)
-                    && !!imageValue
-                    && !deepEqualJson(input, imageValue)
-                // 安全填充：目录查不到容量、当前也没写、该字段本轮又无填充无更新（即将无操作）时才补保守值
-                if (contextWindow === undefined && safeFill && !contextFillable && !contextUpdatable) {
-                    contextFillable = true
-                    ctxW = SAFE_CONTEXT_WINDOW
-                }
-                if (maxTokens === undefined && safeFill && !maxTokensFillable && !maxTokensUpdatable) {
-                    maxTokensFillable = true
-                    maxT = SAFE_MAX_TOKENS
-                }
-                if (cleaned === model && !reasoningFillable && !reasoningUpdatable
-                    && !contextFillable && !contextUpdatable && !maxTokensFillable && !maxTokensUpdatable
-                    && !imageFillable && !imageUpdatable) continue
+                const reasoning = decideReasoning(
+                    autoFill.reasoning,
+                    force || allowUpdate.reasoning,
+                    reasoningEfforts,
+                    efforts,
+                    alwaysReasoning ? { off: null } : undefined,
+                )
+                const context = decideCapacity(
+                    autoFill.context,
+                    force || allowUpdate.context,
+                    contextWindow,
+                    entry?.contextWindow,
+                    safeFill ? SAFE_CONTEXT_WINDOW : undefined,
+                )
+                const maxTokens = decideCapacity(
+                    autoFill.context,
+                    force || allowUpdate.context,
+                    currentMaxTokens,
+                    entry?.maxTokens,
+                    safeFill ? SAFE_MAX_TOKENS : undefined,
+                )
+                const image = decideImage(
+                    autoFill.image,
+                    force || allowUpdate.image,
+                    input,
+                    imageValue,
+                )
+                if (cleaned === model && !reasoning.change && !context.change && !maxTokens.change && !image.change) continue
                 changes++
                 next ??= models.slice()
                 const patched = { ...cleaned }
-                if (reasoningFillable || reasoningUpdatable) patched.reasoningEfforts = efforts
-                if (contextFillable || contextUpdatable) patched.contextWindow = ctxW
-                if (maxTokensFillable || maxTokensUpdatable) patched.maxTokens = maxT
-                if (imageFillable || imageUpdatable) patched.input = imageValue
+                if (reasoning.change) patched.reasoningEfforts = reasoning.newValue
+                if (context.change) patched.contextWindow = context.newValue
+                if (maxTokens.change) patched.maxTokens = maxTokens.newValue
+                if (image.change) patched.input = image.newValue
                 next[i] = patched
             }
             if (next) {
@@ -128,7 +171,7 @@ function planFill(
         // 路由级兼容性（与模型参数无关，故 models 缺失也要处理）；协议适用范围见 COMPAT_APIS
         // 非目标协议（如已从 completions 切到 responses）仅做残留清理（只删不加），无论开关如何。
         if (typeof api === 'string') {
-            const effectiveCompat: CompatRules = COMPAT_APIS.has(api) ? compatRules : { disableDeveloper: false, disableStore: false }
+            const effectiveCompat: CompatRules = COMPAT_APIS.has(api) ? compat : { disableDeveloper: false, disableStore: false }
             const plan = planProviderCompat(effectiveCompat, currentCompat)
             if (plan) {
                 compatChanges++

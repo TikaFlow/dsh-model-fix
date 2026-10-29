@@ -48,10 +48,12 @@ export interface UserExperienceRules {
     localizeEfforts: boolean
     /** 同时显示原档位名：为 true 时，本地化推理级别开启后把中文与英文原档位一起显示（`中文名 · 原档位`，如 `最大 · Max`）；关闭则只显示中文。默认 true */
     showOriginalEfforts: boolean
-    /** 尽量匹配：精确匹配失败（无命中/歧义）时收集候选合成参数填充（合成口径见 `src/lookup.ts`）。默认 false，见 docs/decisions-config.md「参数来源」 */
+    /** 尽量匹配：精确匹配失败（无命中/歧义）时收集候选合成参数填充（合成口径见 `src/lookup.ts`）。默认 false */
     looseMatch: boolean
-    /** 安全填充：目录查不到容量、当前也没写、该字段本轮又无填充无更新时，写入一组保守的容量值（上下文 256000、输出上限 32000，十进制）。默认 false，见 docs/decisions-config.md「填充与写回」 */
+    /** 安全填充：目录查不到容量、当前也没写、该字段本轮又无填充无更新时，写入一组保守的容量值（上下文 256000、输出上限 32000，十进制）。默认 false */
     safeFill: boolean
+    /** 总有推理：目录查不到任何可用档位、当前也没写时，声明一条 off 档位（让模型选择器出现档位选项）。默认 false */
+    alwaysReasoning: boolean
 }
 
 /** UI 可见性规则：控制各 UI 部件在宿主各处的挂载。不改变插件行为，只决定 UI 在不在——关闭即卸载对应席位的注册，功能本体照常运行 */

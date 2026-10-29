@@ -35,4 +35,10 @@ export function run(): void {
     check('reasoningEfforts 仅剩 off(null) 判为空壳', stripEmptyFields({ reasoningEfforts: { off: null } }).reasoningEfforts === undefined)
     check('reasoningEfforts 仅剩 off(none) 判为空壳', stripEmptyFields({ reasoningEfforts: { off: 'none' } }).reasoningEfforts === undefined)
     check('reasoningEfforts off+high 不判为空壳', stripEmptyFields({ reasoningEfforts: { off: null, high: 'high' } }).reasoningEfforts !== undefined)
+
+    // 豁免：总有推理声明的 off 档位要留住（否则填了就被清、下一轮再填）
+    check('keepOffOnly：只剩 off 的档位表保留', stripEmptyFields({ reasoningEfforts: { off: null } }, true).reasoningEfforts !== undefined)
+    check('keepOffOnly：空对象仍判空壳', stripEmptyFields({ reasoningEfforts: {} }, true).reasoningEfforts === undefined)
+    check('keepOffOnly：off+high 不受影响', stripEmptyFields({ reasoningEfforts: { off: null, high: 'high' } }, true).reasoningEfforts !== undefined)
+    check('keepOffOnly：input 空数组照常剔除', stripEmptyFields({ reasoningEfforts: { off: null }, input: [] }, true).input === undefined)
 }
