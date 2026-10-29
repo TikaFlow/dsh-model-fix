@@ -4,10 +4,10 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // ctx.locale 服务面（LocaleRuntime）——这里故意不 import 它的类型，避免触发 private 守卫
-import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type { } from '@deepseek-ai/dsh-client-locale/client'
 import type { Flags } from '@/client/model'
 import type { DecodedScope } from '@/client/scope'
-import { EFFORT_NAMES_ZH, EFFORT_NAME_SEP } from '@/shared/constants'
+import { EFFORT_NAMES_ZH, EFFORT_NAME_SEP, PLUGIN_NAME } from '@/shared/constants'
 
 /** 宿主内部结构的 hack 接口：只列我们实际要碰的属性，其余假装不存在 */
 interface LocaleRuntimeHack {
@@ -57,14 +57,17 @@ export function applyLocalePatch(ctx: ClientContext, scope: DecodedScope<Flags>)
     }
 
     patch()
-    const scopeUnsub = scope.subscribe(patch)
 
-    ctx.effect(() => () => {
-        scopeUnsub()
-        const zhDict = runtime.dicts.get(MODEL_NS)?.get(ZH_LOWER)
-        if (zhDict !== undefined && zhDict[TARGET_KEY] !== ORIGINAL) {
-            zhDict[TARGET_KEY] = ORIGINAL
-            runtime.publish(runtime.snapshot.active, false, runtime.snapshot.locales)
+    ctx.effect(function* () {
+        const scopeUnsub = scope.subscribe(patch)
+        yield scopeUnsub
+        const disposer = () => {
+            const zhDict = runtime.dicts.get(MODEL_NS)?.get(ZH_LOWER)
+            if (zhDict !== undefined && zhDict[TARGET_KEY] !== ORIGINAL) {
+                zhDict[TARGET_KEY] = ORIGINAL
+                runtime.publish(runtime.snapshot.active, false, runtime.snapshot.locales)
+            }
         }
-    })
+        yield disposer
+    }, `${PLUGIN_NAME}: 推理档位名本地化 补丁`)
 }

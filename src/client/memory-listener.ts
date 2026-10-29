@@ -154,6 +154,6 @@ export function applyEffortMemoryListener(ctx: ClientContext, scope: DecodedScop
                 for (const id of [...tracked.keys()]) untrack(id)
                 tracked.clear()
             }
-        }, `${PLUGIN_NAME}: effort memory listener`)
+        }, `${PLUGIN_NAME}: 推理级别记忆 监听`)
     })
 }

@@ -25,10 +25,10 @@ export const inject = ['settings', 'llm', 'credentials']
 export const Config = z.any().volatile()
 
 /** 吞掉 fix 写回失败的 rejection（失败日志已在 fix 内告警） */
-const swallowFixError = (): void => {}
+const swallowFixError = (): void => { }
 
 /** 吞掉记忆清理逃逸的 rejection（内部已逐条告警） */
-const swallowMemoryError = (): void => {}
+const swallowMemoryError = (): void => { }
 
 /** 触发一次记忆失效清理（与填充解耦，独立于 fix 调用） */
 function pruneMemory(ctx: Context): void {
@@ -114,23 +114,23 @@ export function apply(ctx: Context, config?: unknown): void {
     ctx.inject(['hmr'], (child) => {
         setHmrExecuting((child.get('hmr') as { executing?: unknown } | undefined)?.executing)
     })
-    // 备份仅此一次且必须早于一切写回（接线即起异步 fix）
-    captureBackup(ctx)
-    // 配置源取 apply 第二参的实时引用（.get() 须在工厂内每次读）；段变更按 ns 分流
-    setConfigSource(() => resolveConfig(readVolatile(config)))
-    ctx.on('settings/document-updated', (ns) => {
-        if (ns === PLUGIN_NS) refillAfterOwnChange(ctx)
-        else if (ns === API_NS) refillAfterApiChange(ctx)
-    })
-    // provider 拓扑变化（宿主 commit 后发出）：记忆清理跟着它走
-    ctx.on('llm/adapters-updated', () => pruneMemory(ctx))
-    installSubagentFollowParent(ctx) // 「跟随父智能体」：agent/request 瀑布最外层，每请求现算
-    installSelfTune(ctx) // 「自主调节档位」：按 userExperience.selfTune 装/卸工具与提示词段
-    installOfficialFilter(ctx) // 「隐藏官方API」：判定实时现算，无事件接线
-    installEffortNameLocale(ctx) // 「本地化推理级别」：判定实时现算，无事件接线
-    installRpc(ctx) // 浏览器半三个写回端点的 RPC channel
-    ctx.effect(() => {
+    ctx.effect(function* () {
+        // 备份仅此一次且必须早于一切写回（接线即起异步 fix）
+        captureBackup(ctx)
+        // 配置源取 apply 第二参的实时引用（.get() 须在工厂内每次读）；段变更按 ns 分流
+        setConfigSource(() => resolveConfig(readVolatile(config)))
+        ctx.on('settings/document-updated', (ns) => {
+            if (ns === PLUGIN_NS) refillAfterOwnChange(ctx)
+            else if (ns === API_NS) refillAfterApiChange(ctx)
+        })
+        // provider 拓扑变化（宿主 commit 后发出）：记忆清理跟着它走
+        ctx.on('llm/adapters-updated', () => pruneMemory(ctx))
+        installSubagentFollowParent(ctx) // 「跟随父智能体」：agent/request 瀑布最外层，每请求现算
+        installSelfTune(ctx) // 「自主调节档位」：按 userExperience.selfTune 装/卸工具与提示词段
+        installOfficialFilter(ctx) // 「隐藏官方API」：判定实时现算，无事件接线
+        installEffortNameLocale(ctx) // 「本地化推理级别」：判定实时现算，无事件接线
+        installRpc(ctx) // 浏览器半三个写回端点的 RPC channel
         runStartupChain(ctx)
-        return () => cancelRefreshRetry() // 卸载后取消待触发的拉取重试
-    })
+        yield cancelRefreshRetry // 卸载后取消待触发的拉取重试
+    }, `${PLUGIN_NAME}: 启动链`)
 }

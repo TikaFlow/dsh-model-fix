@@ -5,7 +5,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionRpcResult, HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 // ctx.llm 服务面声明合并（仅 type-only，不引运行期依赖；LLM 服务是插件 inject 依赖，装载即在）
-import type {} from '@deepseek-ai/dsh-llm'
+import type { } from '@deepseek-ai/dsh-llm'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import {
     ENDPOINT_FORCE_UPDATE, ENDPOINT_REPORT_LOCALE,
@@ -80,7 +80,7 @@ export function installRpc(ctx: Context): void {
     ctx.inject(['connection', 'webServer'], (rpcCtx) => {
         const connection = rpcCtx.get('connection') as Pick<HostConnectionService, 'requestRejection' | 'fetch'>
         const webServer = rpcCtx.get('webServer') as WebServer
-        rpcCtx.effect(() => {
+        rpcCtx.effect(function* () {
             const channel = `/${PLUGIN_NS}`
             // 三个写回端点都不读载荷（各按整份配置重算、或剔除模型上的推理级别）；只有语言上报读
             const handler: EndpointHandler = async (endpoint, payload) => {
@@ -94,6 +94,7 @@ export function installRpc(ctx: Context): void {
                 }
             }
             const disposeChannel = webServer.register({ kind: 'prefix', path: channel, handler: createChannelRoute(connection, channel, handler) })
+            yield disposeChannel
             // 两条进度流走 connection.fetch exact 路由（RPC 一次调用只对应一个 JSON 结果，装不下持续多帧的响应）
             const disposeStream = connection.fetch.register({
                 path: VERIFY_STREAM_ROUTE,
@@ -101,6 +102,7 @@ export function installRpc(ctx: Context): void {
                 requestBody: 'buffered',
                 fetch: progressStreamFetch((payload, options) => verifyModels(ctx.llm, payload, options)),
             })
+            yield () => disposeStream()
             // 探测档位的流多带一个 ctx：它一轮之内要写两次配置（预声明 + 收敛），都在守卫内完成
             const disposeProbe = connection.fetch.register({
                 path: PROBE_STREAM_ROUTE,
@@ -108,12 +110,8 @@ export function installRpc(ctx: Context): void {
                 requestBody: 'buffered',
                 fetch: progressStreamFetch((payload, options) => probeAndFill(ctx, ctx.llm, payload, options), true),
             })
-            return () => {
-                disposeChannel()
-                void disposeStream() // fetch.register 的 disposer 是异步的，effect 只负责同步调用它
-                void disposeProbe()
-            }
-        }, `${PLUGIN_NAME}: rpc`)
+            yield () => disposeProbe()
+        }, `${PLUGIN_NAME}: RPC 通道`)
     })
 }
 

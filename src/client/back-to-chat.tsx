@@ -9,7 +9,7 @@ import type { ReactNode } from 'react'
 import { IconChevronLeftOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type { } from '@deepseek-ai/dsh-client-locale/client'
 import type { UiSession } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { ISessions, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -20,6 +20,7 @@ import type { Flags } from '@/client/model'
 import type { DecodedScope } from '@/client/scope'
 import { createFloatingButton } from '@/client/floating-button'
 import type { FloatingButton } from '@/client/floating-button'
+import { PLUGIN_NAME } from '@/shared/constants'
 
 const CONVERSATION_TABS_SELECTOR = '[data-conversation-tabs]'
 const CONVERSATION_TAB_SELECTOR = 'button[role="tab"]'
@@ -189,9 +190,16 @@ export function applyBackToChat(ctx: ClientContext, scope: DecodedScope<Flags>):
         button.set({ icon: <BackToChatIcon base={<StateDot state={view.state} />} />, title })
     }
 
-    // scope 订阅不推首值，先按当前快照补跑一次
-    const unsubscribeScope = scope.subscribe(syncActive)
-    const unsubscribeLocale = ctx.locale.subscribe(syncStatus)
+
+    ctx.effect(function* () {
+        // scope 订阅不推首值，先按当前快照补跑一次
+        const unsubscribeScope = scope.subscribe(syncActive)
+        yield unsubscribeScope
+        const unsubscribeLocale = ctx.locale.subscribe(syncStatus)
+        yield unsubscribeLocale
+        syncStatus()
+    }, `${PLUGIN_NAME}: 返回对话 订阅`)
+
     ctx.inject(['layout'], (child) => {
         const layout = child.get('layout')
         selectPanel = (panelId) => { layout.selectPanel(panelId) }
@@ -203,23 +211,17 @@ export function applyBackToChat(ctx: ClientContext, scope: DecodedScope<Flags>):
         openSession = (sessionId) => { (child.get('uiWorkspace') as UiWorkspaceNav).openSession(sessionId) }
     })
     ctx.inject(['uiSession', 'sessions'], (child) => {
-        uiSession = child.get('uiSession') as UiSession
-        sessions = child.get('sessions') as ISessions
-        const offCurrent = uiSession.adapter.current.subscribe(syncStatus)
-        const offStatus = uiSession.sessionStatus.subscribe(syncStatus)
-        const offList = sessions.list.subscribe(syncStatus)
-        syncStatus()
-        child.effect(() => () => {
-            offCurrent()
-            offStatus()
-            offList()
-        })
-    })
-    syncStatus()
-
-    ctx.effect(() => () => {
-        unsubscribeScope()
-        unsubscribeLocale()
+        child.effect(function* () {
+            uiSession = child.get('uiSession') as UiSession
+            sessions = child.get('sessions') as ISessions
+            const offCurrent = uiSession.adapter.current.subscribe(syncStatus)
+            yield offCurrent
+            const offStatus = uiSession.sessionStatus.subscribe(syncStatus)
+            yield offStatus
+            const offList = sessions.list.subscribe(syncStatus)
+            yield offList
+            syncStatus()
+        }, `${PLUGIN_NAME}: 返回对话 会话状态订阅`)
     })
 
     return button

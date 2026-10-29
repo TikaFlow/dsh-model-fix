@@ -66,9 +66,9 @@ function boot(
     rpc: ClientConnectionRpc,
 ): void {
     // 词典注册返回 disposer；经 effect 挂载，卸载/HMR 时自动撤销
-    ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), `${name}: card dictionaries`)
+    ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), `${name}: 卡片词典`)
     // scope 的 form 订阅释放挂入本 fiber
-    ctx.effect(() => () => { scope.dispose(); providersScope.dispose(); hostModelScope.dispose() }, `${name}: scope disposal`)
+    ctx.effect(() => () => { scope.dispose(); providersScope.dispose(); hostModelScope.dispose() }, `${name}: 设置作用域 释放`)
     // 浏览器半调 Node 半的全部出口（三个写回端点 + 两条诊断链的读流）见 rpc-carrier.ts
     const { forceUpdate, resetModels, restoreModels, verifyModels, probeEfforts } =
         makeRpcCarrier(rpc)

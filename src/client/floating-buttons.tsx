@@ -122,6 +122,9 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         column = null
         columnPosition = ''
     }
+    ctx.effect(function* () {
+        yield restoreColumnContext
+    }, `${PLUGIN_NAME}: 悬浮按钮组 宿主列样式复原`)
 
     const mount = (): void => {
         if (container !== null) return
@@ -154,26 +157,28 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         }
         if (container.parentElement !== target) target.appendChild(container)
     }
-    // 合并到下一帧只跑一次：逐个 mutation 各跑一次全树查询代价过高
-    const observer = new MutationObserver(() => {
-        if (scheduled !== NO_FRAME) return
-        scheduled = requestAnimationFrame(sync)
-    })
-    observer.observe(document.body, { childList: true, subtree: true })
 
-    mount()
+    ctx.effect(function* () {
+        // 合并到下一帧只跑一次：逐个 mutation 各跑一次全树查询代价过高
+        const observer = new MutationObserver(() => {
+            if (scheduled !== NO_FRAME) return
+            scheduled = requestAnimationFrame(sync)
+        })
+        yield () => observer.disconnect()
+        observer.observe(document.body, { childList: true, subtree: true })
 
-    ctx.effect(() => () => {
-        observer.disconnect()
-        // 已排未跑的帧须取消：sync 会在 disconnect 之后跑 mount，重建出已卸载的容器
-        if (scheduled !== NO_FRAME) cancelAnimationFrame(scheduled)
-        scheduled = NO_FRAME
-        root?.unmount()
-        root = null
-        container?.remove()
-        container = null
-        restoreColumnContext()
-    })
+        mount()
+        const disposer = () => {
+            // 已排未跑的帧须取消：sync 会在 disconnect 之后跑 mount，重建出已卸载的容器
+            if (scheduled !== NO_FRAME) cancelAnimationFrame(scheduled)
+            scheduled = NO_FRAME
+            root?.unmount()
+            root = null
+            container?.remove()
+            container = null
+        }
+        yield disposer
+    }, `${PLUGIN_NAME}: 悬浮按钮组 挂载`)
 
     return { addButton }
 }

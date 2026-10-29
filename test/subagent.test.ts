@@ -95,7 +95,7 @@ function makeCtx(init: {
         on(name: string, fn: unknown, opts?: unknown) {
             listeners.set(name, fn)
             options.set(name, opts)
-            return () => {
+            const disposer = () => {
                 // 只摘「当时在册的那一个」：已被换掉的监听调 disposer 是空操作（与宿主 disposer 语义一致）
                 if (listeners.get(name) === fn) {
                     listeners.delete(name)
@@ -103,10 +103,28 @@ function makeCtx(init: {
                 }
                 return false
             }
+            // ctx.on 内部即 fiber.effect：监听随 fiber 卸载自动摘除
+            effects.push(disposer)
+            return disposer
         },
         effect(execute: () => unknown, _label?: string) {
-            const dispose = execute()
-            if (typeof dispose === 'function') effects.push(dispose as () => void)
+            // 消费生成器：逐个 next() 收集 yield 出的 disposer（与 cordis 的 effect 语义一致：一次性去全部 yield 值）
+            const result = execute()
+            const collected: (() => void)[] = []
+            if (typeof result === 'function') {
+                collected.push(result as () => void)
+            } else if (result !== null && typeof result === 'object' && Symbol.iterator in result) {
+                const iter = (result as Generator<unknown>)[Symbol.iterator]()
+                while (true) {
+                    const step = iter.next()
+                    if (typeof step.value === 'function') collected.push(step.value as () => void)
+                    if (step.done) break
+                }
+            }
+            // 卸载时逆序执行（与 cordis 一致：后注册的先执行）
+            effects.push(() => {
+                for (const dispose of collected.splice(0).reverse()) dispose()
+            })
             return () => {}
         },
         inject(deps: readonly string[], callback: (child: Context) => void) {
@@ -603,15 +621,15 @@ export async function run(): Promise<void> {
         && broken.stub.listenerOf('agent/pre-step') === undefined
         && broken.warns.length === 0)
 
-    // ---------- 卸载：effect 的固定闭包摘掉在册的两条监听 ----------
+    // ---------- 卸载：监听随子 fiber 卸载自动摘除（ctx.on 内部即 fiber.effect） ----------
     const unloadLegacy = mount({ agent: subagent, config: { followParent: true }, selection: OFF })
     unloadLegacy.stub.disposeEffects()
-    const unloadSwappedAgent = makeAgent({ origin: 'subagent', parentSession: 'p1' })
-    const unloadSwapped = mount({ agent: unloadSwappedAgent, config: { followParent: true }, selection: OFF })
-    await unloadSwapped.step()
-    unloadSwapped.stub.disposeEffects()
-    check('卸载：effect 的 disposer 在旧轨与换轨后都能摘净两条监听',
-        unloadLegacy.stub.sizeOf() === 0 && unloadSwapped.stub.sizeOf() === 0)
+    const unloadNewAgent = makeAgent({ origin: 'subagent', parentSession: 'p1' })
+    const unloadNew = mount({ agent: unloadNewAgent, config: { followParent: true }, selection: OFF })
+    await unloadNew.step()
+    unloadNew.stub.disposeEffects()
+    check('卸载：两条监听随 fiber 卸载一并摘除',
+        unloadLegacy.stub.sizeOf() === 0 && unloadNew.stub.sizeOf() === 0)
 
     // 收尾把配置源放回默认，避免影响其余模块
     setConfigSource(() => DEFAULT_CONFIG)

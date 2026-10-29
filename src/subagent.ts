@@ -96,7 +96,7 @@ export function installSubagentFollowParent(ctx: Context): void {
         }
 
         const onPreStep: SubagentPreStepListener = async (payload, next) => {
-            const decision = await next() 
+            const decision = await next()
             if (decision.kind === 'reject' || payload.signal.aborted) return decision
             try {
                 selectFollow(agents, projections, selectionService, payload.agent, payload.modelSelection)
@@ -106,14 +106,8 @@ export function installSubagentFollowParent(ctx: Context): void {
             return decision
         }
 
-        child.effect(() => {
-            const requestDisposer = on.call(child, 'agent/request', onRequest, { prepend: true })
-            const preStepDisposer = canSelect ? on.call(child, 'agent/pre-step', onPreStep, { prepend: true }) : undefined
-            return () => {
-                requestDisposer()
-                preStepDisposer?.()
-            }
-        }, `${PLUGIN_NAME}: 子智能体跟随监听`)
+        on.call(child, 'agent/request', onRequest, { prepend: true })
+        if (canSelect) on.call(child, 'agent/pre-step', onPreStep, { prepend: true })
     })
 }
 

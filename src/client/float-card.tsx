@@ -70,15 +70,15 @@ export function applyFloatCard(
         })
     }
 
-    const unsubscribeScope = scope.subscribe(syncActive)
-    const unsubscribeLocale = ctx.locale.subscribe(() => { button.set({ title: t('tipOpenSettingCard') }) })
-    syncActive()
 
-    ctx.effect(() => () => {
-        unsubscribeScope()
-        unsubscribeLocale()
-        root.unmount()
-    })
+    ctx.effect(function* () {
+        yield () => root.unmount()
+        const unsubscribeScope = scope.subscribe(syncActive)
+        yield unsubscribeScope
+        const unsubscribeLocale = ctx.locale.subscribe(() => { button.set({ title: t('tipOpenSettingCard') }) })
+        yield unsubscribeLocale
+        syncActive()
+    }, `${PLUGIN_NAME}: 设置卡片 悬浮入口`)
 
     return button
 }

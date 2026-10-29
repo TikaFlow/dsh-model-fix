@@ -155,14 +155,16 @@ export function installSelfTune(ctx: Context): void {
             }
         }
 
-        if (getConfig().userExperience.selfTune) load()
-        child.on('settings/document-updated', (ns: string) => {
-            if (ns === PLUGIN_NS) {
-                if (getConfig().userExperience.selfTune) load()
-                else unload()
-            }
-        })
-        child.effect(() => () => unload())
+        child.effect(function* () {
+            yield unload
+            if (getConfig().userExperience.selfTune) load()
+            child.on('settings/document-updated', (ns: string) => {
+                if (ns === PLUGIN_NS) {
+                    if (getConfig().userExperience.selfTune) load()
+                    else unload()
+                }
+            })
+        }, `${PLUGIN_NAME}: 档位自调`)
     })
 }
 

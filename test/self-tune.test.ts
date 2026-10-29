@@ -142,8 +142,24 @@ function makeCtx(init: {
             }
             return undefined
         },
-        effect(fn: () => () => void) {
-            cleanup = fn()
+        effect(fn: (() => unknown) | (() => Generator<unknown>)) {
+            // 消费生成器：逐个 next() 收集 yield 出的 disposer（与 cordis 的 effect 语义一致：一次性去全部 yield 值）
+            const result = fn() as unknown
+            const disposers: (() => void)[] = []
+            if (typeof result === 'function') {
+                disposers.push(result as () => void)
+            } else if (result !== null && typeof result === 'object' && Symbol.iterator in result) {
+                const iter = (result as Generator<unknown>)[Symbol.iterator]()
+                while (true) {
+                    const step = iter.next()
+                    if (typeof step.value === 'function') disposers.push(step.value as () => void)
+                    if (step.done) break
+                }
+            }
+            // 卸载时逆序执行（与 cordis 一致：后注册的先执行）
+            cleanup = () => {
+                for (const dispose of disposers.splice(0).reverse()) dispose()
+            }
             return cleanup
         },
         logger: { info() {}, warn(msg: string) { warns.push(msg) }, error() {} },
