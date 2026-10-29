@@ -19,6 +19,11 @@ function toInputValue(image: boolean | undefined): string[] | undefined {
     return image ? ['text', 'image'] : undefined
 }
 
+/** 安全填充的上下文窗口值（十进制 256K） */
+const SAFE_CONTEXT_WINDOW = 256_000
+/** 安全填充的单次输出上限（十进制 32K） */
+const SAFE_MAX_TOKENS = 32_000
+
 /** 填充计划：`llm-pi-ai` 段的写回 op（纯计算产物，不含 revision 与日志文案） */
 interface FillPlan {
     readonly ops: SettingsPathOp[]
@@ -39,6 +44,7 @@ function planFill(
     const autoRules = cfg.autoFill
     const compatRules = cfg.compat
     const looseMatch = cfg.userExperience.looseMatch
+    const safeFill = cfg.userExperience.safeFill
     // 提供方级排除：命中的 id 整条跳过（模型写回与路由 compat 都不作用其上）
     const excludes = new Set(cfg.excludes)
     const ops: SettingsPathOp[] = []
@@ -77,14 +83,14 @@ function planFill(
                     && isPlainObject(efforts)
                     && !deepEqualJson(reasoningEfforts, efforts)
                 // 容量新值须为正整数且非哨兵（写 0 会被宿主 schema 拒绝并连累整批写入）
-                const ctxW = entry?.contextWindow
-                const maxT = entry?.maxTokens
-                const contextFillable = autoRules.context
+                let ctxW = entry?.contextWindow
+                let maxT = entry?.maxTokens
+                let contextFillable = autoRules.context
                     && contextWindow === undefined && isCapacity(ctxW)
                 const contextUpdatable = (force || allowRules.context)
                     && ctxW !== contextWindow
                     && isCapacity(ctxW)
-                const maxTokensFillable = autoRules.context
+                let maxTokensFillable = autoRules.context
                     && maxTokens === undefined && isCapacity(maxT)
                 const maxTokensUpdatable = (force || allowRules.context)
                     && maxT !== maxTokens
@@ -94,6 +100,15 @@ function planFill(
                 const imageUpdatable = (force || allowRules.image)
                     && !!imageValue
                     && !deepEqualJson(input, imageValue)
+                // 安全填充：目录查不到容量、当前也没写、该字段本轮又无填充无更新（即将无操作）时才补保守值
+                if (contextWindow === undefined && safeFill && !contextFillable && !contextUpdatable) {
+                    contextFillable = true
+                    ctxW = SAFE_CONTEXT_WINDOW
+                }
+                if (maxTokens === undefined && safeFill && !maxTokensFillable && !maxTokensUpdatable) {
+                    maxTokensFillable = true
+                    maxT = SAFE_MAX_TOKENS
+                }
                 if (cleaned === model && !reasoningFillable && !reasoningUpdatable
                     && !contextFillable && !contextUpdatable && !maxTokensFillable && !maxTokensUpdatable
                     && !imageFillable && !imageUpdatable) continue

@@ -516,4 +516,63 @@ export async function run(): Promise<void> {
         const changes = await fix(ctx as unknown as Context)
         check('端点未命中：回落到路由 id 的提供方', changes === 1 && modelsOf(ctx, 'testprovider')[0]?.contextWindow === 128000)
     }
+
+    // ---------- 21. 安全填充：目录查不到容量、当前也没写、本轮又无填充无更新时补保守值 ----------
+    const SAFE_FILL_CONFIG = cfg({ autoFill: { reasoning: true, context: true, image: true }, userExperience: { ...DEFAULT_CONFIG.userExperience, safeFill: true } })
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-c' }] } } },
+        })
+        setConfig(SAFE_FILL_CONFIG)
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('安全填充开：目录无容量且当前无值 → 填 256000/32000', stable(model) === stable({
+            id: 'model-c',
+            contextWindow: 256000,
+            maxTokens: 32000,
+        }), model)
+        check('安全填充开：变更计数为 1', changes === 1)
+    }
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-c' }] } } },
+        })
+        setConfig(cfg({ autoFill: { reasoning: true, context: true, image: true } }))
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('安全填充关：目录无容量且当前无值 → 不填容量', model.contextWindow === undefined && model.maxTokens === undefined, model)
+        check('安全填充关：目录无可用数据 ⇒ 零变更', changes === 0, changes)
+    }
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-a' }] } } },
+        })
+        setConfig(SAFE_FILL_CONFIG)
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('安全填充开：目录有容量 → 用目录值，不受安全值影响', model.contextWindow === 128000 && model.maxTokens === 8192, model)
+        check('安全填充开：目录有容量时变更计数为 1', changes === 1)
+    }
+    {
+        resetModules()
+        const ctx = makeStubCtx({
+            api: { providers: { testprovider: { models: [{ id: 'model-c', contextWindow: 64000 }] } } },
+        })
+        setConfig(SAFE_FILL_CONFIG)
+        setCatalog(CAT)
+        const changes = await fix(ctx as unknown as Context)
+        const model = modelsOf(ctx, 'testprovider')[0]
+        check('安全填充开：当前已有 contextWindow → 不动该字段，只补 maxTokens', stable(model) === stable({
+            id: 'model-c',
+            contextWindow: 64000,
+            maxTokens: 32000,
+        }), model)
+        check('安全填充开：当前已有值时变更计数为 1', changes === 1)
+    }
 }

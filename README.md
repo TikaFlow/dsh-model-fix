@@ -35,6 +35,7 @@ DSH[（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness) 插
 - 推理级别的名字看着别扭？【本地化推理级别】模型选择器里的推理级别按界面语言显示名称
 - 推理级别翻译后对不上原名称？【显示原档位名】在本地化推理级别时，还显示原档位名（如「最大 · Max」），方便对照。
 - 自动填充效果不理想，总是填充不上？【尽量匹配】尽量给出一组合适的参数填充，**但无法保证准确**
+- 目录里查不到模型容量，怕宿主按过大的默认值估？【安全填充】目录查不到容量、当前也没写时，补一组保守值（上下文 256K、输出上限 32K）
 
 UI界面还提供了一些额外功能：
 
@@ -138,6 +139,7 @@ DSH 正在快速迭代，本插件所兼容的 DSH 宿主版本追随较新版�
         localizeEfforts: true
         showOriginalEfforts: true
         looseMatch: false
+        safeFill: false
       behavior:           # 界面显示与行为
         showInModels: true
         showInBuiltinPlugins: true

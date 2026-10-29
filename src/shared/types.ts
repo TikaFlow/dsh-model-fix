@@ -50,6 +50,8 @@ export interface UserExperienceRules {
     showOriginalEfforts: boolean
     /** 尽量匹配：精确匹配失败（无命中/歧义）时收集候选合成参数填充（合成口径见 `src/lookup.ts`）。默认 false，见 docs/decisions-config.md「参数来源」 */
     looseMatch: boolean
+    /** 安全填充：目录查不到容量、当前也没写、该字段本轮又无填充无更新时，写入一组保守的容量值（上下文 256000、输出上限 32000，十进制）。默认 false，见 docs/decisions-config.md「填充与写回」 */
+    safeFill: boolean
 }
 
 /** UI 可见性规则：控制各 UI 部件在宿主各处的挂载。不改变插件行为，只决定 UI 在不在——关闭即卸载对应席位的注册，功能本体照常运行 */
