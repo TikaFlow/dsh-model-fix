@@ -18,7 +18,9 @@
 ## 子智能体
 
 - 服务名：`subagentModelSelection` / `agents` / `sessionProjections`（经子 fiber 注入，全就绪才注册监听）。
+- 事件名：`agent/request`（两版都有）、`agent/pre-step`（≥ `0.2.2-alpha.2` 才派发）。
 - 投影键 `'modelSelection'`；`SessionHeader.origin = 'subagent'`。
+- 版本起点常量 `HOST_MODEL_SELECT_SINCE = '0.2.2-alpha.2'`（`src/shared/constants.ts`）。
 - 浏览器半读宿主段 `subagent-model-selection-settings` 的 `enabled` 布尔（`src/client/composer.tsx`，段缺席视为未开启）。
 
 ## 档位自调

@@ -48,7 +48,7 @@
 
 | 复制位置 | 替代的宿主包 | 复制的面 |
 | --- | --- | --- |
-| `src/subagent.ts` | `dsh-agent`、`dsh-tool-subagent/model-selection-settings` | `SubagentHost` / `HostSelectionService` / `SubagentRequestListener` |
+| `src/subagent.ts` | `dsh-agent`、`dsh-tool-subagent/model-selection-settings` | `SubagentHost`（含 `model.select()`）/ `HostSelectionService` / `HostModelSelection` / 两条瀑布的监听签名 |
 | `src/client/back-to-chat.tsx` | `dsh-client-ui-workspace`、`dsh-subagent` | `UiWorkspaceNav`（只取 `openSession(sessionId: SessionId)`） |
 | `src/self-tune.ts` | `dsh-tools`、`dsh-system-prompt` | `HostToolsService` / `HostSystemPromptService` / `HostSessionController` / `HostSessionProjections` |
 | `src/host-version.ts` | `dsh-app-boot` 的 `pluginPackages` 服务面 | `HostPluginPackages`（只取 `packageOf` 的 `version`）；该包只服务 CLI 启动、传递依赖大，故不装 devDep |

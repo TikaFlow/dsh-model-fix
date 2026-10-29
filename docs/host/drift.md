@@ -44,6 +44,8 @@
 ### 子智能体注入面
 
 - `agent/request` 仍可 prepend 且种子仍 `deepFreeze`；未打 scope 标签的 ctx 仍全局收事件；`ctx.agents.get()` 仍返回富面 `Agent`；`session.requestHeader()` 仍只反映父已发过的请求；`sessionProjections.stateOf` 的 `modelSelection` 形状与 pending 语义未变；`subagentModelSelection` 缺席/抛错语义未变。
+- `0.2.2-alpha.1` 起：路由改在 `agent/pre-step` 里经 `agent.model.select()` 切换，`agent/request` 禁改路由（校验 throw、该步失败）；`agent/route` 事件名已移除。
+- `0.2.2-alpha.2` 起：`sessionProjections.stateOf` 标 `@deprecated`（每 registry 每 key 一次 warn）、`register` 返回 `Promise<ProjectionHandle>`；`modelSelection` 投影注册方由 session-controller 迁至 agent-loop（`stateVersion` 2→3，本仓只读、形状未变）；`subagentModelSelection.current()` 已改 `private`（本仓经本地接口 cast 调用，JS 运行时仍可访问，不升 devDep 前行为不变）。本仓维持 `stateOf`：另两条路（`register(handle)`、`agent.model.current()`）各自只在新版存在，跨不了两版宿主。
 
 ### 档位自调
 

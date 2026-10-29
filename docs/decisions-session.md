@@ -11,10 +11,10 @@
 
 ## 子智能体
 
-- **在宿主 `agent/request` 瀑布里改写**（语义见 `host/agent.md`）：子智能体没有独立档位设置面，该瀑布是唯一可读可写处。插件根 ctx 未打 scope 标签 ⇒ 单个 `{ prepend: true }` 监听覆盖全部 Agent。
+- **路由改写分两版**（语义见 `host/agent.md`）：旧宿主在 `agent/request` 瀑布里整条改写；新宿主（≥ `0.2.2-alpha.2`）在 `agent/pre-step` 里经 `agent.model.select()` 切路由，`agent/request` 只并输出预算。按宿主版本分流，版本读不到按旧版处理。
 - **「跟随」以宿主「允许 Agent 为子智能体选择模型」关着为前提**：开着时路由由模型在授权范围内自挑，覆盖即推翻合法选择。浏览器半同读这段 settings 判定状态灯。
 - **`followParent` 落在 `userExperience` 组、不递增版本**：会话侧体验开关，与模型配置写入无关、不读 `excludes`。
-- **跟随父「下一次请求该用的路由」**：优先投影 `pending`，回落请求头 `config`，再回落 `options`。三项照父的来；`adapterDefaults?.reasoningEffort === true` 是适配器默认值，跟随时删键。`maxTokens` 按 `mergedBudget`（`src/subagent.ts`）合并。每请求现算、不缓存。
+- **跟随父「下一次请求该用的路由」**：优先投影 `pending`，回落请求头 `config`，再回落 `options`。三项照父的来；`adapterDefaults?.reasoningEffort === true` 是适配器默认值，跟随时删键。`maxTokens` 按 `mergedBudget`（`src/subagent.ts`）合并。每步现算、不缓存。
 - **不预检档位可用性、不自动降级**：宿主派发前本地校验，未声明档位不出网；跟随时写入的是父刚生效的档位。
 
 ## 档位自调

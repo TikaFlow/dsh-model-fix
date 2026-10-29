@@ -2,13 +2,13 @@
 
 契约基线 devDep `0.1.7-rc.2`（差异见 `drift.md`）。
 
-## `agent/request`：子智能体路由改写
+## `agent/pre-step` 与 `agent/request`：子智能体路由改写
 
-- 瀑布（`DSH/packages/core/agent/src/runtime-types.ts`）：`'agent/request'(this: Scoped<Agent>, payload: { agent; turn; step; signal }, next)`；派发器把 `payload.agent` 覆盖为运行期 Agent。
-- 种子配置被 `deepFreeze(structuredClone(...))`（`DSH/packages/core/agent-loop/src/agent.ts` 的 `prepareRequest`）⇒ **中间件只能返回新对象**；`next()` 返回的是本次请求实际生效的 `LlmCallConfig`。
-- 本仓 `{ prepend: true }` 钉最外层：`handler` 内 `await next()` 拿种子配置（未被更内层钩子改写）再决定覆盖。
+- **旧宿主（< `0.2.2-alpha.2`）**：`agent/request` 瀑布（`DSH/packages/core/agent/src/runtime-types.ts`）：`'agent/request'(this: Scoped<Agent>, payload: { agent; turn; step; signal }, next)`；派发器把 `payload.agent` 覆盖为运行期 Agent。种子配置被 `deepFreeze(structuredClone(...))`（`DSH/packages/core/agent-loop/src/agent.ts` 的 `prepareRequest`）⇒ **中间件只能返回新对象**；`next()` 返回的是本次请求实际生效的 `LlmCallConfig`。本仓 `{ prepend: true }` 钉最外层：`handler` 内 `await next()` 拿种子配置（未被更内层钩子改写）再决定覆盖。
+- **新宿主（≥ `0.2.2-alpha.2`）**：路由改在 `agent/pre-step` 瀑布里做，签名 `(payload: { agent; messages; turn; step; signal; modelSelection }, next: () => Promise<PreStepDecision>) => Promise<PreStepDecision>`；`PreStepDecision` 两形：`{ kind: 'reject' }` / `{ kind: 'enter'; messages; startsRequestSeries? }`。本仓只读 `kind`，裁决原样透传。切路由经 `agent.model.select({ provider, model, reasoningEffort? })`（`DSH/packages/core/agent/src/runtime-types.ts` 的 `Model` 接口）；`agent/request` 只并输出预算，不碰路由三项（碰了宿主校验 throw、该步失败）。
+- 两版分流：宿主版本 ≥ `HOST_MODEL_SELECT_SINCE` 走新宿主形态，否则旧形态；版本读不到按未达处理。
 - 全局覆盖靠 scope 过滤器（`scopeOf(ctx) === undefined` 全局收事件）⇒ 插件根 ctx 单个监听覆盖全部 Agent。`ctx.on` 的 `prepend` 选项：钩子表全局一张按注册先后排（outermost-first）⇒ HMR 重载后仍钉最外层。
-- `agents` 服务（`DSH/packages/core/agent/src/index.ts`）：`get(id)` 返回**富面 Agent**（含 `options / session / ctx`）——`@deepseek-ai/dsh-agent/types` 子路径只导出精简 `{ id }`，必须包根导入。**本仓不引该包**（包根类型顶掉浏览器半 `ctx.sessions`，见 `imports.md`），在 `src/subagent.ts` 复制只读的 `session.header` / `requestHeader()` / `options`，经子 fiber 注入。
+- `agents` 服务（`DSH/packages/core/agent/src/index.ts`）：`get(id)` 返回**富面 Agent**（含 `options / session / ctx`）——`@deepseek-ai/dsh-agent/types` 子路径只导出精简 `{ id }`，必须包根导入。**本仓不引该包**（包根类型顶掉浏览器半 `ctx.sessions`，见 `imports.md`），在 `src/subagent.ts` 复制只读的 `session.header` / `requestHeader()` / `options` / `model.select()`，经子 fiber 注入。
 - 会话头与请求头（`DSH/packages/core/session/src/{types,index}.ts`）：`SessionHeader{ parentSession?; origin?: 'subagent' }`；`requestHeader(): EpochHeader{ config; adapterDefaults?; tools?; system? } | undefined`——**只反映父已发过的请求**（请求真正被准备时才写）。`adapterDefaults?.reasoningEffort === true` 表示档位是适配器默认值、本仓视为「未选」。
 - 父会话待生效选择：服务名 `sessionProjections`，`stateOf(session, 'modelSelection')` 未注册键返回 undefined。`pending` 即「父下一次请求该用的路由」：UI 每次选择落 `model/selection` 事件置位，匹配请求头落库后清空。本仓不引该包类型，只在 `src/subagent.ts` 本地声明返回面。
 - 「允许 Agent 为子智能体选择模型」（服务名 `subagentModelSelection`）：`current()` 在 `enabled && allowedModels.length === 0` 时抛错 ⇒ 本仓 try/catch 当关闭。三服务（`agents` / `sessionProjections` / `subagentModelSelection`）全就绪才注册监听。
