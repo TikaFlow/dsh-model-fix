@@ -22,8 +22,3 @@
 - **`systemPrompt`**（`DSH/packages/core/system-prompt/src/index.ts`）：`section({ name, order, text })`，重名抛错；宿主 order 序列 `MCP_SERVERS=3100`、`TOOLS_SDK=5000`，本插件用 `order: 3200` 落位其间。
 - **`sessionController.selectModel`**（`@deepseek-ai/dsh-api-session-controller` 的 `src/types/commands.ts`）：会话级模型选择生效——与 UI 选择器同一链路（落 `model/selection` 成投影 `pending`），返回值带 `{ selected }`；失败**抛 `RemoteError`**（子智能体持有会话 `session/agent-busy`、模型不支持所选档位 `session/model-unavailable`），本仓文案原样透传。
 - **`sessionProjections`**：同上一节，自调的查询侧按同一条路由回落链取当前路由。
-
-## credentials：凭据状态面
-
-- `ctx.credentials` 在 `src/index.ts` 的 `inject` 里作顶级依赖（与 `settings` / `llm` 并列），不用 `ctx.get`：宿主基础配置无条件挂载它 ⇒ 缺失即异常部署，PENDING 暴露好过静默降级。
-- **本仓当前不调它的任何方法**：`describe` / `credentialRef` / `isCredentialRefName` 仅供已移除的「隐藏官方 API」功能使用 ⇒ 该包不再是 `@deepseek-ai/dsh-credentials` 的值导入方（见「依赖清理」结论）。升宿主时不必复核这些符号。

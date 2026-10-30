@@ -6,7 +6,6 @@
 
 - **settings 路径 op 数组下标中间段**：较新版本已支持。本仓按 provider 整段 `set` 在两种语义下都成立；0.2.x 后若改用下标写法须先在 devDep 版本实测。
 - **平台模块表**：本仓两份副本比宿主 `platform.ts` 少一项 `@deepseek-ai/dsh-client-ui-dockkit`——当前无碍，宿主若把本仓在用的模块移出表则会被打进浏览器包。升宿主时两份一起逐位比对。
-- **`NODE_EXTERNALS` 含 `@deepseek-ai/dsh-credentials`**：tsdown 默认只外置 dependencies/peerDependencies、devDependencies 会被内联，故加进 `NODE_EXTERNALS`。升 tsdown 时复核 `lib/index.js` 首行仍是外置 import。
 - **pi-ai 适配器的 `listModels` 对未解析凭据改为返回空清单**（alpha.3：rc.2 是直接抛出）：`memory.ts` 把「读失败」与「成功但空」分开处理，alpha.3 下未配凭据的自定义提供方记忆被清——按「凭据缺失即用不了模型、删记忆是对的」口径接受。
 - **`Pill` 的形态由 `onClick` 是否存在决定**（无则静态 `span`、有则 `button`；无 `:disabled` 规则）⇒ 卡片「恒定展示行」用「不传 `onClick`」表达不可操作态，置灰走本地 `.dsh-mf-pillLocked`。
 - **「经典设置」依赖宿主两件事**：账号包服务缺席则 fiber PENDING、不认领 `settings.launcher`，侧栏底显示外壳自己的回退触发器（本仓复刻的正是它）；以及遮蔽规则（`priority` 升序、最小者渲染；`registrant` = 注册方 fiber 名）。宿主改这两条须复核 `src/client/classic-setting.tsx`。

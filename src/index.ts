@@ -18,7 +18,7 @@ import { installSelfTune } from '@/self-tune'
 import { installEffortNameLocale } from '@/effort-name'
 
 export const name = PLUGIN_NAME
-export const inject = ['settings', 'llm', 'credentials']
+export const inject = ['settings', 'llm']
 
 /** 宿主 Config schema 面：宽松任意值 + 根 `.volatile()`（宿主据此把整段作实时引用注入 apply 第二参） */
 export const Config = z.any().volatile()
