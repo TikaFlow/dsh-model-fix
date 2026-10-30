@@ -39,7 +39,15 @@
 
 ## 契约漂移点
 
-（暂无）
+typecheck 抓不到、须人工复核的三类（逐条登记在所属分片，此处只作索引）：
+
+| 漂移点 | 形态 | 登记处 |
+| --- | --- | --- |
+| `pluginPackages.packageOf(specifier, parentURL)` | 宿主私有服务面，按契约本地声明 | `runtime.md` |
+| `hmr` 服务类的 private 字段 `executing` | 私有字段，改名即静默降级 | `runtime.md` |
+| `ctx.locale` 实例的 `dicts` / `publish` / `snapshot` | 非公开类型面，本地 `LocaleRuntimeHack` 接口 + `as unknown as` | `client.md` |
+| `subagentModelSelection.current()` 已改 private | 经本地接口 cast 调用，JS 运行时仍可访问 | `agent.md` / `drift.md` |
+| `primitives.Tooltip` 的 `side` 四向断言 | devDep 类型基线缺 `left`，传参按宿主类型断言 | `client.md` |
 
 ## 按契约复制、不引宿主包的四处
 

@@ -26,7 +26,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | [`docs/decisions-config.md`](docs/decisions-config.md) | 裁决：快照、排除与列表、参数来源、填充与写回、写回端点 | 空壳字段判据只有 `stripEmptyFields` 一处，五条写回路径共用 | 动配置解析、填充、写回前读 |
 | [`docs/decisions-session.md`](docs/decisions-session.md) | 裁决：推理级别记忆、子智能体跟随、档位自调 | 记忆清理归 Node 半、设级别只能走浏览器半 | 动记忆、子智能体、自调前读 |
 | [`docs/decisions-diagnose.md`](docs/decisions-diagnose.md) | 裁决：验证与探测（共用层 + 各自特有） | 失败分类只认 `code`，不比对文案、不看 `status` | 动验证/探测前读 |
-| [`docs/decisions-ui.md`](docs/decisions-ui.md) | 裁决：卡片编排、隐藏官方 API、本地化档位、悬浮按钮、返回对话、经典设置 | 开关必须落到「注册 / 撤销注册」，注册必须写在 `inject` 回调里 | 改卡片/瓦片/悬浮按钮/弹层等任何 UI 前读 |
+| [`docs/decisions-ui.md`](docs/decisions-ui.md) | 裁决：卡片编排、本地化档位、悬浮按钮、返回对话、经典设置 | 开关必须落到「注册 / 撤销注册」，注册必须写在 `inject` 回调里；Tooltip 方向：卡片一律 `top`，悬浮按钮按吸附边动态取 | 改卡片/瓦片/悬浮按钮/弹层等任何 UI 前读 |
 | [`docs/ui-fusion.md`](docs/ui-fusion.md) | UI 无痕融合纪律：复刻范围、同款来源与例外 | 官方用导出组件就用同一组件；官方自绘且无同款导出原语就在本地逐字复刻其源码——数值零自造 | 改任何 UI 前读；新增复刻条目或发现例外时改 |
 | [`docs/versioning.md`](docs/versioning.md) | 配置版本形态：递增判据、冻结类型与台阶链 | 只在真不兼容时递增 `CONFIG_VERSION`；组内新增键与新增顶级组两端都退得动，都不升版本 | 动 `CONFIG_VERSION` / 快照结构 / `src/upgrade.ts` 前读；上述变更时改 |
 | [`docs/workflow.md`](docs/workflow.md) | 命令、工具链陷阱、Git 钩子与测试规范 | 只认 `pnpm` 已定义脚本、不得裸跑 bin，且必须直接在 shell 里执行、不得经 Node 子进程包裹 pnpm；提交前必跑 `pnpm all` | 跑验证、加脚本、加测试前读；命令或陷阱变化时改 |
@@ -41,9 +41,9 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | --- | --- |
 | [`runtime.md`](docs/host/runtime.md) | settings 读写与事件、装载时序、`hmr` 私有面、cordis 基础面、`Config` volatile、patch id ↔ 命名空间、装载与 HMR 契约 |
 | [`llm.md`](docs/host/llm.md) | 验证请求、模型清单面、`resolveModelInfo`、失败码与语言判定三路 |
-| [`agent.md`](docs/host/agent.md) | `agent/request` 瀑布、子智能体三服务、档位自调四服务、credentials |
+| [`agent.md`](docs/host/agent.md) | `agent/request` 与 `agent/pre-step` 瀑布（按宿主版本分流）、子智能体三服务、档位自调四服务、credentials |
 | [`transport.md`](docs/host/transport.md) | connection RPC channel 与进度流、webServer 路由、模块装载与 `dsh.client.inject` |
-| [`client.md`](docs/host/client.md) | slots 六席、locale、configForms、sessions / modelDirectories、layout、uiSession、uiWorkspace、会话页签 |
+| [`client.md`](docs/host/client.md) | slots 六席、locale、configForms、sessions / modelDirectories、layout、uiSession、uiWorkspace、会话页签、primitives 的 `Tooltip.side` |
 | [`imports.md`](docs/host/imports.md) | 宿主类型导入清单、契约漂移点、按契约复制的四处 |
 | [`literals.md`](docs/host/literals.md) | 依赖宿主的键与码：命名空间、compat 字段、服务名、RPC 路由与端点、错误码、LLM 失败码 |
 | [`drift.md`](docs/host/drift.md) | 已知漂移观察项与升级宿主时的检查清单 |
@@ -57,7 +57,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | 快照解析、排除与列表、参数来源与 id 匹配、填充与写回、写回端点 | `docs/decisions-config.md` |
 | 推理级别记忆、子智能体跟随、档位自调 | `docs/decisions-session.md` |
 | 验证模型、探测档位 | `docs/decisions-diagnose.md` |
-| 卡片、隐藏官方 API、本地化档位、悬浮按钮、返回对话、经典设置 | `docs/decisions-ui.md` |
+| 卡片、本地化档位、悬浮按钮、返回对话、经典设置 | `docs/decisions-ui.md` |
 
 改动任一功能模块前先读对应那一篇；出现新取舍或推翻旧取舍时就地改。
 

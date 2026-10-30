@@ -6,8 +6,7 @@
 
 - **settings 路径 op 数组下标中间段**：较新版本已支持。本仓按 provider 整段 `set` 在两种语义下都成立；0.2.x 后若改用下标写法须先在 devDep 版本实测。
 - **平台模块表**：本仓两份副本比宿主 `platform.ts` 少一项 `@deepseek-ai/dsh-client-ui-dockkit`——当前无碍，宿主若把本仓在用的模块移出表则会被打进浏览器包。升宿主时两份一起逐位比对。
-- **官方 provider 的 `models` 有默认兜底**（`llm-deepseek` 的 `.default(DEFAULT_MODELS)`）：清空配置来隐藏它实测不生效，故本仓拦目录生成链路。该兜底若被去掉，这条观察可撤。
-- **`NODE_EXTERNALS` 含 `@deepseek-ai/dsh-credentials`**：tsdown 默认只外置 dependencies/peerDependencies、devDependencies 会被内联（实测 0.22.14 内联出的 `credentialRef` 与宿主服务面脱钩），故加进 `NODE_EXTERNALS`。升 tsdown 时复核 `lib/index.js` 首行仍是外置 import。
+- **`NODE_EXTERNALS` 含 `@deepseek-ai/dsh-credentials`**：tsdown 默认只外置 dependencies/peerDependencies、devDependencies 会被内联，故加进 `NODE_EXTERNALS`。升 tsdown 时复核 `lib/index.js` 首行仍是外置 import。
 - **pi-ai 适配器的 `listModels` 对未解析凭据改为返回空清单**（alpha.3：rc.2 是直接抛出）：`memory.ts` 把「读失败」与「成功但空」分开处理，alpha.3 下未配凭据的自定义提供方记忆被清——按「凭据缺失即用不了模型、删记忆是对的」口径接受。
 - **`Pill` 的形态由 `onClick` 是否存在决定**（无则静态 `span`、有则 `button`；无 `:disabled` 规则）⇒ 卡片「恒定展示行」用「不传 `onClick`」表达不可操作态，置灰走本地 `.dsh-mf-pillLocked`。
 - **「经典设置」依赖宿主两件事**：账号包服务缺席则 fiber PENDING、不认领 `settings.launcher`，侧栏底显示外壳自己的回退触发器（本仓复刻的正是它）；以及遮蔽规则（`priority` 升序、最小者渲染；`registrant` = 注册方 fiber 名）。宿主改这两条须复核 `src/client/classic-setting.tsx`。
@@ -52,6 +51,5 @@
 
 ### 功能专属
 
-- 「隐藏官方API」四条：`llm.listModels` 仍是原型方法；`buildModelCatalog` 仍滤空组；`credentials.describe` 与 `credentialRef` / `isCredentialRefName` 签名未变（已核 `0.2.1-alpha.3`）；宿主自 `0.2.1-alpha.2` 起 `discoverModels` 在 `MISSING_CREDENTIAL` 时返回 `[]`（本层据此空转）。
 - 宿主版本读取面两条：`pluginPackages.packageOf(specifier, parentURL)` 仍返回带 `version` 的包；`__DSH_BOOT__.release.version` 仍是版本号字符串。任一改形 ⇒ 降级为「版本未知」⇒ 不空转。
 - 「本地化推理级别」三条：远程方法仍装成可配置访问器；「方法先于依赖方装载」的同步窗口仍在；档位显示名仍由适配器按 id 现算（宿主若自带本地化词条或渲染插槽，本层可撤）。

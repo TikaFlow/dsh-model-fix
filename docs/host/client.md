@@ -75,3 +75,9 @@
 - 当前页签读 localStorage `dsh.conversation.{sid}` 的 `view` 字段（宿主 per-session store 的持久化值）。
 - 切页签派发宿主页签按钮的原生 click：宿主 `actions.setView` 只经 slot 内部 store 绑定下发，插件侧不可达。
 - 页签条锚点 `[data-conversation-tabs]`，其内首枚 `button[role="tab"]` 即「对话」（宿主 `conversation.view` 席位按 `order` 排，`ui-chat` 的 `chat` 为 order 0；宿主若调整该 order，本定位即失效）。
+
+## primitives：`Tooltip.side` 的四向断言
+
+- 取值全集 `right | left | bottom | top`；**devDep 类型基线（`0.2.1-rc.2`）的 prop 类型只有 `right | bottom | top`**，`left` 是宿主 `0.2.1-rc.3` 才加的。
+- 故 `src/client/floating-buttons.tsx` 声明本地 `TooltipSide` 四向全集，传参时按宿主 prop 类型断言（`side={props.side as 'right' | 'bottom' | 'top'}`）：运行时值原样传下去，不支持 `left` 的宿主按自身默认方向退化（不崩）。
+- 这条断言的漂移 typecheck 抓不到（类型来自本仓 devDep）⇒ 升宿主时复核：prop 类型是否已含 `left`（含则去掉断言）。

@@ -124,7 +124,7 @@ export function apply(ctx: Context, config?: unknown): void {
         })
         // provider 拓扑变化（宿主 commit 后发出）：记忆清理跟着它走
         ctx.on('llm/adapters-updated', () => pruneMemory(ctx))
-        installSubagentFollowParent(ctx) // 「跟随父智能体」：agent/request 瀑布最外层，每请求现算
+        installSubagentFollowParent(ctx) // 「跟随父智能体」，每请求现算
         installSelfTune(ctx) // 「自主调节档位」：按 userExperience.selfTune 装/卸工具与提示词段
         installEffortNameLocale(ctx) // 「本地化推理级别」：判定实时现算，无事件接线
         installRpc(ctx) // 浏览器半的 RPC channel

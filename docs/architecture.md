@@ -35,7 +35,7 @@
 | `src/rpc-route.ts` | RPC 信封解码与路由分发 |
 | `src/refresh.ts` | 目录保鲜刷新（窗口过期才拉取，失败限次重试） |
 | `src/effort-name.ts` | 档位名本地化：遮蔽 `resolveModelInfo`，按开关 + 界面语言换显示名 |
-| `src/subagent.ts` | 「跟随父智能体」：`agent/request` 瀑布最外层改写路由 |
+| `src/subagent.ts` | 「跟随父智能体」：按宿主版本在 `agent/pre-step`（≥ `0.2.2-alpha.2`）切路由 + `agent/request` 并预算，或旧宿主在 `agent/request` 一步做完 |
 | `src/self-tune.ts` | 「自主调节档位」：装/卸两枚工具与一段系统提示词 |
 | `src/types.ts` | 当前版本配置形态与冻结的旧版类型 |
 | `src/constants.ts` | Node 半常量 |
@@ -108,7 +108,7 @@
 
 - **段变更按 ns 分流**：自有段「自愈 → 填充 → 记忆清理」，`llm-pi-ai` 段「填充 → 保鲜刷新 → 记忆清理」，入口先判事件流守卫。
 - **记忆三条链**：浏览器半 `memory-listener` 管存取；Node 半 `memory.ts` 按宿主全量模型列表做失效清理；两条诊断链路（验证只读 / 探测写回）共用 probe 四层，进度走 SSE。
-- **请求期链**：`agent/request` 瀑布判定「跟随父智能体」；`self-tune` 按开关装/卸注入面。两者均不写配置。
+- **请求期链**：「跟随父智能体」按宿主版本分流——新宿主在 `agent/pre-step` 里 `agent.model.select()` 切路由、`agent/request` 只并输出预算，旧宿主在 `agent/request` 一步做完（分流见 `host/agent.md`）；`self-tune` 按开关装/卸注入面。两者均不写配置。
 - **只读遮蔽支线**：`effort-name` 遮 `resolveModelInfo`，判定逐次现算，不挂事件。
 - **启动链**（`runStartupChain`）：迁移 → 读缓存 → 填充 → 探测兜底回退 → 保鲜刷新 → 记忆清理；备份捕获在这一切之前。
 

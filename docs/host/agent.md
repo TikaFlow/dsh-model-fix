@@ -26,6 +26,4 @@
 ## credentials：凭据状态面
 
 - `ctx.credentials` 在 `src/index.ts` 的 `inject` 里作顶级依赖（与 `settings` / `llm` 并列），不用 `ctx.get`：宿主基础配置无条件挂载它 ⇒ 缺失即异常部署，PENDING 暴露好过静默降级。
-- `describe(ref): Promise<CredentialInfo{ configured; source?; writable }>`：按引用名描述、**永不回值**；解析分层 进程环境 → provider 存储 → `.env`，空值视为未配置。本仓只读 `configured`。判定口径与宿主模型页 `hasProviderApiKey` 同源（settingsNs 段沿 settingsPath 取 profile → `apiKeyEnv` → `describe().configured`）。
-- `credentialRef(value)`（**值导入**）：裸字符串品牌化，语法外（POSIX 标识符）抛 `TypeError` ⇒ 调用前须过 `isCredentialRefName` 预检（同包值导出、不抛）；本仓语法外引用名一律放行不隐藏。
-- 官方适配器默认引用名：`llm-deepseek-api-key` 的 `Config.apiKeyEnv` 默认 `"DEEPSEEK_API_KEY"`（volatile）⇒ 段缺该字段时本仓判定回退同名常量 `DEFAULT_OFFICIAL_API_KEY_ENV`。
+- **本仓当前不调它的任何方法**：`describe` / `credentialRef` / `isCredentialRefName` 仅供已移除的「隐藏官方 API」功能使用 ⇒ 该包不再是 `@deepseek-ai/dsh-credentials` 的值导入方（见「依赖清理」结论）。升宿主时不必复核这些符号。

@@ -34,7 +34,7 @@
 - 元素 id / class 一律以 `tikaflow-model-fix` 起头。
 - 定位上下文是宿主中心列，逐字照宿主 `ui-chat` 的 `.toBottom`；层级 `z-index: 999`（低于宿主 Modal 的 1000）。
 - 列表纵向向上排、按钮间距 8px。
-- 按钮提示走宿主 `Tooltip`（`side="right"`、`portal`、宽度上限复用 `TIP_MAX_WIDTH`），不用原生 `title`。
+- 按钮提示走宿主 `Tooltip`（`portal`、宽度上限复用 `TIP_MAX_WIDTH`），不用原生 `title`；方向不写死，由吸附边反算（见 `docs/decisions-ui.md`）。
 - 卡片入口图标是插件图标（`public/icon.svg`，构建期内联；渐变填充改 `currentColor`）。
 - 「返回对话」按钮在会话非空闲时改用宿主 `StateDot` 原语；图标用宿主导出的 `IconChevronLeftOutlineRegular`。
 

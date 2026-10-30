@@ -18,8 +18,8 @@
 
 ## 模型清单面（记忆剪枝的判据）
 
-- `listProviders()` 同步、当前全部活路由；`listModels(provider)` 直穿 adapter 无缓存，provider 未注册抛 `NO_ADAPTER`（剪枝须当「读不到」）；`listConfigurableProviders()` 同步声明序（「隐藏官方API」读它取 settingsNs / settingsPath 定位凭据段；目录条目是声明而非活路由，未声明无从判定、照常显示）。
-- `listModels` 是原型方法，可用实例自有属性遮蔽（`llm.listModels = wrapped` 全部消费者生效）——「隐藏官方API」即据此实现，安装带 `Symbol.for` 标记幂等。**宿主若把它改成箭头函数类字段，遮蔽失效**。
+- `listProviders()` 同步、当前全部活路由；`listModels(provider)` 直穿 adapter 无缓存，provider 未注册抛 `NO_ADAPTER`（剪枝须当「读不到」）。本仓只用这两项采集记忆剪枝的存活清单。
+- `LlmRuntime` 的方法是原型方法、可用实例自有属性遮蔽 ⇒ 本仓遮 `resolveModelInfo`（唯一一处，见 `runtime.md`）。**宿主若把它改成箭头函数类字段，遮蔽失效**。
 - UI 模型目录唯一生成链路（`DSH/packages/api/session-controller/src/types/catalog.ts`）：`buildModelCatalog` 逐 provider `listModels` + `resolveModelInfo`，末了滤掉模型数为 0 的组 ⇒ 返回空清单即组从目录消失。本仓刻意不用它：逐模型 `resolveModelInfo` 可能打网络，且默认参数求值执行未 inject 的 `ctx.agentDefaultModel`。
 - 目录刷新由浏览器侧宿主服务负责：`llm/adapters-updated`、`settings/document-updated`、`credentials/record-updated`、`credentials/reference-updated` 任一到达即 `catalog.refresh()` ⇒ 插件改开关 / 配密钥后 UI 自动重取，零事件接线。
 - `llm/adapters-updated`：provider 拓扑变化在每个 commit 点（含 dispose）触发，payload-free ⇒ 到达时拓扑已是新的。模型级增删不触发它 ⇒ 记忆剪枝除挂它外还挂 `settings/document-updated(llm-pi-ai)`。
