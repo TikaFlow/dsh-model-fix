@@ -186,7 +186,7 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         container.style.transform = 'none'
     }
 
-    /** 默认位置：左边 16px、纵向居中 */
+    /** 默认位置：左边贴边间距、纵向居中 */
     const applyDefaultPosition = (target: HTMLElement): void => {
         const geometry = geometryOf(target)
         if (geometry === null) return

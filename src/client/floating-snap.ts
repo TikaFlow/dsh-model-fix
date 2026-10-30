@@ -1,7 +1,7 @@
 /** 悬浮按钮组的贴边几何：纯函数，算吸附位置与排列方向（零 DOM 依赖）。 */
 
 /** 贴边间距（父容器内缩） */
-export const EDGE_GAP = 16
+export const EDGE_GAP = 12
 
 /** 吸附到哪条边 */
 export type SnapEdge = 'left' | 'right' | 'top' | 'bottom'
