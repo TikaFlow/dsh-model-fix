@@ -660,6 +660,52 @@ export async function run(): Promise<void> {
         check('probeOnce 被放弃的 next() 迟来抛错不产生未处理拒绝', verdict.outcome === 'timeout' && rejections.length === 0, { verdict, rejections })
     }
     {
+        // 适配器未注册时 stream 同步抛出：异常必须落进 catch 归 other、finally 清理计时器并发中止，
+        // 而不是漏到 runProbeGroups 让整轮 reject——一个模型的配置问题不该拖垮全部
+        const aborted: boolean[] = []
+        const syncThrow = (): Pick<LlmRuntime, 'stream'> => ({
+            stream: (options: { signal?: AbortSignal }) => {
+                options.signal?.addEventListener('abort', () => { aborted.push(true) })
+                throw new Error('NO_ADAPTER')
+            },
+        } as unknown as Pick<LlmRuntime, 'stream'>)
+        /** 在跑的 Timeout 句柄数：未清理的软超时 / 宽限计时器会一直挂在事件循环上 */
+        const pendingTimeouts = (): number => process.getActiveResourcesInfo().filter((kind) => kind === 'Timeout').length
+        const before = pendingTimeouts()
+        const verdict = await probeOnce(syncThrow(), probeOf(), new AbortController().signal)
+        check(
+            'probeOnce 同步抛错归 other：计时器清理、中止信号照发、异常不冒泡',
+            verdict.outcome === 'other' && verdict.failure === undefined && aborted.length === 1 && pendingTimeouts() === before,
+            { verdict, aborted, before, after: pendingTimeouts() },
+        )
+        // 组合层：Promise.all 只认 probeOnce settle——同步抛错同样不得让整轮 reject
+        const runner: GroupRunner = async (llm, group, signal) => {
+            const results: VerifyProbeResult[] = []
+            for (const probe of group.probes) {
+                const item = await probeOnce(llm, probe, signal, 30, 10)
+                results.push({ provider: probe.provider, model: probe.model, effort: probe.effort, outcome: item.outcome, failure: item.failure })
+            }
+            return {
+                provider: group.provider,
+                results,
+                blockedBy: undefined,
+                planned: group.probes.length,
+                plannedEfforts: group.probes.length,
+                tested: group.probes.length,
+            }
+        }
+        const summary = await runProbeGroups(
+            syncThrow(),
+            groupProbesByProvider([{ provider: 'a', model: 'm1', effort: 'off' }, { provider: 'a', model: 'm2', effort: 'off' }]),
+            runner,
+        ).catch(() => undefined)
+        check(
+            'runProbeGroups 遇 stream 同步抛错不整轮 reject，逐条记为 other',
+            summary !== undefined && summary.probed === 2 && summary.results.every((result) => result.outcome === 'other'),
+            summary,
+        )
+    }
+    {
         // 组合层：Promise.all 只认 probeOnce settle——适配器忽略 signal 时整轮也必须收尾。
         // runGroup 注入小超时（真实链路里 runGroup 是 verify.ts / probe.ts 注入的那两个，此处只验编排与引擎的接缝）
         const runner: GroupRunner = async (llm, group, signal, emit) => {
