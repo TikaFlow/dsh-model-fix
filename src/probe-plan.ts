@@ -31,13 +31,18 @@ export function planProbes(payload: unknown, limits: ProbeLimits = VERIFY_LIMITS
     const models = payload.models
     if (!Array.isArray(models) || models.length === 0) return
     const probes: VerifyProbe[] = []
+    const plannedModels = new Set<string>()
     for (const entry of models) {
         if (!isPlainObject(entry)) return
         const { provider, model, efforts } = entry
         if (typeof provider !== 'string' || provider === '' || typeof model !== 'string' || model === '') return
+        // 模型数按「提供方 / 模型」去重计
+        plannedModels.add(JSON.stringify([provider, model]))
+        if (plannedModels.size > limits.maxModels) return
         if (efforts === undefined || (Array.isArray(efforts) && efforts.length === 0)) {
             // 没有档位要试：这条不带档位的请求本身就是被验对象
             probes.push({ provider, model })
+            if (probes.length > limits.maxProbes) return
             continue
         }
         if (!Array.isArray(efforts)) return
@@ -45,14 +50,11 @@ export function planProbes(payload: unknown, limits: ProbeLimits = VERIFY_LIMITS
             // 档位须落在 harness 支持的取值内（入参来自浏览器，仍按不可信输入校验）
             if (typeof effort !== 'string' || !LEVELS.has(effort)) return
             probes.push({ provider, model, effort })
+            // 清单一条即一次真实请求，故请求数取清单长度
+            if (probes.length > limits.maxProbes) return
         }
     }
-    // 清单一条即一次真实请求，故请求数取清单长度；模型数另按「提供方 / 模型」去重计
-    const plannedModels = new Set<string>()
-    for (const probe of probes) {
-        plannedModels.add(JSON.stringify([probe.provider, probe.model]))
-    }
-    return probes.length > limits.maxProbes || plannedModels.size > limits.maxModels ? undefined : probes
+    return probes
 }
 
 /** 按 provider 分组，组内保持探测原序；组序为提供方首次出现序 */

@@ -5,7 +5,7 @@
 // 命中即返回时中止先于迭代器关闭发出、被放弃的循环不再消费分片也不产未处理拒绝）
 import { verifyModels } from '@/verify'
 import { probeOnce, runProbeGroups, type GroupRunner } from '@/probe-engine'
-import { groupProbesByProvider, planProbes } from '@/probe-plan'
+import { PROBE_LIMITS, groupProbesByProvider, planProbes } from '@/probe-plan'
 import { reportProvider, summarizeProviders } from '@/probe-report'
 import { classifyFailure, providerBlockReason, shouldSkipModelTail } from '@/probe-verdict'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
@@ -127,6 +127,27 @@ export async function run(): Promise<void> {
     check('planProbes 验证 200 个模型恰在上限放行', planProbes({ models: Array.from({ length: 200 }, (_, i) => entry('a', `m${i}`)) })?.length === 200)
     // 再多一个即 201 > 200
     check('planProbes 验证 201 个模型拒绝', planProbes({ models: Array.from({ length: 201 }, (_, i) => entry('a', `m${i}`)) }) === undefined)
+    // ---------- planProbes：探测配额两条闸的边界（等于上限放行、超出一个拒绝） ----------
+    // 200 模型 × 全部 7 档 = 1400 条请求，同时模型数恰为 maxModels 上限
+    const allLevels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+    const atProbeLimit = Array.from({ length: 200 }, (_, i) => entry('a', `m${i}`, allLevels))
+    check('planProbes 探测请求数与模型数恰在两上限放行', planProbes({ models: atProbeLimit }, PROBE_LIMITS)?.length === 1400)
+    // 模型数 201 > maxModels 200，而请求数 201 远未触及 maxProbes
+    check('planProbes 探测模型数超上限一个拒绝', planProbes({ models: Array.from({ length: 201 }, (_, i) => entry('a', `m${i}`)) }, PROBE_LIMITS) === undefined)
+    // 自定义小配额隔离请求数闸：2 + 1 = 3 恰等于 maxProbes，结果内容与顺序照旧
+    check(
+        'planProbes 探测请求数恰等于上限放行',
+        stable(planProbes({ models: [entry('a', 'm1', ['low', 'high']), entry('a', 'm2')] }, { maxProbes: 3, maxModels: 3 })) === stable([
+            { provider: 'a', model: 'm1', effort: 'low' },
+            { provider: 'a', model: 'm1', effort: 'high' },
+            { provider: 'a', model: 'm2' },
+        ]),
+    )
+    // 2 + 2 = 4 > maxProbes 3（模型数 2 未超）
+    check(
+        'planProbes 探测请求数超上限一个拒绝',
+        planProbes({ models: [entry('a', 'm1', ['low', 'high']), entry('a', 'm2', ['low', 'medium'])] }, { maxProbes: 3, maxModels: 3 }) === undefined,
+    )
 
     // ---------- groupProbesByProvider：同 provider 归一组、组内原序、下标回填 ----------
     const interleaved: VerifyProbe[] = [
