@@ -1,8 +1,13 @@
-// src/memory.ts 测试：按全量模型列表剪枝记忆（缺席即删除 / 读失败不等于删除）+ 存活清单采集
+// src/memory.ts 测试：按全量模型列表剪枝记忆（缺席即删除 / 读失败不等于删除）+ 存活清单采集 + 写前版本守卫
 import type { Context } from '@deepseek-ai/cordis'
-import { collectLiveModels, planPruneMemory } from '@/memory'
+import { collectLiveModels, planPruneMemory, updateMemory } from '@/memory'
 import type { LiveModels } from '@/memory'
+import { setConfigSource } from '@/config'
+import { PLUGIN_NS } from '@/shared/constants'
+import { CONFIG_VERSION, DEFAULT_CONFIG, toStored, versionKey } from '@/shared/config-schema'
 import type { EffortMemory } from '@/shared/types'
+import { makeStubCtx, resetModules } from '@test/ctx'
+import type { StubCtx } from '@test/ctx'
 import { check, stable } from '@test/helper'
 
 /** provider → 存活模型 id 集合（`null` = 在路由上但目录读失败） */
@@ -28,6 +33,19 @@ function llmCtx(
         },
     } as unknown as Context
     return { ctx, calls }
+}
+
+/** 记忆清理编排的 ctx 桩：`test/ctx` 的内存 settings 文档 + 只读 llm 清单（provider `a` 只有 `keep` 存活） */
+function pruneCtx(plugin: Record<string, unknown>): { ctx: Context; stub: StubCtx } {
+    const stub = makeStubCtx({ plugin })
+    const ctx = {
+        ...stub,
+        llm: {
+            listProviders: () => [{ id: 'a', name: 'a' }],
+            listModels: async () => [{ provider: 'a', id: 'keep', name: 'keep' }],
+        },
+    } as unknown as Context
+    return { ctx, stub }
 }
 
 export async function run(): Promise<void> {
@@ -92,4 +110,34 @@ export async function run(): Promise<void> {
     const idle = llmCtx(['a'], { a: ['m1'] })
     await collectLiveModels(idle.ctx, [])
     check('collectLiveModels 无记忆条目时零请求', stable(idle.calls) === stable([]))
+
+    // —— 写前版本守卫：记忆内容 { keep: 'high', gone: 'low' }，`gone` 已失效 ⇒ 计划为 { a: { keep: 'high' } } ——
+    const config = { ...DEFAULT_CONFIG, efforts: { a: { keep: 'high', gone: 'low' } } }
+    const stored = toStored(config)
+
+    resetModules()
+    setConfigSource(() => config)
+    const missing = pruneCtx({ 'version-7': stored })
+    await updateMemory(missing.ctx)
+    check('updateMemory 当前版本快照缺失时跳过写回', missing.stub.mutateCalls.length === 0)
+    check(
+        'updateMemory 缺失时不创建 version-N 父键',
+        stable(Object.keys(missing.stub.userOf(PLUGIN_NS))) === stable(['version-7']),
+    )
+
+    resetModules()
+    setConfigSource(() => config)
+    const present = pruneCtx({ [versionKey(CONFIG_VERSION)]: stored })
+    await updateMemory(present.ctx)
+    check('updateMemory 快照存在时写回一次', present.stub.mutateCalls.length === 1)
+    check(
+        'updateMemory 快照存在时按原逻辑裁剪失效条目',
+        stable(present.stub.mutateCalls[0]?.ops) === stable([{ op: 'set', path: [versionKey(CONFIG_VERSION), 'efforts'], value: { a: { keep: 'high' } } }]),
+    )
+    check(
+        'updateMemory 快照存在时裁剪结果落盘',
+        stable((present.stub.userOf(PLUGIN_NS)[versionKey(CONFIG_VERSION)] as Record<string, unknown>).efforts)
+        === stable({ a: { keep: 'high' } }),
+    )
+    resetModules()
 }

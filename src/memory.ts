@@ -3,11 +3,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import { MAX_ATTEMPTS } from '@/constants'
 import { getConfig } from '@/config'
 import { queueTask } from '@/host'
-import { descriptorOf } from '@/section'
+import { descriptorOf, sectionOf } from '@/section'
 import { errorText, isSettingsConflict } from '@/shared/errors'
 import { PLUGIN_NS, PLUGIN_NAME } from '@/shared/constants'
 import { CONFIG_VERSION, versionKey } from '@/shared/config-schema'
 import type { EffortMemory } from '@/shared/types'
+import { isPlainObject } from '@/shared/types'
 
 /** 存活模型清单：`undefined` = 无活路由（真删了）/ `null` = 读失败（读不到 ≠ 不存在）/ 集合 = 成功 */
 export type LiveModels = ReadonlyMap<string, ReadonlySet<string> | null>
@@ -106,6 +107,7 @@ async function pruneOnce(ctx: Context): Promise<void> {
         if (!plan) return
         const descriptor = descriptorOf(ctx, PLUGIN_NS)
         if (!descriptor) return
+        if (!isPlainObject(sectionOf(descriptor)?.[versionKey(CONFIG_VERSION)])) return
         try {
             await queueTask(() => ctx.settings.mutate(
                 PLUGIN_NS,
