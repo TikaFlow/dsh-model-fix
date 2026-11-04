@@ -138,12 +138,24 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         yield restoreColumnContext
     }, `${PLUGIN_NAME}: 悬浮按钮组 宿主列样式复原`)
 
+    let resize: ResizeObserver | null = null
+    let observedColumn: HTMLElement | null = null
+
+    const trackColumnSize = (target: HTMLElement | null): void => {
+        if (observedColumn === target) return
+        if (resize === null) resize = new ResizeObserver(() => { applyCurrentPosition() })
+        resize.disconnect()
+        observedColumn = target
+        if (target !== null) resize.observe(target)
+    }
+
     const mount = (): void => {
         if (container !== null) return
         const target = centerColumn()
-        if (target === null) return
+        if (target === null) return trackColumnSize(null)
         ensureStyles()
         ensureColumnContext(target)
+        trackColumnSize(target)
         container = document.createElement('div')
         container.id = CONTAINER_ID
         container.className = CONTAINER_CLASS
@@ -287,6 +299,7 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
     const sync = (): void => {
         scheduled = NO_FRAME
         const target = centerColumn()
+        trackColumnSize(target)
         if (target === null) return
         if (column !== target) {
             restoreColumnContext()
@@ -308,14 +321,12 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         observer.observe(document.body, { childList: true, subtree: true })
 
         mount()
-        // 父容器尺寸变了（窗口缩放）要重新贴边
-        const resize = new ResizeObserver(() => { applyCurrentPosition() })
-        if (column !== null) resize.observe(column)
         const disposer = () => {
             // 已排未跑的帧须取消：sync 会在 disconnect 之后跑 mount，重建出已卸载的容器
             if (scheduled !== NO_FRAME) cancelAnimationFrame(scheduled)
             scheduled = NO_FRAME
-            resize.disconnect()
+            resize?.disconnect()
+            observedColumn = null
             endDrag()
             root?.unmount()
             root = null
