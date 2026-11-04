@@ -7,14 +7,17 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { TIP_MAX_WIDTH } from '@/client/card-styles'
 import type { FloatingButton } from '@/client/floating-button'
-import { PLUGIN_NAME } from '@/shared/constants'
-import { EDGE_GAP, clampOffset, edgeDistances, nearestEdge, orientationOf, snappedOffset, tooltipSideOf, type SnapEdge } from '@/client/floating-snap'
+import { PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
+import { EDGE_GAP, clampOffset, edgeDistances, edgeRecordChanged, nearestEdge, isVertical, parseEdgeRecord, snappedOffset, tooltipSideOf, type EdgeRecord, type SnapEdge } from '@/client/floating-snap'
 
 const CONTAINER_ID = 'tikaflow-model-fix-floating-buttons'
 const CONTAINER_CLASS = CONTAINER_ID
 const BUTTON_CLASS = 'tikaflow-model-fix-floating-button'
 const BUTTON_ID_PREFIX = 'tikaflow-model-fix-floating-button-'
 const STYLE_ID = 'tikaflow-model-fix-floating-buttons-css'
+
+/** 吸附记录的持久化键 */
+const SNAP_STORE_KEY = `${PLUGIN_NS}.floating-position`
 
 const BUTTON_GAP = 8
 
@@ -46,6 +49,24 @@ function ensureStyles(): void {
         document.head.appendChild(tag)
     }
     if (tag.textContent !== STYLE_TEXT) tag.textContent = STYLE_TEXT
+}
+
+function readEdgeRecord(): EdgeRecord | null {
+    try {
+        if (!localStorage) return null
+        return parseEdgeRecord(localStorage.getItem(SNAP_STORE_KEY))
+    } catch {
+        return null
+    }
+}
+
+function storeEdgeRecord(record: EdgeRecord): void {
+    try {
+        if (!localStorage) return
+        localStorage.setItem(SNAP_STORE_KEY, JSON.stringify(record))
+    } catch {
+        return
+    }
 }
 
 /** 宿主 CSS Module 类名随构建 hash 变化，故按 slot 锚点定位中心列 */
@@ -99,8 +120,8 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
     /** 中心列原 inline position 值（空串 = 原本没有） */
     let columnPosition = ''
     let column: HTMLElement | null = null
-    /** 当前吸附的边（null = 默认居中位） */
-    let currentEdge: SnapEdge | null = null
+    /** 当前吸附记录（null = 默认居中位） */
+    let currentSnap: EdgeRecord | null = null
     /** Tooltip 方向：贴着容器所在的那一侧朝外，贴左边则朝右 */
     let tooltipSide: TooltipSide = 'right'
 
@@ -161,6 +182,7 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         container.className = CONTAINER_CLASS
         target.appendChild(container)
         root = createRoot(container)
+        restoreSnap()
         render()
         container.addEventListener('pointerdown', onPointerDown)
         // 拖拽松手那一次 click 不该触发按钮：捕获阶段拦掉，拦完即失效
@@ -170,9 +192,9 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
             event.preventDefault()
             event.stopPropagation()
         }, true)
-        applyDefaultPosition(target)
+        applyCurrentPosition()
         // React 渲染是异步的，此刻容器高度可能还是 0 ⇒ 下一帧按真实尺寸再摆一次
-        requestAnimationFrame(() => { if (column === target) applyDefaultPosition(target) })
+        requestAnimationFrame(() => { if (column === target) applyCurrentPosition() })
     }
 
     /** 容器相对父容器的当前几何 */
@@ -208,14 +230,29 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
     /** 重新贴回当前边（尺寸或父容器变了都要重算） */
     const applyCurrentPosition = (): void => {
         if (column === null) return
-        if (currentEdge === null) {
+        if (currentSnap === null) {
             applyDefaultPosition(column)
             return
         }
         const geometry = geometryOf(column)
         if (geometry === null) return
-        const snapped = snappedOffset(currentEdge, geometry)
+        const snapped = snappedOffset(currentSnap.edge, isVertical(currentSnap.edge) ? { ...geometry, offsetY: currentSnap.offset } : { ...geometry, offsetX: currentSnap.offset })
         place(snapped.x, snapped.y)
+    }
+
+    /** 吸附边呈现：Tooltip 朝外 + 左右边竖排、上下边横排 */
+    const applyEdgeChrome = (edge: SnapEdge): void => {
+        tooltipSide = tooltipSideOf(edge)
+        if (container === null) return
+        container.style.flexDirection = isVertical(edge) ? 'column-reverse' : 'row'
+    }
+
+    /** 初始化恢复：整条记录合法才采用，否则保持默认边与居中偏移 */
+    const restoreSnap = (): void => {
+        const stored = readEdgeRecord()
+        if (stored === null) return
+        currentSnap = stored
+        applyEdgeChrome(stored.edge)
     }
 
     /** 拖拽状态 */
@@ -282,14 +319,15 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         const geometry = geometryOf(column)
         if (geometry === null) return
         const edge = nearestEdge(edgeDistances(geometry))
-        currentEdge = edge
-        tooltipSide = tooltipSideOf(edge)
-        container.style.flexDirection = orientationOf(edge) === 'vertical' ? 'column-reverse' : 'row'
+        applyEdgeChrome(edge)
         // 方向变了容器尺寸也变，重量一次再定吸附位置
         const after = geometryOf(column)
         if (after === null) return
         const snapped = snappedOffset(edge, after)
         place(snapped.x, snapped.y)
+        const record: EdgeRecord = { edge, offset: Math.round(isVertical(edge) ? snapped.y : snapped.x) }
+        if (edgeRecordChanged(currentSnap, record)) storeEdgeRecord(record)
+        currentSnap = record
         render()
     }
 

@@ -26,6 +26,7 @@ UI 数值的唯一出处是 `src/client/card-styles.ts`；宿主契约见 `docs/
 ## 悬浮按钮组
 
 - **直插 DOM 不走宿主 slot**：所要贴的容器无席位可挂；中心列是宿主 React 树的一部分，宿主重挂即换节点 ⇒ `MutationObserver` 盯着重新挂载。
+- **吸附记录记「边 + 沿线像素」**：`localStorage` 键取 `${PLUGIN_NS}.floating-position`，值为单条 `{ edge, offset }`（左/右贴边记 y 像素、上/下贴边记 x 像素，写入前取整）；边或像素变化才写；读回整条校验，`edge` 不在 `SNAP_EDGES`、`offset` 非有限数或为负、旧纯字符串值、缺失、存储抛错时整条回落默认（左边 + 居中）；恢复与 resize 都把该像素原样喂给 `snappedOffset`，只做越界夹取，偏移不进配置。
 - **按钮本体是独立 React 根**：图标是宿主 React 组件导出，渲染必须有根。
 - **容器不持宿主依赖，条目各自自治**：容器只管定位、布局与渲染；谁订阅谁退订。
 - **Tooltip 方向按吸附边反算**（贴左朝右、贴右朝左、贴上朝下、贴下朝上）。

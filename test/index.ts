@@ -7,6 +7,7 @@ import { run as runEffort } from '@test/effort.test'
 import { run as runEffortName } from '@test/effort-name.test'
 import { run as runEmpty } from '@test/empty.test'
 import { run as runFix } from '@test/fix.test'
+import { run as runFloatingSnap } from '@test/floating-snap.test'
 import { run as runGuard } from '@test/guard.test'
 import { run as runLookup } from '@test/lookup.test'
 import { run as runMemory } from '@test/memory.test'
@@ -36,7 +37,7 @@ runConfig()
 section('effort.test.ts')
 runEffort()
 section('effort-name.test.ts')
-runEffortName()
+await runEffortName()
 section('empty.test.ts')
 runEmpty()
 section('guard.test.ts')
@@ -71,6 +72,8 @@ section('self-tune.test.ts')
 await runSelfTune()
 section('fix.test.ts')
 await runFix()
+section('floating-snap.test.ts')
+runFloatingSnap()
 section('subagent.test.ts')
 await runSubagent()
 summary()
