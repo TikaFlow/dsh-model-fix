@@ -3,10 +3,10 @@
 import type { LlmRuntime, ReasoningEffortId, StreamChunk } from '@deepseek-ai/dsh-llm'
 // LlmFailure 定义在 types 子路径（包根只 import 未再导出）；仅取类型，擦除后不落运行期依赖
 import type { LlmFailure } from '@deepseek-ai/dsh-llm/types'
-import type { ProviderProbeOutcome, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
+import type { ProbeOutcome, ProviderBlockReason, ProviderProbeOutcome, VerifyFailureFacts, VerifyProbe, VerifyProbeResult, VerifyProgressFrame, VerifyProviderReport, VerifySummary } from '@/shared/verify-progress'
 import type { ProviderProbeGroup } from '@/probe-plan'
 import { reportProvider, summarizeProviders } from '@/probe-report'
-import { classifyFailure, type ProbeVerdict } from '@/probe-verdict'
+import { classifyFailure, providerBlockReason, type ProbeVerdict } from '@/probe-verdict'
 
 /** 探测提示词：只要一句应答，最省 token */
 const PROBE_PROMPT = 'Just say OK'
@@ -121,6 +121,75 @@ export type GroupRunner = (
     signal: AbortSignal,
     emitProbe: ProbeEmitter,
 ) => Promise<ProviderProbeOutcome>
+
+export interface GroupSequenceHooks {
+    /** 把 `probeOnce` 的结论折算成入账结论 */
+    resolveOutcome: (probe: VerifyProbe, verdict: ProbeVerdict) => ProbeOutcome
+    /** provider 级未短路时，本次结论要短掉的该模型剩余条数 */
+    modelTailSkip: (probes: readonly VerifyProbe[], index: number, outcome: ProbeOutcome, failure: VerifyFailureFacts | undefined) => number
+}
+
+/** 顺序跑完一组的共用骨架（组内零并发）：逐条请求 → 入账 → 两级短路 → 发帧，差异全经 `hooks` 注入。
+ * provider 级失败（端点不通 / 凭据无效 / 首请求超时）短整组；模型级短路由 hooks 判定；外部中止早停（只断在途请求） */
+export async function runGroupSequence(
+    llm: Pick<LlmRuntime, 'stream'>,
+    group: ProviderProbeGroup,
+    signal: AbortSignal,
+    emitProbe: ProbeEmitter,
+    hooks: GroupSequenceHooks,
+): Promise<ProviderProbeOutcome> {
+    const results: VerifyProbeResult[] = []
+    let blockedBy: ProviderBlockReason | undefined
+    // 本组已发出请求数：provider 短路要区分「首个请求就超时」与「链路已跑通、这一次慢」
+    let sent = 0
+    for (let index = 0; index < group.probes.length; index++) {
+        // 外部中止在此早停：后续请求带着已中止的信号只会跑出假失败
+        if (signal.aborted) break
+        const probe = group.probes[index]
+        const verdict = await probeOnce(llm, probe, signal)
+        sent += 1
+        // 中止没有结论：不入明细也不发帧，不能算成「模型不可用」
+        if (verdict.outcome === 'aborted') continue
+        const outcome = hooks.resolveOutcome(probe, verdict)
+        results.push({
+            provider: probe.provider,
+            model: probe.model,
+            effort: probe.effort,
+            outcome,
+            failure: verdict.failure,
+        })
+        // 算出短路的「剩余未发出条数」：provider 级断到组尾，模型级断到该模型的档位尾；被跳过的请求不进 results
+        let skipped: number
+        const blockReason = providerBlockReason(outcome, sent === 1)
+        if (blockReason !== undefined) {
+            blockedBy = blockReason
+            skipped = group.probes.length - index - 1
+        } else {
+            skipped = hooks.modelTailSkip(group.probes, index, outcome, verdict.failure)
+        }
+        if (skipped > 0) index += skipped
+        emitProbe(probe, { outcome, failure: verdict.failure }, {
+            settled: 1 + skipped,
+            ...(skipped === 0 ? {} : { skipped }),
+        })
+        if (blockedBy !== undefined) break
+    }
+    
+    const models = new Set<string>()
+    let plannedEfforts = 0
+    for (const probe of group.probes) {
+        models.add(JSON.stringify([probe.provider, probe.model]))
+        if (probe.effort !== undefined) plannedEfforts++
+    }
+    return {
+        provider: group.provider,
+        results,
+        blockedBy,
+        planned: group.probes.length,
+        plannedEfforts,
+        tested: models.size,
+    }
+}
 
 export interface ProbeRunOptions {
     /** 外部中止：客户端断开或用户点停止 / 关窗。已中止即不再发新请求 */

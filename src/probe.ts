@@ -8,12 +8,12 @@ import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { EFFORT_LEVELS, PLUGIN_NAME } from '@/shared/constants'
 import { errorText } from '@/shared/errors'
 import { isPlainObject } from '@/shared/types'
-import type { ProviderBlockReason, ProviderProbeOutcome, VerifyProbeResult, VerifySummary } from '@/shared/verify-progress'
-import type { GroupRunner, ProbeEmitter, ProbeRunOptions } from '@/probe-engine'
-import { finishRun, probeOnce, runProbeGroups } from '@/probe-engine'
+import type { VerifySummary } from '@/shared/verify-progress'
+import type { GroupRunner, ProbeRunOptions } from '@/probe-engine'
+import { finishRun, runGroupSequence, runProbeGroups } from '@/probe-engine'
 import type { ProviderProbeGroup } from '@/probe-plan'
 import { PROBE_LIMITS, planProbeGroups } from '@/probe-plan'
-import { isEffortRejection, providerBlockReason, sameModelTail, shouldSkipModelTail } from '@/probe-verdict'
+import { isEffortRejection, sameModelTail, shouldSkipModelTail } from '@/probe-verdict'
 import type { EffortApply } from '@/fill'
 import { convergeProbeEfforts, declareProbeEfforts } from '@/fill'
 import { clearProbeBackup, saveProbeBackup } from '@/probe-backup'
@@ -28,69 +28,21 @@ function targetKey(provider: string, model: string): string {
 }
 
 /** 顺序跑完一组的探测请求（组内零并发）：provider 级失败（含首个请求超时）短整组，额度耗尽 / 限流短到该模型的档位尾 */
-const runProbeGroup: GroupRunner = async (
-    llm: Pick<LlmRuntime, 'stream'>,
-    group: ProviderProbeGroup,
-    signal: AbortSignal,
-    emitProbe: ProbeEmitter,
-): Promise<ProviderProbeOutcome> => {
-    const results: VerifyProbeResult[] = []
+const runProbeGroup: GroupRunner = (llm, group, signal, emitProbe) => {
     // 已跑通至少一档的模型：判「档位不被支持」的第二条件对照
     const usable = new Set<string>()
-    let blockedBy: ProviderBlockReason | undefined
-    // 本组已发出的请求数：provider 级短路要区分「首个请求就超时」与「链路已跑通、只是这一次慢」
-    let sent = 0
-    for (let index = 0; index < group.probes.length; index++) {
-        // 外部中止在此早停：后续请求带着已中止的信号只会跑出假失败
-        if (signal.aborted) break
-        const probe = group.probes[index]
-        const verdict = await probeOnce(llm, probe, signal)
-        sent += 1
-        // 中止没有结论：不入明细也不发帧，不能进补全与剔除的输入
-        if (verdict.outcome === 'aborted') continue
-        if (verdict.outcome === 'usable') usable.add(probe.model)
+    return runGroupSequence(llm, group, signal, emitProbe, {
         // 判「档位不被支持」：宿主判「参数不正确」且该模型已有更低档跑通（无基线，拿已跑通档顶替，见 docs/decisions-diagnose.md「探测」）
-        const outcome = probe.effort !== undefined && usable.has(probe.model) && isEffortRejection(verdict.failure)
-            ? 'unsupported-effort'
-            : verdict.outcome
-        results.push({
-            provider: probe.provider,
-            model: probe.model,
-            effort: probe.effort,
-            outcome,
-            failure: verdict.failure,
-        })
-        // 算出两级短路的「剩余未发出条数」：provider 级断到组尾，模型级断到该模型的档位尾；被跳过的请求不进 results
-        let skipped = 0
-        const blockReason = providerBlockReason(outcome, sent === 1)
-        if (blockReason !== undefined) {
-            blockedBy = blockReason
-            skipped = group.probes.length - index - 1
-        } else if (shouldSkipModelTail(outcome, verdict.failure) || outcome === 'rate-limit') {
-            // 限流是本功能自有的追加判据（超时不算），见 docs/decisions-diagnose.md「探测」
-            skipped = sameModelTail(group.probes, index)
-        }
-        if (skipped > 0) index += skipped
-        emitProbe(probe, { outcome, failure: verdict.failure }, {
-            settled: 1 + skipped,
-            ...(skipped === 0 ? {} : { skipped }),
-        })
-        if (blockedBy !== undefined) break
-    }
-    const models = new Set<string>()
-    let plannedEfforts = 0
-    for (const probe of group.probes) {
-        models.add(JSON.stringify([probe.provider, probe.model]))
-        if (probe.effort !== undefined) plannedEfforts++
-    }
-    return {
-        provider: group.provider,
-        results,
-        blockedBy,
-        planned: group.probes.length,
-        plannedEfforts,
-        tested: models.size,
-    }
+        resolveOutcome: (probe, verdict) => {
+            if (verdict.outcome === 'usable') usable.add(probe.model)
+            return probe.effort !== undefined && usable.has(probe.model) && isEffortRejection(verdict.failure)
+                ? 'unsupported-effort'
+                : verdict.outcome
+        },
+        // 模型级短路：额度耗尽断到该模型档位尾
+        modelTailSkip: (probes, index, outcome, failure) =>
+            shouldSkipModelTail(outcome, failure) || outcome === 'rate-limit' ? sameModelTail(probes, index) : 0,
+    })
 }
 
 /** 两个开关的取值：「自动写入」缺省开、「剔除不支持」缺省关；显式给了非布尔值按非法入参拒绝 */

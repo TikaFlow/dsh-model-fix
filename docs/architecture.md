@@ -30,7 +30,7 @@
 | `src/probe-verdict.ts` | 验证与探测共用的判定层（失败分类、两级短路判据） |
 | `src/probe-plan.ts` | 共用的计划层（入参校验、展开、分组、配额） |
 | `src/probe-report.ts` | 共用的汇报层（逐组结论、全局统计） |
-| `src/probe-engine.ts` | 共用执行引擎（单次请求受理判定、并发、进度帧） |
+| `src/probe-engine.ts` | 共用执行引擎（单次请求受理判定、组内逐条骨架、并发、进度帧） |
 | `src/rpc.ts` | 写回端点 + SSE 进度流端点（channel 自注册） |
 | `src/rpc-route.ts` | RPC 信封解码与路由分发 |
 | `src/refresh.ts` | 目录保鲜刷新（窗口过期才拉取，失败限次重试） |
