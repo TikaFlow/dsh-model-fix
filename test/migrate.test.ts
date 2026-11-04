@@ -31,6 +31,12 @@ export function run(): void {
         behavior: { showInModels: false, showInBuiltinPlugins: true, showInComposer: false, showFollowStatus: true, backToChat: true, showInFloat: true, classicSetting: true },
         userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: false, followParent: true, selfTune: false, localizeEfforts: true, showOriginalEfforts: true, looseMatch: true, safeFill: false, alwaysReasoning: false },
     }), toStored({ autoFill: { reasoning: false, context: true, image: false }, allowUpdate: { reasoning: true, context: false, image: true }, compat: { disableDeveloper: false, disableStore: true }, excludes: ['acme-gateway'], efforts: { 'z-ai': { 'glm-5.2': 'high' } }, behavior: { showInModels: false, showInBuiltinPlugins: true, showInComposer: false, showFollowStatus: true, backToChat: true, showInFloat: true, classicSetting: true }, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: false, followParent: true, selfTune: false, localizeEfforts: true, showOriginalEfforts: true, looseMatch: true, safeFill: false, alwaysReasoning: false } }))
+    // toStored 对 efforts 逐 provider 再拷一层：改返回值内层不得回流到运行期配置
+    const effortsSource = resolveConfig({ 'version-7': { configVersion: 7 } })
+    effortsSource.efforts = { 'z-ai': { 'glm-5.2': 'high' } }
+    const effortsStored = toStored(effortsSource)
+    effortsStored.efforts['z-ai']['glm-5.2'] = 'low'
+    check('toStored 内层 efforts 与运行期配置不共享引用', stable(effortsSource.efforts) === stable({ 'z-ai': { 'glm-5.2': 'high' } }), effortsSource.efforts)
     check('DEFAULT_STORED 即 toStored(默认配置)', stable(DEFAULT_STORED) === stable(toStored({
         autoFill: { reasoning: true, context: true, image: true },
         allowUpdate: { reasoning: false, context: false, image: false },

@@ -16,11 +16,15 @@ export const MAX_OLD_SNAPSHOTS = 1
 /** 版本快照键前缀，段内键形如 version-N */
 const VERSION_PREFIX = 'version-'
 
+type ReadonlyDefaults<T> = {
+    readonly [K in keyof T]: T[K] extends readonly unknown[] ? T[K] : T[K] extends object ? ReadonlyDefaults<T[K]> : T[K]
+}
+
 /** compat 组默认值（整组缺失或字段缺失落此） */
-const COMPAT_DEFAULTS: CompatRules = { disableDeveloper: true, disableStore: true }
+const COMPAT_DEFAULTS: ReadonlyDefaults<CompatRules> = { disableDeveloper: true, disableStore: true }
 
 /** userExperience 组默认值（整组缺失或字段缺失落此） */
-const USER_EXPERIENCE_DEFAULTS: UserExperienceRules = {
+const USER_EXPERIENCE_DEFAULTS: ReadonlyDefaults<UserExperienceRules> = {
     rememberEfforts: true,
     defaultHigh: true,
     forgetRemoved: true,
@@ -34,7 +38,7 @@ const USER_EXPERIENCE_DEFAULTS: UserExperienceRules = {
 }
 
 /** behavior 组默认值（整组缺失或字段缺失落此）。全开是唯一与「装本插件但看不见任何 UI」相容的缺省（见 docs/versioning.md）。 */
-const BEHAVIOR_DEFAULTS: BehaviorRules = {
+const BEHAVIOR_DEFAULTS: ReadonlyDefaults<BehaviorRules> = {
     showInModels: true,
     showInBuiltinPlugins: true,
     showInComposer: true,
@@ -45,7 +49,7 @@ const BEHAVIOR_DEFAULTS: BehaviorRules = {
 }
 
 /** 默认配置：全新用户的配置基线（存储形态经 `toStored` 物化；取值改动须同步 src/upgrade.ts 的台阶字面量） */
-export const DEFAULT_CONFIG: PluginConfig = {
+export const DEFAULT_CONFIG: ReadonlyDefaults<PluginConfig> = {
     allowUpdate: { reasoning: false, context: false, image: false },
     autoFill: { reasoning: true, context: true, image: true },
     compat: { ...COMPAT_DEFAULTS },
@@ -212,13 +216,16 @@ export function parseSnapshot(value: unknown): PluginConfig | undefined {
 
 /** 运行时配置 -> 规范 v8 存储快照。字段一律拷贝，防 DEFAULT_CONFIG 被就地改写 */
 export function toStored(config: PluginConfig): PluginConfigSnapshot {
+    // efforts 逐 provider 再拷一层：内层 model→level 记录不得与运行期配置共享引用
+    const efforts: EffortMemory = {}
+    for (const [provider, models] of Object.entries(config.efforts)) efforts[provider] = { ...models }
     return {
         configVersion: CONFIG_VERSION,
         allowUpdate: { ...config.allowUpdate },
         autoFill: { ...config.autoFill },
         compat: { ...config.compat },
         excludes: [...config.excludes],
-        efforts: { ...config.efforts },
+        efforts,
         behavior: { ...config.behavior },
         userExperience: { ...config.userExperience },
     }
