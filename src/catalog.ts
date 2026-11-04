@@ -5,7 +5,7 @@ import { PLUGIN_NAME } from '@/shared/constants'
 import { errorText } from '@/shared/errors'
 import type { CacheGroup, CacheRecord, Catalog, IndexedCatalog, ModelEntry, ProviderGroup, IndexEntry } from '@/types'
 import { isCapacity } from '@/types'
-import { normalizeId } from '@/lookup'
+import { normalizeId, recomputeLookupMemory } from '@/lookup'
 import { isPlainObject } from '@/shared/types'
 
 /** 目录尚未可用时的空兜底 */
@@ -19,6 +19,7 @@ export function getCatalog(): IndexedCatalog {
 
 export function setCatalog(indexed: IndexedCatalog): void {
     indexedCache = indexed
+    recomputeLookupMemory(indexed)
 }
 
 /** 解析 models.dev 单条模型数据为推理、容量与模态结果；无有效信息返回 undefined */

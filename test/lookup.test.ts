@@ -1,6 +1,7 @@
-// lookup.ts 纯函数测试：模型 id 匹配（精确/词干/前缀三级）、端点/提供方/全局三级级联与推理级别转换
+// lookup.ts 纯函数测试：模型 id 匹配（精确/词干/前缀三级）、端点/提供方/全局三级级联、推理级别转换与匹配记忆
+import { setCatalog } from '@/catalog'
 import { lookup, normalizeId, toReasoningEfforts } from '@/lookup'
-import type { IndexedCatalog, IndexEntry } from '@/types'
+import type { IndexedCatalog, IndexEntry, ProviderGroup } from '@/types'
 import { check, stable } from '@test/helper'
 
 /** 构造目录条目（第三参补容量等其余字段） */
@@ -23,6 +24,21 @@ function indexed(groups: Record<string, IndexEntry[]>, endpoints: Record<string,
 /** 以模型 id 列表构造分组索引 */
 function catalog(groups: Record<string, string[]>): IndexedCatalog {
     return indexed(Object.fromEntries(Object.entries(groups).map(([provider, ids]) => [provider, ids.map((id) => entry(id))])))
+}
+
+/** 可计数的目录桩：每次 `groups.get` 视为一次目录扫描，供断言记忆命中未重新扫描 */
+function countedCatalog(groups: Record<string, IndexEntry[]>): { indexed: IndexedCatalog; reads: () => number } {
+    const map = new Map<string, ProviderGroup>(Object.entries(groups).map(([provider, entries]) => [provider, {
+        ids: entries.map((item) => normalizeId(item.id)),
+        byId: new Map(entries.map((item) => [normalizeId(item.id), item])),
+    }]))
+    let reads = 0
+    const get = map.get.bind(map)
+    map.get = (provider) => {
+        reads++
+        return get(provider)
+    }
+    return { indexed: { catalog: {}, groups: map, endpoints: new Map() }, reads: () => reads }
 }
 
 export function run(): void {
@@ -188,4 +204,45 @@ export function run(): void {
     check('无条目 -> undefined', toReasoningEfforts(undefined) === undefined)
     check('空档位 -> undefined', toReasoningEfforts(entry('m', [])) === undefined)
     check('仅剩 off -> 视为无匹配', toReasoningEfforts(entry('m', ['none'])) === undefined && toReasoningEfforts(entry('m', ['off'])) === undefined)
+
+    // ---------- 匹配记忆：未命中计算并写入，命中直接复用（含 null），loose 入键，刷新后重算 ----------
+    {
+        const stub = countedCatalog({ deepseek: [entry('deepseek-chat')] })
+        const first = lookup(stub.indexed, 'relay', undefined, 'deepseek-chat')
+        check('首次 lookup 走级联计算并写记忆', first?.id === 'deepseek-chat' && stub.reads() > 0, stub.reads())
+        const scanned = stub.reads()
+        const second = lookup(stub.indexed, 'relay', undefined, 'deepseek-chat')
+        check('第二次 lookup 命中记忆、不重复扫描', second === first && stub.reads() === scanned, stub.reads() - scanned)
+    }
+    {
+        // 无匹配也写入记忆（值 null）：第二次不得重新扫描
+        const stub = countedCatalog({ openai: [entry('gpt-5')] })
+        check('无匹配结果（null）写入记忆', lookup(stub.indexed, 'relay', undefined, 'o3') === undefined && stub.reads() > 0)
+        const scanned = stub.reads()
+        check('缓存 null 同样命中记忆、不重新扫描', lookup(stub.indexed, 'relay', undefined, 'o3') === undefined && stub.reads() === scanned, stub.reads() - scanned)
+    }
+    {
+        // loose 影响结果，必须入键：同一目录同一模型，严格模式无命中、尽量匹配命中
+        const fuzzy = indexed({
+            deepseek: [entry('deepseek-v4-flash', ['high'], { contextWindow: 100_000 })],
+            gw1: [entry('deepseek-v4-flash-0731', [], { contextWindow: 80_000 })],
+        })
+        check('loose 入键：严格模式结果不被尽量匹配复用', lookup(fuzzy, 'relay', undefined, 'deepseek-v4-f', false) === undefined)
+        check('loose 入键：尽量匹配单独记忆', lookup(fuzzy, 'relay', undefined, 'deepseek-v4-f', true)?.contextWindow === 100_000)
+    }
+    {
+        // 目录更新成功（setCatalog）：按新目录重算已记忆的键，lookup 仍走记忆
+        const before = countedCatalog({ deepseek: [entry('deepseek-chat', [], { contextWindow: 100_000 })] })
+        check('刷新前记忆的是旧目录结果', lookup(before.indexed, 'deepseek', undefined, 'deepseek-chat')?.contextWindow === 100_000)
+        const after = countedCatalog({ deepseek: [entry('deepseek-chat', [], { contextWindow: 200_000 })] })
+        setCatalog(after.indexed)
+        const scannedAfterRefresh = after.reads() // 含重算自身产生的读取
+        check('目录更新后同一键返回新目录结果', lookup(after.indexed, 'deepseek', undefined, 'deepseek-chat')?.contextWindow === 200_000)
+        check('目录更新重算后 lookup 仍走记忆（不再扫描）', after.reads() === scannedAfterRefresh, after.reads() - scannedAfterRefresh)
+    }
+    {
+        // 目录实例被直接替换（未走 setCatalog）：以实例身份整体失效，按新目录重算
+        const other = countedCatalog({ deepseek: [entry('deepseek-chat', [], { contextWindow: 300_000 })] })
+        check('目录实例变更整体失效并按新目录重算', lookup(other.indexed, 'deepseek', undefined, 'deepseek-chat')?.contextWindow === 300_000 && other.reads() > 0, other.reads())
+    }
 }

@@ -48,12 +48,60 @@ function levelOf(effort: string): string {
     return effort === 'none' || effort === 'off' ? 'off' : effort
 }
 
+/** 匹配记忆条目：除目录实例外的全部入参 + 结果（`null` 表示当时目录下确定无匹配） */
+interface LookupMemory {
+    readonly providerId: string
+    readonly baseUrl: string | undefined
+    readonly modelId: string
+    readonly loose: boolean
+    entry: IndexEntry | null
+}
+
+/** 模块级匹配记忆：键 -> 结果 */
+const lookupMemory = new Map<string, LookupMemory>()
+/** 记忆对应的目录实例：身份即目录版本 */
+let lookupCatalog: IndexedCatalog | undefined
+
+/** 记忆键 = lookup 的全部入参 */
+function memoryKey(providerId: string, baseUrl: string | undefined, modelId: string, loose: boolean): string {
+    return `${providerId}|${baseUrl ?? ''}|${modelId}|${loose ? '1' : '0'}`
+}
+
+/** 带匹配记忆的 lookup：命中直接返回，未命中按原级联计算并写入记忆。 */
+export function lookup(
+    indexed: IndexedCatalog,
+    providerId: string,
+    baseUrl: string | undefined,
+    modelId: string,
+    loose = false,
+): IndexEntry | undefined {
+    if (indexed !== lookupCatalog) {
+        lookupMemory.clear()
+        lookupCatalog = indexed
+    }
+    const key = memoryKey(providerId, baseUrl, modelId, loose)
+    const cached = lookupMemory.get(key)
+    if (cached) return cached.entry ?? undefined
+    const entry = computeLookup(indexed, providerId, baseUrl, modelId, loose)
+    lookupMemory.set(key, { providerId, baseUrl, modelId, loose, entry: entry ?? null })
+    return entry
+}
+
+/** 目录更新成功后按新目录重算记忆 */
+export function recomputeLookupMemory(indexed: IndexedCatalog): void {
+    lookupCatalog = indexed
+    for (const record of lookupMemory.values()) {
+        const entry = computeLookup(indexed, record.providerId, record.baseUrl, record.modelId, record.loose)
+        record.entry = entry ?? null
+    }
+}
+
 /**
  * 在目录中查找模型条目：端点 → 提供方 id → 全局模型 id 三级级联。
  * 端点命中时域已定（该端点提供的模型），同名多组只在参数上分歧：先按提供方 id 裁决，裁不了则取保守值。
  * 全局阶段多命中判歧义放弃（宁可漏不错配）；`loose`（尽量匹配）时改为收集候选合成。
  */
-export function lookup(
+function computeLookup(
     indexed: IndexedCatalog,
     providerId: string,
     baseUrl: string | undefined,

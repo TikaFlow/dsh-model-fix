@@ -15,6 +15,7 @@
 - **`image` 只缓存正向信息**；容量哨兵与 0 视为无数据（写 0 会被宿主 schema 拒绝并连累整批）。
 - **缓存结构**`{providerId: {api?, models: {modelId: {api?, ...记录}}}}`：组级 `api` 取 models.dev 的 `provider.api`，模型级 `api` 取该模型的 `provider.api`（两者可能不同）。两者都缺即无端点；端点表两类都登记，严格字符串匹配、不做归一。
 - **id 匹配宁可漏不错配**（级联与判据见 `src/lookup.ts` 的 `lookup` 注释）。
+- **匹配结果按目录实例记忆**：键为 `providerId|baseUrl|modelId|loose`，值可为 `null`（当时目录下确定无匹配），命中即复用；目录更新成功（`setCatalog`）按新目录重算已记忆的键并覆盖值，不清空；目录实例被直接替换则整体失效重算。
 - **静态端点补全表**（`PROVIDER_API_FALLBACKS`）：只收端点固定稳定的主流提供方；自带 api 时以其为准。账号级 / 环境变量决定的端点不入表。
 - **缓存诚实保留目录的 off/none 拼写，不归一不合成**；`toReasoningEfforts` 写 `off` 键用目录原值而非 `null`（`null` 宿主语义是「省略参数」）。
 - **档位只代表「能通」，不代表「能关」**：探测不为未声明 off 的模型补 off 档，已声明的探测其原值、不做拼写切换。
