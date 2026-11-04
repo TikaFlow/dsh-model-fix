@@ -31,7 +31,7 @@
 - `register(ns, dicts)` 返回幂等 disposer；**重复注册抛错** ⇒ 一律经 `ctx.effect` 挂。
 - `bind(ns)` 每 ns 缓存同一函数引用（身份稳定，可放 label thunk 依赖数组）；`bind` 出来的 `t` **按调用时刻的语言求值**，故语言切换后要重渲才能拿到新文案。
 - `subscribe(fn)` / `getSnapshot()` 是 LocaleFace 契约（快照带 `revision`，变更才换引用）；退订挂自己的 `ctx.effect`。
-- 本仓私接面（非公开类型面，宿主改名即静默失效）：`ctx.locale` 实例上的 `dicts`、`publish`、`snapshot`——因 `register` 禁止同 ns+locale 重复注册，改宿主既有词条值只能 mutate 已注册对象再手动 `publish`。第二层键是 `localeKey()` 的小写结果（`'zh'`）。`src/client/locale-patch.ts` 即走这条路改宿主 `model` NS 的 `effort.providerDefault`（宿主 `ModelSelect.tsx` 自合成的 Default 伪菜单项取该词条，不经数据层，Node 半遮蔽碰不到）。本仓以本地 `LocaleRuntimeHack` 接口 + `as unknown as` 转换。
+- 本仓私接面（非公开类型面，宿主改名即静默失效）：`ctx.locale` 实例上的 `dicts`、`publish`、`snapshot`——因 `register` 禁止同 ns+locale 重复注册，改宿主既有词条值只能 mutate 已注册对象再手动 `publish`。第二层键是 `localeKey()` 的小写结果（`'zh'`）。`src/client/locale-patch.ts` 即走这条路改宿主 `model` NS 的 `effort.providerDefault`（宿主 `ModelSelect.tsx` 自合成的 Default 伪菜单项取该词条，不经数据层，Node 半遮蔽碰不到）。该词条的宿主原值在首次 patch 时快照，开关关闭与卸载均按快照还原，不写死原文；快照取不到（词典或词条缺席）时按宿主现有原值 `Default` 兜底，本地化开启会写入译文、卸载再还原为 `Default`。本仓以本地 `LocaleRuntimeHack` 接口 + `as unknown as` 转换。
 - 类型面（`DSH/packages/client/ui-slots/src/index.ts`）：`LocaleNamespaceMap` 声明合并点（`src/client/locale-keys.ts` 扩展）、`Translate<K>`；调用形态 `t(key, params?)`。官方范本：`label: () => t('…')` + `locale: NS` + `ctx.effect(() => ctx.locale.register(NS, { zh, en }))`。
 
 ## configForms：配置表单
