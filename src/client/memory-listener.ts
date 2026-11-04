@@ -116,7 +116,12 @@ export function applyEffortMemoryListener(ctx: ClientContext, scope: DecodedScop
                     if (entry.projectionUnsub) return
                     const binding = sessions.binding(id)
                     if (!binding) return
-                    const projection = binding.session.projections.faceOf('modelSelection')
+                    let projection
+                    try {
+                        projection = binding.session.projections.faceOf('modelSelection')
+                    } catch {
+                        return
+                    }
                     const readNext = (): ModelSelection | null => (projection.getSnapshot() as ModelSelectionProjection | null)?.next ?? null
                     entry.projectionUnsub = projection.subscribe(() => handleProjection(id, entry, readNext()))
                     // 订阅时先按当前值跑一次，避免已选模型要等下一次变化才恢复记忆
