@@ -84,24 +84,24 @@ export function DiagnoseDialog(props: DiagnoseDialogProps) {
         }
         return grouped
     }, [props.candidates])
-    // 页签键盘：左右循环、Home / End 首尾
-    const onTabKeyDown = (index: number, event: KeyboardEvent<HTMLButtonElement>) => {
-        let nextIndex: number
-        switch (event.key) {
-            case 'ArrowRight': nextIndex = (index + 1) % 2; break
-            case 'ArrowLeft': nextIndex = (index - 1 + 2) % 2; break
-            case 'Home': nextIndex = 0; break
-            case 'End': nextIndex = 1; break
-            default: return
-        }
-        event.preventDefault()
-        setTab(nextIndex === 0 ? 'models' : 'records')
-        tabRefs.current[nextIndex]?.focus()
-    }
     const tabs: readonly { id: DiagnoseTab; label: CardKey }[] = [
         { id: 'models', label: props.modelsTabKey },
         { id: 'records', label: props.recordsTabKey },
     ]
+    // 页签键盘：左右循环、Home / End 首尾
+    const onTabKeyDown = (index: number, event: KeyboardEvent<HTMLButtonElement>) => {
+        let nextIndex: number
+        switch (event.key) {
+            case 'ArrowRight': nextIndex = (index + 1) % tabs.length; break
+            case 'ArrowLeft': nextIndex = (index - 1 + tabs.length) % tabs.length; break
+            case 'Home': nextIndex = 0; break
+            case 'End': nextIndex = tabs.length - 1; break
+            default: return
+        }
+        event.preventDefault()
+        setTab(tabs[nextIndex].id)
+        tabRefs.current[nextIndex]?.focus()
+    }
     return (
         <Modal
             open={props.open}
