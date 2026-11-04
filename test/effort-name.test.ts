@@ -1,5 +1,9 @@
-// effort-name.ts（Node 半）测试：档位名换名纯函数与词表同源
-import { localizeEffortNames } from '@/effort-name'
+// effort-name.ts（Node 半）测试：档位名换名纯函数、词表同源与遮蔽层的幂等/失活重装
+import type { Context } from '@deepseek-ai/cordis'
+import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
+import { installEffortNameLocale, localizeEffortNames } from '@/effort-name'
+import { setConfigSource } from '@/config'
+import { DEFAULT_CONFIG } from '@/shared/config-schema'
 import { EFFORT_NAMES_ZH, EFFORT_LEVELS } from '@/shared/constants'
 import { check, stable } from '@test/helper'
 
@@ -16,7 +20,26 @@ function nameOf(info: Parameters<typeof localizeEffortNames>[0], index: number):
     return info.reasoning?.efforts[index]?.name ?? ''
 }
 
-export function run(): void {
+/** `resolveModelInfo` 的宿主签名（与 `LlmRuntime` 同形） */
+type ResolveModelInfo = (provider: string, model: string, signal?: AbortSignal) => Promise<LlmResolvedModelInfo>
+
+/** 装层用最小 ctx 桩：`llm` 服务对象由调用方跨实例复用（模拟宿主 HMR 不重建服务实例） */
+interface LocaleCtxStub {
+    llm: { resolveModelInfo: ResolveModelInfo }
+    settings: { describe(): Array<{ ns: string; user: Record<string, unknown>; revision: number }> }
+    fiber: { store?: Record<string, unknown> }
+}
+
+/** 造一个界面语言为中文的 ctx 桩；`alive=false` 模拟 fiber 已 dispose */
+function makeLocaleCtx(llm: LocaleCtxStub['llm'], alive = true): LocaleCtxStub {
+    return {
+        llm,
+        settings: { describe: () => [{ ns: 'locale', user: { preference: 'zh' }, revision: 0 }] },
+        fiber: { store: alive ? {} : undefined },
+    }
+}
+
+export async function run(): Promise<void> {
     // 词表与共享层档位表同源：前七键逐项相等（编译期已保证无缺漏），外加 Default（宿主伪菜单项）
     const expectedKeys = [...EFFORT_LEVELS.map(hostForm), 'Default']
     check('词表键集与 EFFORT_LEVELS 同源（宿主口径）+ Default',
@@ -64,4 +87,31 @@ export function run(): void {
     check('未命中任何档位时返回原引用', localizeEffortNames(untouched) === untouched)
     const plain = { id: 'm', name: 'M', provider: 'p' } as Parameters<typeof localizeEffortNames>[0]
     check('无 reasoning 时返回原引用', localizeEffortNames(plain) === plain)
+
+    // 遮蔽层：install 即生效；dispose 后旧层失活直通，再次 install 仍能换名
+    setConfigSource(() => DEFAULT_CONFIG) // 默认 localizeEfforts / showOriginalEfforts 均开，判定走换名 + 追加原名
+    let calls = 0
+    const original: ResolveModelInfo = async () => {
+        calls++
+        return infoOf([{ id: 'high', name: 'High' }])
+    }
+    const llm: LocaleCtxStub['llm'] = { resolveModelInfo: original }
+    const ctx1 = makeLocaleCtx(llm)
+    installEffortNameLocale(ctx1 as unknown as Context)
+
+    calls = 0
+    const localizedOnce = await llm.resolveModelInfo('p', 'm')
+    check('install 后包装层生效并换名',
+        nameOf(localizedOnce, 0) === '高 · High' && calls === 1, localizedOnce.reasoning?.efforts)
+
+    // 模拟 dispose 后重新 apply：旧 fiber 失活（旧层直通），新实例重装后仍换名
+    ctx1.fiber.store = undefined
+    const ctx2 = makeLocaleCtx(llm)
+    installEffortNameLocale(ctx2 as unknown as Context)
+
+    calls = 0
+    const localizedAgain = await llm.resolveModelInfo('p', 'm')
+    check('dispose 后再次 install 仍能拿到本地化名称',
+        nameOf(localizedAgain, 0) === '高 · High', localizedAgain.reasoning?.efforts)
+    check('再次 install 只调用一次原实现', calls === 1, calls)
 }
