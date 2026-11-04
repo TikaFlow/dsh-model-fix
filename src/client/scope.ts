@@ -51,7 +51,12 @@ export function makeScope<T>(form: ConfigForm<unknown>, decode: (raw: unknown) =
             listeners.add(listener)
             return () => { listeners.delete(listener) }
         },
-        set: (field, value) => form.set(field, value).then(() => undefined),
+        set: (field, value) => form.set(field, value).then(null,
+            (error: unknown) => {
+                sync()
+                throw error
+            },
+        ),
         mutate: (ops, expectedRevision) => form.mutate(
             ops.map((op): SettingsPathOpView => (
                 op.op === 'set'
