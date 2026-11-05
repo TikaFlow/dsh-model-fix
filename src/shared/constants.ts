@@ -45,6 +45,8 @@ export const ENDPOINT_FORCE_UPDATE = 'forceUpdate'
 export const ENDPOINT_RESTORE_MODELS = 'restoreModels'
 /** 浏览器半启动时上报探测语言的 endpoint 名（Node 侧没有 locale 服务） */
 export const ENDPOINT_REPORT_LOCALE = 'reportLocale'
+/** 卡片启动时读取模型目录新鲜度的 endpoint 名 */
+export const ENDPOINT_CATALOG_FRESHNESS = 'catalogFreshness'
 
 /** 宿主自此版本起 `agent/request` 禁止修改路由，必须在 `agent/pre-step` 中 `agent.model.select()` */
 export const HOST_MODEL_SELECT_SINCE = '0.2.2-alpha.2'

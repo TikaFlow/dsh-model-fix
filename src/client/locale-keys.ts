@@ -152,6 +152,7 @@ export type CardKey =
     | 'loading'
     | 'unavailable'
     | 'readOnly'
+    | 'catalogFreshnessPrefix'
     | 'star'
     | 'feedback'
     | 'issueBody'

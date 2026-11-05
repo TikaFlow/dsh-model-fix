@@ -12,6 +12,11 @@ let refreshing = false
 // 重试定时器 id：卸载须 clearTimeout——回调闭包持有 ctx，且 refreshing 是模块级单例，旧定时器在新实例拉取在途时触发会把它误清为 false，破坏单飞不变量
 let retryTimer: ReturnType<typeof setTimeout> | undefined
 
+/** 最近一次目录刷新成功的时刻 */
+export function getCatalogUpdatedAt(): number {
+    return lastRefreshAt
+}
+
 /** 距上次成功拉取超过保鲜窗口且无在途拉取时才真正拉取（长期不重启的保鲜路径，由模型配置变更事件驱动） */
 export function refreshIfStale(ctx: Context): void {
     const isFresh = Date.now() - lastRefreshAt < REFRESH_INTERVAL_MS

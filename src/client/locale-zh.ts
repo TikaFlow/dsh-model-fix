@@ -158,6 +158,7 @@ export const zh: Record<CardKey, string> = {
     loading: '正在读取配置…',
     unavailable: '配置不可用（未检测到插件的宿主服务）。',
     readOnly: '当前环境为只读，无法保存。',
+    catalogFreshnessPrefix: '缓存更新时间：',
     star: '点个 star',
     feedback: '问题反馈',
     issueBody: '--用一句话描述你遇到的问题--\n\n### 问题现象\n\n### 环境\n- 插件版本：{version}\n- DSH 版本：--如 0.2.0--\n- 操作系统：--如 Windows 11--\n\n### 复现步骤\n1. --第一步做了什么--\n2. --第二步做了什么--\n\n### 期望行为',

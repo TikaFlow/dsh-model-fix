@@ -37,7 +37,7 @@ import type { RpcCarrier } from '@/client/rpc-carrier'
 import { errorText } from '@/shared/errors'
 import { DEFAULT_CONFIG, toStored } from '@/shared/config-schema'
 import type { CardBusy, Notice } from '@/client/card-notice'
-import { isWritebackTimeout, truncateMessage } from '@/client/card-notice'
+import { catalogFreshnessText, isWritebackTimeout, truncateMessage } from '@/client/card-notice'
 import { useVerifyRun } from '@/client/card-verify'
 import { useProbeRun } from '@/client/card-probe'
 
@@ -129,6 +129,22 @@ export function Card(props: CardProps) {
         probeEfforts: props.probeEfforts,
         onNotice: setNotice,
     })
+    const catalogFreshness = props.catalogFreshness
+    useEffect(() => {
+        let alive = true
+        const prefix = t('catalogFreshnessPrefix')
+        void catalogFreshness()
+            .then((result) => {
+                if (!alive) return
+                const value = result.ok ? (result.value as { updatedAt?: unknown } | undefined) : undefined
+                const text = catalogFreshnessText(value?.updatedAt, prefix)
+                setNotice(text === undefined ? null : { tone: 'success', text })
+            })
+            .catch(() => {
+                if (alive) setNotice(null)
+            })
+        return () => { alive = false }
+    }, [catalogFreshness, t])
     // 五个动作键共用一个占用态：任一处在途或任一弹层开着，其余四个一并禁用
     const configLocked = busy !== null || verify.open || probe.open
 

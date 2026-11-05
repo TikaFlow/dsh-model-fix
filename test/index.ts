@@ -1,5 +1,6 @@
 // 测试入口：依次执行各模块用例并汇总退出码
 import { run as runCatalog } from '@test/catalog.test'
+import { run as runCardNotice } from '@test/card-notice.test'
 import { run as runClientModel } from '@test/client-model.test'
 import { run as runCompat } from '@test/compat.test'
 import { run as runConfig } from '@test/config.test'
@@ -28,6 +29,8 @@ import { section, summary } from '@test/helper'
 
 section('catalog.test.ts')
 runCatalog()
+section('card-notice.test.ts')
+runCardNotice()
 section('client-model.test.ts')
 runClientModel()
 section('compat.test.ts')

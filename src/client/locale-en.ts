@@ -159,6 +159,7 @@ export const en: Record<CardKey, string> = {
     loading: 'Loading settings…',
     unavailable: 'Settings unavailable (host plugin service not found).',
     readOnly: 'Read-only environment; cannot save.',
+    catalogFreshnessPrefix: 'Cache updated: ',
     star: 'Star',
     feedback: 'Feedback',
     issueBody: '--Describe the problem in one sentence--\n\n### What happened\n\n### Environment\n- Plugin version: {version}\n- DSH version: --e.g. 0.2.0--\n- OS: --e.g. Windows 11--\n\n### Steps to reproduce\n1. --What you did first--\n2. --What you did next--\n\n### Expected behavior',

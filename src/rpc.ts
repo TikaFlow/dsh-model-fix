@@ -1,4 +1,4 @@
-/** RPC 端点：forceUpdate / restoreModels 两个写回端点（共用事件流守卫互斥）+ reportLocale 语言上报；
+/** RPC 端点：forceUpdate / restoreModels 两个写回端点（共用事件流守卫互斥）+ reportLocale 语言上报 + catalogFreshness 目录新鲜度读取；
  * 验证与探测档位的进度各开一条 `connection.fetch` exact 路由。
  * 路由自注册而非宿主 `connection.rpc.handle` 的原因见 docs/decisions-config.md「写回端点」 */
 
@@ -8,7 +8,7 @@ import type { ConnectionRpcResult, HostConnectionService } from '@deepseek-ai/ds
 import type { } from '@deepseek-ai/dsh-llm'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import {
-    ENDPOINT_FORCE_UPDATE, ENDPOINT_REPORT_LOCALE,
+    ENDPOINT_CATALOG_FRESHNESS, ENDPOINT_FORCE_UPDATE, ENDPOINT_REPORT_LOCALE,
     ENDPOINT_RESTORE_MODELS,
     PLUGIN_NAME, PLUGIN_NS, PROBE_STREAM_ROUTE, VERIFY_STREAM_ROUTE,
 } from '@/shared/constants'
@@ -20,6 +20,7 @@ import { fix } from '@/fix'
 import { reportLocale } from '@/effort-name'
 import { endIgnoreAll, isIgnoreAll, startIgnoreAll } from '@/guard'
 import { probeAndFill } from '@/probe'
+import { getCatalogUpdatedAt } from '@/refresh'
 import { restoreModels } from '@/restore'
 import { verifyModels } from '@/verify'
 import { createChannelRoute } from '@/rpc-route'
@@ -63,7 +64,12 @@ function handleReportLocale(payload: unknown): ConnectionRpcResult<unknown> {
     return { ok: true, value: {} }
 }
 
-/** 注册一个 channel（两个写回端点 + 语言上报）；register 返回 disposer，经 ctx.effect 挂卸载自动回收 */
+/** 卡片启动时读取目录新鲜度 */
+function handleCatalogFreshness(): ConnectionRpcResult<unknown> {
+    return { ok: true, value: { updatedAt: getCatalogUpdatedAt() } }
+}
+
+/** 注册一个 channel（两个写回端点 + 语言上报 + 目录新鲜度读取）；register 返回 disposer，经 ctx.effect 挂卸载自动回收 */
 export function installRpc(ctx: Context): void {
     // 子 fiber 声明 connection + webServer；无 webServer 的 profile（如 headless）下子 fiber 不启动，其余功能不受影响
     ctx.inject(['connection', 'webServer'], (rpcCtx) => {
@@ -77,6 +83,7 @@ export function installRpc(ctx: Context): void {
                     case ENDPOINT_FORCE_UPDATE: return handleForceUpdate(ctx)
                     case ENDPOINT_RESTORE_MODELS: return handleRestoreModels(ctx)
                     case ENDPOINT_REPORT_LOCALE: return handleReportLocale(payload)
+                    case ENDPOINT_CATALOG_FRESHNESS: return handleCatalogFreshness()
                     default:
                         return { ok: false, error: { code: 'model-fix/unknown-endpoint', message: `未知端点：${endpoint}`, details: {} } }
                 }

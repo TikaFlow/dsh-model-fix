@@ -20,3 +20,12 @@ export function truncateMessage(value: string): string {
 export function isWritebackTimeout(error: unknown): boolean {
     return error instanceof DOMException && error.name === 'TimeoutError'
 }
+
+/** 目录新鲜度提示文案：有效时间戳 → 前缀 + 本地时间 */
+export function catalogFreshnessText(value: unknown, prefix: string): string | undefined {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return
+    const date = new Date(value)
+    if (!Number.isFinite(date.getTime())) return
+    const pad = (part: number): string => String(part).padStart(2, '0')
+    return `${prefix}${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}

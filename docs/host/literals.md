@@ -33,7 +33,7 @@
 
 - channel `/tikaflow-model-fix`。
 - 流路由（`connection.fetch` exact 路由，须落 `/api` 下）：`VERIFY_STREAM_ROUTE = /api/tikaflow-model-fix/verify`、`PROBE_STREAM_ROUTE = /api/tikaflow-model-fix/probe`；浏览器 `fetch` 用同名的 `*_URL`（`ROUTE.slice(1)` 的文档相对路径）。两条流共用 `src/rpc.ts` 的 `progressStreamFetch`；探测那条入口先查守卫（一轮写两次配置），已开回 409 + 中文文案。
-- endpoint：`forceUpdate` / `restoreModels` / `reportLocale`，结果信封 `{ ok: true, value: { changed } }`。
+- endpoint：`forceUpdate` / `restoreModels` / `reportLocale` / `catalogFreshness`。写回端点结果信封 `{ ok: true, value: { changed } }`；语言上报 `{ ok: true, value: {} }`；目录新鲜度查询，`{ ok: true, value: { updatedAt } }`。
 - 本仓错误码（`ConnectionRpcResult` 的 `error.code`）：`model-fix/write-in-progress`、`model-fix/force-update-failed`、`model-fix/restore-models-failed`、`model-fix/unknown-endpoint`。
 - 宿主错误码：`SETTINGS_CONFLICT`；信封层 `gateway/bad-request`；传输层 `gateway/internal`；`invalid-request`（本仓自复刻的非法 rpcId 哨兵，非宿主常量）。
 

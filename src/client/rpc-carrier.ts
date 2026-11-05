@@ -5,7 +5,7 @@ import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/cli
 // channel RPC 的结果信封
 import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import {
-    ENDPOINT_FORCE_UPDATE, ENDPOINT_REPORT_LOCALE,
+    ENDPOINT_CATALOG_FRESHNESS, ENDPOINT_FORCE_UPDATE, ENDPOINT_REPORT_LOCALE,
     ENDPOINT_RESTORE_MODELS, PLUGIN_NS, PROBE_STREAM_URL, VERIFY_STREAM_URL, WRITEBACK_MS,
 } from '@/shared/constants'
 import { decodeProgressFrame } from '@/shared/verify-progress'
@@ -20,6 +20,8 @@ export interface RpcCarrier {
     restoreModels: () => Promise<ConnectionRpcResult<unknown>>
     /** 语言上报：把浏览器界面语言告知 Node 半（取值链见 `src/effort-name.ts`）；无等待上限——失败由调用方重报 */
     reportLocale: (locale: string) => Promise<ConnectionRpcResult<unknown>>
+    /** 目录新鲜度查询 */
+    catalogFreshness: () => Promise<ConnectionRpcResult<unknown>>
     /** 验证模型：走进度流端点，对每个勾选模型发一次不带推理级别的最小请求，逐条回调实时进度；整轮跑完回汇总，被中止（停止 / 关窗 / 断连）回 undefined，没能开跑或中途异常则抛错 */
     verifyModels: (
         models: readonly VerifyTarget[],
@@ -41,6 +43,7 @@ export function makeRpcCarrier(rpc: ClientConnectionRpc): RpcCarrier {
     const forceUpdate = () => rpc.call(channel, ENDPOINT_FORCE_UPDATE, {}, AbortSignal.timeout(WRITEBACK_MS))
     const restoreModels = () => rpc.call(channel, ENDPOINT_RESTORE_MODELS, {}, AbortSignal.timeout(WRITEBACK_MS))
     const reportLocale = (locale: string) => rpc.call(channel, ENDPOINT_REPORT_LOCALE, locale)
+    const catalogFreshness = () => rpc.call(channel, ENDPOINT_CATALOG_FRESHNESS, {})
     /** 读一条进度流：POST 载荷，逐帧回调非终帧，收于终帧时返回整轮汇总。
      * 用 `fetch` + `getReader()` 而非 `EventSource`：后者自动重连，而重连等于把整轮重新跑一遍。非 2xx 时优先用响应体文案（Node 半两条流都会给一句中文原因）。
      * 被中止（点停止 / 关窗 / 断连）时返回 `undefined`，那不是失败 */
@@ -100,5 +103,5 @@ export function makeRpcCarrier(rpc: ClientConnectionRpc): RpcCarrier {
         onFrame: (frame: VerifyProgressUpdate) => void,
         signal: AbortSignal,
     ) => streamSummary(PROBE_STREAM_URL, { models, ...flags }, onFrame, signal)
-    return { forceUpdate, restoreModels, reportLocale, verifyModels, probeEfforts }
+    return { forceUpdate, restoreModels, reportLocale, catalogFreshness, verifyModels, probeEfforts }
 }
