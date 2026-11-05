@@ -22,7 +22,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | 文档 | 职责 | 硬约束速查 | 何时读 / 何时改 |
 | --- | --- | --- | --- |
 | [`docs/architecture.md`](docs/architecture.md) | 目录职责、数据流、跨半边界与导入打包纪律 | 跨半纯度：Node 半禁 `@/client` 值导入，浏览器半值导入只放行白名单与基线；导入别名：只用 `@/` 与 `@test/`，须同时声明在 tsconfig `paths` 与各 tsdown `alias`；宿主模块外置：单一来源 `scripts/build-externals.mjs`，按半各一份；对外依赖：官方包 optional peer + devDep 同版兜底，`dependencies` 保持为空 | 动目录/文件划分、导入关系、构建配置前读；上述内容变更时改 |
-| [`docs/host/`](docs/host/) | 宿主契约：各面的实际用法与宿主源码引用、类型导入清单、字面量键码、漂移观察项 | 对宿主的一切依赖（服务调用与事件订阅、类型导入面、字面量键/码/路由/slot 名、运行时行为假设、版本基线与平台模块表）一律登记在此；NS 键 = `cordis.patch.yml` 的 `id` = `PLUGIN_NS`，两半共用；`dsh.client.inject` 是依赖包图边不是 cordis 服务名，缺 `lib/client.js` 会让宿主激活期聚合抛错 ⇒ build 必须先于安装 | 碰任何宿主服务/事件/类型/字面量前读；落在其登记范围内时同轮改，升宿主大版本另过一遍 `drift.md` 的检查清单 |
+| [`docs/host/`](docs/host/) | 宿主契约：各面的实际用法与宿主源码引用、类型导入清单、字面量键码、漂移观察项 | 对宿主的一切依赖（服务调用与事件订阅、类型导入面、字面量键/码/路由/slot 名、运行时行为假设、版本基线与平台模块表）一律登记在此；NS 键 = `cordis.patch.yml` 的 `id` = `PLUGIN_NS`，两半共用；`dsh.client.inject` 是依赖包图边不是 cordis 服务名，缺 `lib/client.js` 会让宿主激活期聚合抛错 ⇒ build 必须先于安装；判活只用于阻止卸载后继续执行，只加在异步/延迟路径上 | 碰任何宿主服务/事件/类型/字面量前读；落在其登记范围内时同轮改，升宿主大版本另过一遍 `drift.md` 的检查清单 |
 | [`docs/decisions-config.md`](docs/decisions-config.md) | 裁决：快照、排除与列表、参数来源、填充与写回、写回端点 | 空壳字段判据只有 `stripEmptyFields` 一处，五条写回路径共用 | 动配置解析、填充、写回前读 |
 | [`docs/decisions-session.md`](docs/decisions-session.md) | 裁决：推理级别记忆、子智能体跟随、档位自调 | 记忆清理归 Node 半、设级别只能走浏览器半 | 动记忆、子智能体、自调前读 |
 | [`docs/decisions-diagnose.md`](docs/decisions-diagnose.md) | 裁决：验证与探测（共用层 + 各自特有） | 失败分类只认 `code`，不比对文案、不看 `status` | 动验证/探测前读 |
@@ -39,7 +39,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 
 | 分片 | 覆盖 |
 | --- | --- |
-| [`runtime.md`](docs/host/runtime.md) | settings 读写与事件、装载时序、`hmr` 私有面、cordis 基础面、`Config` volatile、patch id ↔ 命名空间、装载与 HMR 契约 |
+| [`runtime.md`](docs/host/runtime.md) | settings 读写与事件、装载时序、`hmr` 私有面、cordis 基础面、ctx 判活、`Config` volatile、patch id ↔ 命名空间、装载与 HMR 契约 |
 | [`llm.md`](docs/host/llm.md) | 验证请求、模型清单面、`resolveModelInfo`、失败码与语言判定三路 |
 | [`agent.md`](docs/host/agent.md) | `agent/request` 与 `agent/pre-step` 瀑布（按宿主版本分流）、子智能体三服务、档位自调四服务、credentials |
 | [`transport.md`](docs/host/transport.md) | connection RPC channel 与进度流、webServer 路由、模块装载与 `dsh.client.inject` |

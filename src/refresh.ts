@@ -44,7 +44,6 @@ function refresh(ctx: Context, retryCount = MAX_ATTEMPTS): void {
                 return
             }
             fix(ctx).catch((error) => {
-                if (!ctx.fiber.store) return
                 ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${errorText(error)}`)
             })
             refreshing = false
@@ -65,10 +64,6 @@ function refresh(ctx: Context, retryCount = MAX_ATTEMPTS): void {
             }
             retryTimer = setTimeout(() => {
                 retryTimer = undefined
-                if (!ctx.fiber.store) {
-                    refreshing = false
-                    return
-                }
                 refreshing = false // 重试前复位在途守卫
                 refresh(ctx, retryCount)
             }, RETRY_DELAY_MS)

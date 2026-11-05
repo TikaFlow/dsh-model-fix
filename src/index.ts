@@ -57,7 +57,6 @@ async function settle(ctx: Context, run: Promise<unknown>, options: SettleOption
 /** 自有段变更：自愈 → 填充 → 记忆清理；守卫开启（插件写回期间）整链短路 */
 function refillAfterOwnChange(ctx: Context): void {
     if (isIgnoreAll()) return
-    if (!ctx.fiber.store) return
     void settle(ctx,
         selfHealConfig(ctx)
             .catch((error: unknown) => {
@@ -71,7 +70,6 @@ function refillAfterOwnChange(ctx: Context): void {
 /** llm-pi-ai 段变更：填充 → 保鲜窗口过期时拉取 → 再剪一次记忆；守卫同上 */
 function refillAfterApiChange(ctx: Context): void {
     if (isIgnoreAll()) return
-    if (!ctx.fiber.store) return
     void settle(ctx, fix(ctx), { refresh: true }).catch(swallowFixError)
 }
 
@@ -79,7 +77,7 @@ function refillAfterApiChange(ctx: Context): void {
 async function recoverProbeBackup(ctx: Context): Promise<void> {
     try {
         const changed = await restoreProbeBackup(ctx)
-        if (changed > 0 && ctx.fiber.store) await fix(ctx)
+        if (changed > 0) await fix(ctx)
     } catch (error) {
         ctx.logger.warn(`${PLUGIN_NAME}: 探测档位的兜底回退失败（配置可能停在半截形态）：${errorText(error)}`)
     }
@@ -95,19 +93,14 @@ function readVolatile(config: unknown): unknown {
 function runStartupChain(ctx: Context): void {
     void migrateConfig(ctx)
         .catch((error: unknown) => {
-            if (!ctx.fiber.store) return
             ctx.logger.warn(`${PLUGIN_NAME}: 配置迁移失败，使用当前生效配置继续：${errorText(error)}`)
         })
-        .then(() => {
-            if (!ctx.fiber.store) return
-            return readCache()
-        })
+        .then(() => readCache())
         .then((cached) => {
             if (cached) setCatalog(cached)
             void settle(ctx, fix(ctx),
                 { refresh: true, afterFix: () => recoverProbeBackup(ctx) })
                 .catch((error: unknown) => {
-                    if (!ctx.fiber.store) return
                     ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${errorText(error)}`)
                 })
         })

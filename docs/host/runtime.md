@@ -31,6 +31,10 @@
 - `ctx.effect(execute, label?)`：execute 立即执行，disposer 调用时或 fiber 卸载时（先到者）**逆序**执行；已卸载抛 `INACTIVE_EFFECT`。「注册必须挂 effect」的纪律基于这一条。
 - `ctx.inject(deps, callback)`：等价 `this.plugin({ inject, apply: callback })`。**未满足的服务保持 PENDING（无超时）** ⇒ 卡片等 `configForms` 必须能长期停在「加载中 / 不可用」。依赖全部就绪后才执行回调（缺席则不执行）⇒ 回调内 `ctx.get(服务名)` 必可取到；依赖变更时回调被卸载重跑，回调内副作用须自带退订。
 
+## ctx 判活
+
+`ctx.fiber.store` 判活的唯一用途，是阻止这段代码在插件卸载之后还继续执行。
+
 ## Config 装载：`z.any().volatile()`
 
 派生表单与可编辑投影（`volatileForm` / `projectForm`）⇒ `Config` 必须 `z.any().volatile()`：根 volatile 使整段原样通过投影（用 dict 则未声明键被抹成 `{}`），这也是自有段可被 `mutate` 写回的前提。
