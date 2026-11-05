@@ -93,7 +93,6 @@ function readVolatile(config: unknown): unknown {
 
 /** 首轮启动链：迁移（必须最先，旧格式快照会被按当前 schema 误解析）→ 读缓存 → 填充 → 探测兜底回退 → 异步刷新 */
 function runStartupChain(ctx: Context): void {
-    if (!ctx.fiber.store) return
     void migrateConfig(ctx)
         .catch((error: unknown) => {
             if (!ctx.fiber.store) return
@@ -104,7 +103,6 @@ function runStartupChain(ctx: Context): void {
             return readCache()
         })
         .then((cached) => {
-            if (!ctx.fiber.store) return
             if (cached) setCatalog(cached)
             void settle(ctx, fix(ctx),
                 { refresh: true, afterFix: () => recoverProbeBackup(ctx) })
