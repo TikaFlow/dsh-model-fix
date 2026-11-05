@@ -138,7 +138,7 @@ export function Card(props: CardProps) {
                 if (!alive) return
                 const value = result.ok ? (result.value as { updatedAt?: unknown } | undefined) : undefined
                 const text = catalogFreshnessText(value?.updatedAt, prefix)
-                setNotice(text === undefined ? null : { tone: 'success', text })
+                if (text !== undefined) setNotice({ tone: 'success', text })
             })
             .catch(() => {
                 if (alive) setNotice(null)
