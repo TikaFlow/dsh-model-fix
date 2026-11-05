@@ -23,7 +23,7 @@
 
 - 席位声明者是宿主外壳 `ui-settings-general`（它的 `children` 表声明 `settings.launcher`）⇒ 注册必须写在 `ctx.slots.inject('settings.launcher', …)` 回调里。
 - **single 席位的遮蔽（shadowing）**：同一格可共存于不同 `priority`，**数字最小者渲染**（账本按 priority 升序稳定排序，渲染器取 `entriesOfSlot(key)[0]`）；同 priority 再注册才抛错。宿主账号包注册 launcher 时未设 priority（默认 0），本仓以 `priority: -1` 注册即遮蔽它。
-- `StoredEntry.registrant` 是运行时盖的**注册方 fiber 名**（`options.registrant ?? fiber.name`）⇒ 据此判「账本里有没有本插件之外的占位者」。`ctx.slots.entries(key)` 与 `ctx.slots.subscribe(key, fn)` 均为公开面。
+- `StoredEntry.registrant` 是运行时盖的**注册方 fiber 名**（`options.registrant ?? fiber.name`）⇒ 据此判「账本里有没有本插件之外的占位者」。本仓客户端插件导出 `name = PLUGIN_NAME` ⇒ 自身条目 `registrant` 恒等于 `PLUGIN_NAME`；宿主账号包未导出 `name`，其 `registrant` 继承加载器 fiber 名（本版本为 `tk`）而非包名，故该比对只用于排除自身，不能据 `registrant` 反推宿主条目的包来源。`ctx.slots.entries(key)` 与 `ctx.slots.subscribe(key, fn)` 均为公开面。
 
 ## locale：词典与 `t`
 
