@@ -228,6 +228,7 @@ export function DiagnoseDialog(props: DiagnoseDialogProps) {
                             cwd={t(props.terminalCwdKey)}
                             command={t(props.terminalCommandKey, { done: String(props.done), total: String(props.total) })}
                             output={output}
+                            copyText={output}
                             running={props.running}
                             maxLines={Infinity}
                             labels={props.terminalLabels}
