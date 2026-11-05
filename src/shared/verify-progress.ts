@@ -188,7 +188,7 @@ export function encodeProgressFrame(frame: VerifyProgressFrame): string {
     return `${DATA_PREFIX}${JSON.stringify(frame)}\n\n`
 }
 
-/** 解析一条 `data: ` 行；SSE 注释帧（心跳）与非法 JSON 返回 undefined，调用方跳过即可。逐字段做形状校验（而非 `JSON.parse` 了事）：这条流的 `done.summary` 直接驱动卡片统计。 */
+/** 解析一条 `data: ` 行；SSE 注释帧（心跳）与非法 JSON 返回 undefined，调用方跳过。 */
 export function decodeProgressFrame(line: string): VerifyProgressFrame | undefined {
     if (!line.startsWith(DATA_PREFIX)) return undefined
     try {

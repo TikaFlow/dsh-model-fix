@@ -6,15 +6,15 @@
 
 | 宿主模块 | 导入符号 | 形式 | 使用处 |
 | --- | --- | --- | --- |
-| `@deepseek-ai/cordis` | `Context` / `Context as ClientContext` | type-only | Node 半各模块；`src/client/index.tsx`、`memory-listener.ts`、`rpc-carrier.ts` |
+| `@deepseek-ai/cordis` | `Context` / `Context as ClientContext` | type-only | Node 半各模块；浏览器半 `Context as ClientContext`：`src/client/index.tsx`、`memory-listener.ts`、`back-to-chat.tsx`、`classic-setting.tsx`、`visibility.tsx`、`floating-buttons.tsx`、`float-card.tsx`、`locale-patch.ts`、`effort-name.ts` |
 | `@deepseek-ai/schemastery` | 默认导出 `z` | **值导入** | `src/index.ts`（`Config`）、`src/upgrade.ts`（v7 冻结 schema） |
-| `@deepseek-ai/dsh-settings` | `SettingsPathOp`、`SettingsDescriptor` | type-only | 各写回端点与 `src/client/scope.ts`（前者）；`src/section.ts`（后者） |
+| `@deepseek-ai/dsh-settings` | `SettingsPathOp`、`SettingsDescriptor` | type-only + 合并 | 各写回端点与 `src/client/scope.ts`（前者）；`src/section.ts`（后者）；`src/effort-name.ts`（合并 `ctx.settings` 服务面） |
 | `@deepseek-ai/dsh-settings/types` | `SettingsPathOpView` | type-only | `src/client/scope.ts`（**只引 `/types` 子路径**，包根未导出） |
 | `@deepseek-ai/dsh-util-values` | `deepEqualJson`（值）、`JsonValue`（type-only） | 值 + type-only | `src/fix.ts` `migrate.ts` `compat.ts` `restore.ts` `probe-backup.ts`（前者）；`src/client/scope.ts`（后者） |
-| `@deepseek-ai/dsh-llm` | `LlmRuntime`、`ReasoningEffortId`、`LlmResolvedModelInfo`、`LlmModelInfo` | type-only | `probe-engine.ts`、`verify.ts`、`probe.ts`、`effort-name.ts`；`src/rpc.ts` 另有合并导入 |
+| `@deepseek-ai/dsh-llm` | `LlmRuntime`、`ReasoningEffortId`、`StreamChunk`、`LlmResolvedModelInfo` | type-only | `probe-engine.ts`、`verify.ts`、`probe.ts`、`effort-name.ts`；`src/rpc.ts` 另有合并导入 |
 | `@deepseek-ai/dsh-llm` | `LlmCallConfig` / `LlmCallConfigAdapterDefaults` / `ReasoningEffortId` | type-only | `src/subagent.ts`（**必须包根**：`/types` 子路径不含 `LlmCallConfig`） |
 | `@deepseek-ai/dsh-llm/types` | `LlmFailure` | type-only | `probe-verdict.ts`、`probe-engine.ts`（**只在 `/types`**，包根未再导出） |
-| `@deepseek-ai/dsh-client-connection` | `ConnectionRpcResult`、`HostConnectionService` | type-only | `rpc.ts`、`rpc-route.ts`、`rpc-carrier.ts`、`card.tsx` |
+| `@deepseek-ai/dsh-client-connection` | `ConnectionRpcResult`、`HostConnectionService`、`ConnectionRequestRejection` | type-only | `rpc.ts`、`rpc-route.ts`、`rpc-carrier.ts`、`card.tsx` |
 | `@deepseek-ai/dsh-host-webserver` | `WebServer` | type-only | `src/rpc.ts` |
 | `node:http` | `IncomingMessage`、`ServerResponse` | type-only | `src/rpc-route.ts` |
 
@@ -22,17 +22,17 @@
 
 | 宿主模块 | 导入符号 | 形式 | 使用处 |
 | --- | --- | --- | --- |
-| `@deepseek-ai/dsh-client-ui-primitives` | `import * as primitives`、`TerminalBlockLabels`、`StateDot`、`StateDotState` | **值导入** + type-only | `src/client/` 各卡片文件（浏览器半唯一的运行期宿主 UI 依赖） |
-| `@deepseek-ai/dsh-client-ui-settings/client` | `ConfigForm`、`ConfigFormSnapshot` | type-only | `src/client/index.tsx`、`scope.ts` |
-| `@deepseek-ai/dsh-client-connection/client` | `ClientConnectionRpc` | type-only | `src/client/rpc-carrier.ts` |
-| `@deepseek-ai/dsh-client-ui-slots` | `TranslateNS` + 合并（`LocaleNamespaceMap` 纳入 `CARD_NS`） | type-only + 合并 | 各卡片文件；合并：`src/client/locale-keys.ts` |
-| `@deepseek-ai/dsh-api-session-controller/client` | 合并（`ctx.sessions`）、`SessionListState` | 合并 + type-only | 合并：`memory-listener.ts`、`back-to-chat.tsx`；后者：`back-to-chat.tsx` |
+| `@deepseek-ai/dsh-client-ui-primitives` | `import * as primitives`、`Modal`、`Tooltip`、`IconChevronLeftOutlineRegular`、`StateDot`、`TerminalBlockLabels`、`StateDotState` | **值导入** + type-only | `src/client/` 各卡片文件（浏览器半唯一的运行期宿主 UI 依赖）；具名导入见 `card-panel.tsx`、`composer.tsx`、`floating-buttons.tsx`、`back-to-chat.tsx` |
+| `@deepseek-ai/dsh-client-ui-settings/client` | `ConfigForm`、`ConfigFormSnapshot` | type-only + 合并 | `src/client/index.tsx`、`scope.ts`（类型）；`classic-setting.tsx`（合并 `settings.launcher`） |
+| `@deepseek-ai/dsh-client-connection/client` | `ClientConnectionRpc` | type-only | `src/client/rpc-carrier.ts`、`index.tsx`、`effort-name.ts` |
+| `@deepseek-ai/dsh-client-ui-slots` | `TranslateNS`、`PropsLocale`、`PropsRuntime` + 合并（`LocaleNamespaceMap` 纳入 `CARD_NS`） | type-only + 合并 | 各卡片文件（`TranslateNS`）；`src/client/composer.tsx`、`classic-setting.tsx`（`PropsLocale` / `PropsRuntime`）；合并：`src/client/locale-keys.ts` |
+| `@deepseek-ai/dsh-api-session-controller/client` | 合并（`ctx.sessions`）、`ISessions`、`SessionListState` | 合并 + type-only | 合并：`memory-listener.ts`、`back-to-chat.tsx`；`ISessions` / `SessionListState`：`back-to-chat.tsx` |
 | `@deepseek-ai/dsh-api-session-controller/types` | `ModelSelection`、`ModelSelectionProjection`、`ModelProviderGroup` | type-only | `memory-listener.ts`、`effort.ts` |
 | `@deepseek-ai/dsh-client-ui-model-selection/client` | `ModelDirectory` | type-only | `memory-listener.ts` |
 | `@deepseek-ai/dsh-session/types` | `SessionId` | type-only | `memory-listener.ts`、`back-to-chat.tsx`、`subagent.ts`、`test/subagent.test.ts`（**只引 `/types`**：包根会把 Node 侧 `SessionStore` 增补带进来） |
 | `@deepseek-ai/dsh-client-ui-session/client` | 合并（`ctx.uiSession`）、`UiSession` | 合并 + type-only | `back-to-chat.tsx`（其类型面只引安全子路径，不顶掉 `ctx.sessions` 增补） |
 | `@deepseek-ai/dsh-client-ui-renderer/client` | 合并（`ctx.slots`） | 合并 | `src/client/index.tsx` |
-| `@deepseek-ai/dsh-client-locale/client` | 合并（`ctx.locale`） | 合并 | `index.tsx`、`effort-name.ts`、`back-to-chat.tsx` |
+| `@deepseek-ai/dsh-client-locale/client` | 合并（`ctx.locale`） | 合并 | `index.tsx`、`effort-name.ts`、`back-to-chat.tsx`、`locale-patch.ts` |
 | `@deepseek-ai/dsh-client-ui-settings-models/client` | 合并（`settings.models.footer`） | 合并 | `src/client/index.tsx` |
 | `@deepseek-ai/dsh-client-ui-plugin-manager/client` | 合并（`plugins.bundle.config` / `plugins.row.config`） | 合并 | `src/client/index.tsx` |
 | `@deepseek-ai/dsh-client-ui-conversation/client` | 合并（`conversation.input.left`） | 合并 | `src/client/index.tsx` |

@@ -14,7 +14,7 @@
 - **退出键统一「取消」且在途不禁用**；`close` 只留 × 的 aria-label。
 - **进度走 SSE**：用 `fetch + getReader()` 而非 `EventSource`（自动重连 = 重跑整轮）。
 - **关窗 / 断连 / 停止一律中止**：Node 半单列 `'aborted'` 不发帧、不入明细、不短后续档位；消费方据「流结束无终帧」判中止。
-- **wire 只发结构化帧，文案全在浏览器半**：locale 只存在于浏览器半，文案归 Node 半等于绑定 Node 产物。帧为判别联合（`opened`/`probed`/`done`/`failed`）；`done`/`total` 含被短路未发出的；`decodeProgressFrame` 逐字段校验。
+- **wire 只发结构化帧，文案全在浏览器半**：locale 只存在于浏览器半，文案归 Node 半等于绑定 Node 产物。帧为判别联合（`opened`/`probed`/`done`/`failed`）；`done`/`total` 含被短路未发出的；`decodeProgressFrame` 只校验消费端真正读取的字段（`opened.total`；`probed` 的 `provider`/`model`/`outcome`/`done`/`total` 与可缺省的 `effort`/`skipped`；`failed.message`；`done.summary` 仅查对象形状与 `tested`/`models`/`efforts`/`plannedEfforts` 四项数字），不做整棵 `VerifySummary` 深度校验。
 
 ## 验证
 
