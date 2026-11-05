@@ -34,31 +34,45 @@ function pruneMemory(ctx: Context): void {
     void updateMemory(ctx).catch(swallowMemoryError)
 }
 
+interface SettleOptions {
+    /** fix 成功后端的步骤（ */
+    readonly afterFix?: () => Promise<void>
+    /** fix 后 `finally` 里是否刷新 */
+    readonly refresh: boolean
+}
+
+/** fix 落定后的收尾 */
+async function settle(ctx: Context, run: Promise<unknown>, options: SettleOptions): Promise<void> {
+    let chain = run
+    const { refresh, afterFix } = options
+    if (afterFix) {
+        chain = chain.then(() => afterFix?.())
+    }
+    if (refresh) {
+        chain = chain.finally(() => refreshIfStale(ctx))
+    }
+    return chain.then(() => pruneMemory(ctx))
+}
+
 /** 自有段变更：自愈 → 填充 → 记忆清理；守卫开启（插件写回期间）整链短路 */
 function refillAfterOwnChange(ctx: Context): void {
     if (isIgnoreAll()) return
-    void selfHealConfig(ctx)
-        .catch((error: unknown) => {
-            ctx.logger.warn(`${PLUGIN_NAME}: 排除列表自愈失败（不影响后续填充）：${errorText(error)}`)
-        })
-        .then(() => fix(ctx))
-        .then(() => pruneMemory(ctx))
-        .catch(swallowFixError)
+    if (!ctx.fiber.store) return
+    void settle(ctx,
+        selfHealConfig(ctx)
+            .catch((error: unknown) => {
+                ctx.logger.warn(`${PLUGIN_NAME}: 排除列表自愈失败（不影响后续填充）：${errorText(error)}`)
+            })
+            .then(() => fix(ctx)),
+        { refresh: false },
+    ).catch(swallowFixError)
 }
 
 /** llm-pi-ai 段变更：填充 → 保鲜窗口过期时拉取 → 再剪一次记忆；守卫同上 */
 function refillAfterApiChange(ctx: Context): void {
     if (isIgnoreAll()) return
-    fix(ctx)
-        .finally(() => {
-            if (!ctx.fiber.store) return
-            refreshIfStale(ctx)
-        })
-        .then(() => {
-            if (!ctx.fiber.store) return
-            pruneMemory(ctx)
-        })
-        .catch(swallowFixError)
+    if (!ctx.fiber.store) return
+    void settle(ctx, fix(ctx), { refresh: true }).catch(swallowFixError)
 }
 
 /** 探测档位的崩溃兜底：回退上一轮崩在「预声明」与「收敛」之间留下的备份，再补一轮 fill；无备份返回 0 */
@@ -79,6 +93,7 @@ function readVolatile(config: unknown): unknown {
 
 /** 首轮启动链：迁移（必须最先，旧格式快照会被按当前 schema 误解析）→ 读缓存 → 填充 → 探测兜底回退 → 异步刷新 */
 function runStartupChain(ctx: Context): void {
+    if (!ctx.fiber.store) return
     void migrateConfig(ctx)
         .catch((error: unknown) => {
             if (!ctx.fiber.store) return
@@ -91,15 +106,8 @@ function runStartupChain(ctx: Context): void {
         .then((cached) => {
             if (!ctx.fiber.store) return
             if (cached) setCatalog(cached)
-            fix(ctx)
-                .then(() => recoverProbeBackup(ctx))
-                .finally(() => {
-                    if (!ctx.fiber.store) return
-                    refreshIfStale(ctx)
-                })
-                .then(() => {
-                    if (ctx.fiber.store) pruneMemory(ctx)
-                })
+            void settle(ctx, fix(ctx),
+                { refresh: true, afterFix: () => recoverProbeBackup(ctx) })
                 .catch((error: unknown) => {
                     if (!ctx.fiber.store) return
                     ctx.logger.warn(`${PLUGIN_NAME}: 填充失败：${errorText(error)}`)
