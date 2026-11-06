@@ -2,6 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { MAX_ATTEMPTS } from '@/constants'
 import { getConfig } from '@/config'
+import { isFiberAlive } from '@/guard'
 import { queueTask } from '@/host'
 import { descriptorOf, sectionOf } from '@/section'
 import { errorText, isSettingsConflict } from '@/shared/errors'
@@ -98,7 +99,7 @@ export async function updateMemory(ctx: Context): Promise<void> {
 /** 一轮剪枝（读 → 采 → 计划 → 写回）。任何一步判定「不必剪」即整轮早退 */
 async function pruneOnce(ctx: Context): Promise<void> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        if (!ctx.fiber.store) return
+        if (!isFiberAlive(ctx)) return
         const cfg = getConfig()
         if (!cfg.userExperience.forgetRemoved) return
         const live = await collectLiveModels(ctx, Object.keys(cfg.efforts))
@@ -108,6 +109,7 @@ async function pruneOnce(ctx: Context): Promise<void> {
         const descriptor = descriptorOf(ctx, PLUGIN_NS)
         if (!descriptor) return
         if (!isPlainObject(sectionOf(descriptor)?.[versionKey(CONFIG_VERSION)])) return
+        if (!isFiberAlive(ctx)) return
         try {
             await queueTask(() => ctx.settings.mutate(
                 PLUGIN_NS,
@@ -117,8 +119,8 @@ async function pruneOnce(ctx: Context): Promise<void> {
             ctx.logger.info(`${PLUGIN_NAME}: 已清理 ${plan.removed} 条失效的推理级别记忆`)
             return
         } catch (error) {
-            if (isSettingsConflict(error) && attempt < MAX_ATTEMPTS) continue
             ctx.logger.warn(`${PLUGIN_NAME}: 清理失效的推理级别记忆失败（第 ${attempt}/${MAX_ATTEMPTS} 次）：${errorText(error)}`)
+            if (isSettingsConflict(error) && attempt < MAX_ATTEMPTS) continue
             return
         }
     }

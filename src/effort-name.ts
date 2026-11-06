@@ -7,6 +7,7 @@ import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 // ctx.settings 服务面声明合并（type-only；settings 是宿主基础服务，装载即在）
 import type {} from '@deepseek-ai/dsh-settings'
 import { EFFORT_NAMES_ZH, EFFORT_NAME_SEP } from '@/shared/constants'
+import { isFiberAlive } from '@/guard'
 import { isPlainObject } from '@/shared/types'
 import { descriptorOf, sectionOf } from '@/section'
 import { getConfig } from '@/config'
@@ -58,13 +59,13 @@ function isZh(locale: string): boolean {
 type ResolveModelInfo = (provider: string, model: string, signal?: AbortSignal) => Promise<LlmResolvedModelInfo>
 
 /** 装上档位名本地化：把 `ctx.llm` 的 `resolveModelInfo` 遮成「中文界面下换名、否则直通」的一层。
- * 卸载不动服务上的属性（遮蔽链式，动属性会抹掉别人的遮蔽）；wrapped 闭包捕获的 ctx 在 fiber dispose 后失活，用 `ctx.fiber.store` 作守卫，不通过即直通 original。 */
+ * 卸载不动服务上的属性（遮蔽链式，动属性会抹掉别人的遮蔽）；wrapped 闭包捕获的 ctx 在 fiber dispose 后失活，用 `isFiberAlive(ctx)` 作守卫，不通过即直通 original。 */
 export function installEffortNameLocale(ctx: Context): void {
     const llm = ctx.llm
     const original = llm.resolveModelInfo
     const wrapped: ResolveModelInfo = async (provider, model, signal) => {
         const info = await original.call(llm, provider, model, signal)
-        if (ctx.fiber.store && getConfig().userExperience.localizeEfforts && isZh(localeNow(ctx))) {
+        if (isFiberAlive(ctx) && getConfig().userExperience.localizeEfforts && isZh(localeNow(ctx))) {
             return localizeEffortNames(info, getConfig().userExperience.showOriginalEfforts)
         }
         return info

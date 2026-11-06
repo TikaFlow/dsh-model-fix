@@ -5,6 +5,7 @@ import { PLUGIN_NAME } from '@/shared/constants'
 import { errorText } from '@/shared/errors'
 import type { CacheGroup, CacheRecord, Catalog, IndexedCatalog, ModelEntry, ProviderGroup, IndexEntry } from '@/types'
 import { isCapacity } from '@/types'
+import { isFiberAlive } from '@/guard'
 import { normalizeId, recomputeLookupMemory } from '@/lookup'
 import { isPlainObject } from '@/shared/types'
 
@@ -211,6 +212,7 @@ export async function fetchLatest(ctx: Context): Promise<IndexedCatalog> {
         signal: AbortSignal.timeout(FETCH_MS),
         headers: { 'User-Agent': PLUGIN_NAME },
     })
+    if (!isFiberAlive(ctx)) throw new Error(`${PLUGIN_NAME}: 插件已卸载`)
     if (!res.ok) throw new Error(`${API_URL} -> ${res.status}`)
     const api = (await res.json()) as Record<string, unknown>
     const catalog = buildCatalog(api)
@@ -220,6 +222,7 @@ export async function fetchLatest(ctx: Context): Promise<IndexedCatalog> {
     const serialized = JSON.stringify(catalog)
     if (!indexedCache || serialized !== JSON.stringify(indexedCache.catalog)) {
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            if (!isFiberAlive(ctx)) throw new Error(`${PLUGIN_NAME}: 插件已卸载`)
             try {
                 await writeFile(CACHE_FILE, serialized)
                 break

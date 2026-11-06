@@ -22,6 +22,7 @@ function llmCtx(
     calls: string[] = [],
 ): { ctx: Context; calls: string[] } {
     const ctx = {
+        fiber: { state: 2 },
         llm: {
             listProviders: () => providers.map((id) => ({ id, name: id })),
             listModels: async (provider: string) => {

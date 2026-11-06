@@ -6,7 +6,7 @@ import { MAX_ATTEMPTS } from '@/constants'
 import { API_NS, PLUGIN_NAME } from '@/shared/constants'
 import { errorText, isSettingsConflict } from '@/shared/errors'
 import { providersOf } from '@/shared/types'
-import { endIgnoreAll, startIgnoreAll } from '@/guard'
+import { endIgnoreAll, isFiberAlive, startIgnoreAll } from '@/guard'
 import { queueTask } from '@/host'
 import { descriptorOf } from '@/section'
 
@@ -40,7 +40,7 @@ interface ApiWritebackSpec<R extends ApiWritebackPlan> {
  * 调用方须已置位事件流守卫，或改用 {@link guardedWritebackApi} */
 export async function writebackApi<R extends ApiWritebackPlan>(ctx: Context, spec: ApiWritebackSpec<R>): Promise<R> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        if (!ctx.fiber.store) return spec.unreadableProviders()
+        if (!isFiberAlive(ctx)) return spec.unreadableProviders()
         const descriptor = descriptorOf(ctx, API_NS)
         const revision = descriptor?.revision || 0
         const providers = providersOf(descriptor?.user)

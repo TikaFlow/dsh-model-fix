@@ -5,6 +5,7 @@ import { MAX_ATTEMPTS } from '@/constants'
 import { PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
 import { CONFIG_VERSION, DEFAULT_CONFIG, MAX_OLD_SNAPSHOTS, MIN_SUPPORTED_VERSION, parseSnapshot, parseVersion, toStored, versionKey } from '@/shared/config-schema'
 import { resolveConfig } from '@/config'
+import { isFiberAlive } from '@/guard'
 import { queueTask } from '@/host'
 import type { PluginConfigSnapshot, VersionedSection } from '@/shared/types'
 import { isPlainObject } from '@/shared/types'
@@ -81,17 +82,17 @@ export async function migrateConfig(ctx: Context): Promise<void> {
     let descriptor = descriptorOf(ctx, PLUGIN_NS)
     let waited = 0
     while (!descriptor) {
-        if (!ctx.fiber.store) return
         if (waited >= MIGRATE_WAIT_MS) {
             ctx.logger.warn(`${PLUGIN_NAME}: 等待 ${PLUGIN_NS} 命名空间注册超时（${MIGRATE_WAIT_MS}ms），跳过本次迁移/写回/清理`)
             return
         }
         await sleep(MIGRATE_POLL_MS)
         waited += MIGRATE_POLL_MS
+        if (!isFiberAlive(ctx)) return
         descriptor = descriptorOf(ctx, PLUGIN_NS)
     }
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        if (!ctx.fiber.store) return
+        if (!isFiberAlive(ctx)) return
         // 首轮用轮询所得描述（此刻必已注册）；冲突重试时重读，取最新 revision 与段值
         const fence = attempt === 1 ? descriptor : descriptorOf(ctx, PLUGIN_NS)
         if (!fence) return
@@ -162,7 +163,7 @@ export function dedupeExcludesOp(snapshot: unknown): SettingsPathOp[] {
 /** 自有配置的通用自愈入口（onChange 调用）：读 user 层当前版本快照，有 op 才写入。当前唯一规则：excludes 去重 */
 export async function selfHealConfig(ctx: Context): Promise<void> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        if (!ctx.fiber.store) return
+        if (!isFiberAlive(ctx)) return
         const descriptor = descriptorOf(ctx, PLUGIN_NS)
         if (!descriptor) return
         const section = sectionOf(descriptor)
@@ -171,8 +172,8 @@ export async function selfHealConfig(ctx: Context): Promise<void> {
         try {
             await queueTask(() => ctx.settings.mutate(PLUGIN_NS, ops, descriptor.revision))
         } catch (error) {
-            if (isSettingsConflict(error) && attempt < MAX_ATTEMPTS) continue
             ctx.logger.warn(`${PLUGIN_NAME}: 排除列表去重写回失败（第 ${attempt}/${MAX_ATTEMPTS} 次）：${errorText(error)}`)
+            if (isSettingsConflict(error) && attempt < MAX_ATTEMPTS) continue
             throw error
         }
         ctx.logger.warn(`${PLUGIN_NAME}: 检测到排除列表存在重复项，已保留首次出现去重`)

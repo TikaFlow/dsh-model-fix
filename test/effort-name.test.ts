@@ -27,7 +27,7 @@ type ResolveModelInfo = (provider: string, model: string, signal?: AbortSignal) 
 interface LocaleCtxStub {
     llm: { resolveModelInfo: ResolveModelInfo }
     settings: { describe(): Array<{ ns: string; user: Record<string, unknown>; revision: number }> }
-    fiber: { store?: Record<string, unknown> }
+    fiber: { state: number }
 }
 
 /** 造一个界面语言为中文的 ctx 桩；`alive=false` 模拟 fiber 已 dispose */
@@ -35,7 +35,7 @@ function makeLocaleCtx(llm: LocaleCtxStub['llm'], alive = true): LocaleCtxStub {
     return {
         llm,
         settings: { describe: () => [{ ns: 'locale', user: { preference: 'zh' }, revision: 0 }] },
-        fiber: { store: alive ? {} : undefined },
+        fiber: { state: alive ? 2 : 5 },
     }
 }
 
@@ -105,7 +105,7 @@ export async function run(): Promise<void> {
         nameOf(localizedOnce, 0) === '高 · High' && calls === 1, localizedOnce.reasoning?.efforts)
 
     // 模拟 dispose 后重新 apply：旧 fiber 失活（旧层直通），新实例重装后仍换名
-    ctx1.fiber.store = undefined
+    ctx1.fiber.state = 5
     const ctx2 = makeLocaleCtx(llm)
     installEffortNameLocale(ctx2 as unknown as Context)
 

@@ -8,6 +8,7 @@ import { COMPAT_APIS, MAX_ATTEMPTS } from '@/constants'
 import { API_NS, PLUGIN_NAME } from '@/shared/constants'
 import { getConfig } from '@/config'
 import { stripEmptyFields } from '@/empty'
+import { isFiberAlive } from '@/guard'
 import { queueTask } from '@/host'
 import { isCapacity, type IndexedCatalog } from '@/types'
 import { isPlainObject, providersOf, type CompatRules, type PluginConfig } from '@/shared/types'
@@ -189,7 +190,7 @@ function planFill(
 export async function fix(ctx: Context, force = false): Promise<number> {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         // 卸载后不再碰 settings（服务已 dispose，访问即抛 inactive context）
-        if (!ctx.fiber.store) return 0
+        if (!isFiberAlive(ctx)) return 0
         const descriptor = descriptorOf(ctx, API_NS)
         if (!descriptor) return 0
         const providers = providersOf(descriptor.user)

@@ -4,7 +4,7 @@ import { MAX_ATTEMPTS, REFRESH_INTERVAL_MS, RETRY_DELAY_MS } from '@/constants'
 import { PLUGIN_NAME } from '@/shared/constants'
 import { errorText } from '@/shared/errors'
 import { fix } from '@/fix'
-import { isIgnoreAll } from '@/guard'
+import { isFiberAlive, isIgnoreAll } from '@/guard'
 
 // 拉取生命周期状态：时间戳只在成功时更新（失败不封保鲜窗口，下一次事件即可自愈）；在途守卫防止连续事件叠加拉取
 let lastRefreshAt = 0
@@ -35,7 +35,7 @@ function refresh(ctx: Context, retryCount = MAX_ATTEMPTS): void {
             lastRefreshAt = Date.now() // 时间戳仅成功时落定：失败不封保鲜窗口
             setCatalog(indexed)
             // 结算不经 index.ts 事件入口，须在此自查守卫：写回在途期间照常填充会把刚删除的字段填回，故仅跳过填充
-            if (isIgnoreAll() || !ctx.fiber.store) {
+            if (isIgnoreAll() || !isFiberAlive(ctx)) {
                 refreshing = false
                 return
             }
@@ -45,10 +45,6 @@ function refresh(ctx: Context, retryCount = MAX_ATTEMPTS): void {
             refreshing = false
         })
         .catch((error) => {
-            if (!ctx.fiber.store) {
-                refreshing = false
-                return
-            }
             // 每次失败都记录，便于判断是一次成功还是重试后才成功
             const attempt = MAX_ATTEMPTS - retryCount + 1
             ctx.logger.warn(
@@ -61,6 +57,7 @@ function refresh(ctx: Context, retryCount = MAX_ATTEMPTS): void {
             retryTimer = setTimeout(() => {
                 retryTimer = undefined
                 refreshing = false // 重试前复位在途守卫
+                if (!isFiberAlive(ctx)) return
                 refresh(ctx, retryCount)
             }, RETRY_DELAY_MS)
         })
