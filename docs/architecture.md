@@ -36,7 +36,7 @@
 | `src/refresh.ts` | 目录保鲜刷新（窗口过期才拉取，失败限次重试） |
 | `src/effort-name.ts` | 档位名本地化：遮蔽 `resolveModelInfo`，按开关 + 界面语言换显示名 |
 | `src/subagent.ts` | 「跟随父智能体」：按宿主版本在 `agent/pre-step`（≥ `0.2.2-alpha.2`）切路由 + `agent/request` 并预算，或旧宿主在 `agent/request` 一步做完 |
-| `src/self-tune.ts` | 「自主调节档位」：装/卸两枚工具与一段系统提示词 |
+| `src/self-tune.ts` | 「自主调节档位」：装/卸两枚工具 + 常驻一段按开关求值、宿主托管生命周期的系统提示词 |
 | `src/types.ts` | 当前版本配置形态与冻结的旧版类型 |
 | `src/constants.ts` | Node 半常量 |
 

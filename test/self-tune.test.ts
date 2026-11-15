@@ -21,11 +21,16 @@ interface ToolDef {
     execute(args: unknown, exec: { signal: AbortSignal; agent?: AgentStub }): Promise<unknown>
 }
 
-/** 提示词段（与 section 收到的形态同形） */
+/** 提示词段（与 section 收到的形态同形；text 可为按开关求值的函数） */
 interface SectionDef {
     readonly name: string
     readonly order: number
-    readonly text: string
+    readonly text: string | (() => string)
+}
+
+/** 取段的最终文本：函数则调用、字符串则原样（模拟宿主 assemble 里 typeof text === 'function' ? text() : text） */
+function textOf(section: SectionDef): string {
+    return typeof section.text === 'function' ? section.text() : section.text
 }
 
 /** 最小 Agent 桩——与 self-tune.ts 的契约复制同形 */
@@ -200,12 +205,13 @@ function execOf(agent: AgentStub | undefined): { signal: AbortSignal; agent?: Ag
 
 export async function run(): Promise<void> {
     await withConfig(false, () => {
-        // ===== 启动：默认关闭不注入、开启注入 2 工具 + 1 提示词段 =====
+        // ===== 启动：默认关闭——提示词段常驻但文本为空（宿主丢弃空段），两枚工具不注入 =====
         {
             const t = makeCtx()
             installSelfTune(t.ctx)
             check('install: 默认关闭不注册任何工具', t.tools.length === 0)
-            check('install: 默认关闭不注册提示词段', t.sections.length === 0)
+            check('install: 默认关闭仍常驻一段提示词', t.sections.length === 1 && t.sections[0].name === 'model-fix:effort-tuning')
+            check('install: 默认关闭提示词文本为空（宿主自动不可见）', textOf(t.sections[0]) === '')
             check('install: 默认关闭不告警', t.warns.length === 0)
         }
     })
@@ -216,7 +222,16 @@ export async function run(): Promise<void> {
         installSelfTune(t.ctx)
         check('install: 注入两枚工具', t.tools.length === 2 && t.tools[0].name === 'query_reasoning_efforts' && t.tools[1].name === 'set_reasoning_effort')
         check('install: 注入一段提示词', t.sections.length === 1 && t.sections[0].name === 'model-fix:effort-tuning' && t.sections[0].order === 3200)
-        check('install: 提示词引用两枚工具名', t.sections[0].text.includes('query_reasoning_efforts') && t.sections[0].text.includes('set_reasoning_effort'))
+        check('install: 提示词引用两枚工具名', textOf(t.sections[0]).includes('query_reasoning_efforts') && textOf(t.sections[0]).includes('set_reasoning_effort'))
+        // ===== 提示词前置：能力说明 + 每次调节前必须查询，两者都明确 =====
+        check('提示词: 明确「可自主调节档位」', textOf(t.sections[0]).includes('autonomously tune the reasoning effort'))
+        check('提示词: 明确「每次调节前必须查询」', textOf(t.sections[0]).includes('You MUST call query_reasoning_efforts before every adjustment'))
+        // ===== 工具说明：仅保留功能本身，移除使用规范 / 用法建议 =====
+        check('工具说明: query 不含「先调用」用法建议', !t.tools[0].description.includes('Call this before'))
+        check('工具说明: set 不含「id 从 query 取」用法建议', !t.tools[1].description.includes('Pass an effort id from'))
+        const setParams = t.tools[1].parameters as { properties?: { effort?: { description?: string } } }
+        const effortDesc = setParams.properties?.effort?.description ?? ''
+        check('工具说明: effort 参数不含 query 引用', effortDesc !== '' && !effortDesc.includes('query_reasoning_efforts'))
         check('install: 工具声明了 description 与参数 schema', t.tools.every((tool) => tool.description !== '' && tool.parameters.type === 'object'))
         check('install: 工具 output.schema 为最小 object', t.tools.every((tool) => stable(tool.output.schema) === '{"type":"object"}'))
 
@@ -224,16 +239,16 @@ export async function run(): Promise<void> {
         const rendered = t.tools[0].output.render({}, { ok: true })
         check('render: 单个 text 块且为 JSON 字面量', rendered.length === 1 && rendered[0].type === 'text' && rendered[0].text === '{"ok":true}')
 
-        // ===== 设置热更：无关命名空间不动；已加载时自有段变更无操作（load 幂等，不卸旧重装） =====
+        // ===== 设置热更：无关命名空间不动；已加载时自有段变更无操作（load 幂等，不卸旧重装；提示词段常驻） =====
         t.emitSettingsChange('llm-pi-ai')
         check('热更: 无关注入面不受其他段变更影响', t.tools.length === 2 && t.disposed.length === 0)
         t.emitSettingsChange()
         check('热更: 已加载时自有段变更无操作', t.tools.length === 2 && t.sections.length === 1 && t.disposed.length === 0)
 
-        // ===== 卸载：插件 effect 清理全部注入 =====
+        // ===== 卸载：插件 effect 清理全部注入（提示词段 disposer 由宿主 effect 托管，随卸载撤销） =====
         t.dispose()
         check('卸载: effect 清理工具与提示词段', t.tools.length === 0 && t.sections.length === 0)
-        check('卸载: 卸载记录仅清理轮三条', t.disposed.length === 3)
+        check('卸载: 卸载记录含两枚工具与一段提示词（共三条）', t.disposed.length === 3 && t.disposed.includes('section:model-fix:effort-tuning'))
 
         // ===== 服务缺席：子 fiber PENDING 静默（框架注入语义，主功能不受影响） =====
         for (const missing of ['tools', 'systemPrompt', 'sessionController', 'sessionProjections'] as const) {
@@ -246,14 +261,15 @@ export async function run(): Promise<void> {
     })
 
     await withConfig(true, async () => {
-        // ===== 设置热更：开关转关即卸 =====
+        // ===== 设置热更：开关转关——工具全卸；提示词段常驻但文本变空（宿主自动不可见，无需手动注销） =====
         const t = makeCtx()
         installSelfTune(t.ctx)
         const config: PluginConfig = { ...DEFAULT_CONFIG, userExperience: { ...DEFAULT_CONFIG.userExperience, selfTune: false } }
         setConfigSource(() => config)
         t.emitSettingsChange()
-        check('热更: 转关后工具与提示词段全卸', t.tools.length === 0 && t.sections.length === 0)
-        check('热更: 转关后卸载记录三条', t.disposed.length === 3)
+        check('热更: 转关后两枚工具全卸', t.tools.length === 0)
+        check('热更: 转关后提示词段常驻但文本为空', t.sections.length === 1 && textOf(t.sections[0]) === '')
+        check('热更: 转关仅卸载两枚工具（不注销提示词段）', t.disposed.length === 2 && !t.disposed.includes('section:model-fix:effort-tuning'))
         setConfigSource(() => DEFAULT_CONFIG)
         t.dispose()
     })

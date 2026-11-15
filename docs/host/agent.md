@@ -19,6 +19,6 @@
 四服务（连同投影）由 `installSelfTune` 经 `ctx.inject` 子 fiber 统一声明（全就绪才执行，缺席 PENDING 静默）。下列只记服务契约，实现契约全部复制在 `src/self-tune.ts`。
 
 - **`tools`**（`DSH/packages/core/tools/src/index.ts`）：`register(definition)` 返回同步 disposer，同名重复注册抛错。`definition`：`name / description（必填）/ parameters / output{ schema; render } / execute(args, exec)`——**register 不做参数校验**，信任边界在工具自己；`exec` 给 `signal` 与 `agent?`。`execute` 抛错的宿主处置未确认，故本仓按「可能不捕获」防御：读宿主投影/请求头失败归 `undefined`、工具回 `no-route`，不让异常冒泡出 `execute`。
-- **`systemPrompt`**（`DSH/packages/core/system-prompt/src/index.ts`）：`section({ name, order, text })`，重名抛错；宿主 order 序列 `MCP_SERVERS=3100`、`TOOLS_SDK=5000`，本插件用 `order: 3200` 落位其间。
+- **`systemPrompt`**（`DSH/packages/core/system-prompt/src/index.ts`）：`section({ name, order, text })`，重名抛错；宿主 order 序列 `MCP_SERVERS=3100`、`TOOLS_SDK=5000`，本插件用 `order: 3200` 落位其间。`text` 可为函数，本仓据此让提示词段常驻、`text` 按开关求值。
 - **`sessionController.selectModel`**（`@deepseek-ai/dsh-api-session-controller` 的 `src/types/commands.ts`）：会话级模型选择生效——与 UI 选择器同一链路（落 `model/selection` 成投影 `pending`），返回值带 `{ selected }`；失败**抛 `RemoteError`**（子智能体持有会话 `session/agent-busy`、模型不支持所选档位 `session/model-unavailable`），本仓文案原样透传。
 - **`sessionProjections`**：同上一节，自调的查询侧按同一条路由回落链取当前路由。

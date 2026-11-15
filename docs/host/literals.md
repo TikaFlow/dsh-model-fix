@@ -27,7 +27,7 @@
 
 - 服务名 `tools` / `systemPrompt` / `sessionController` / `sessionProjections`（任一缺席 ⇒ 子 fiber PENDING 静默）。
 - 工具名 `query_reasoning_efforts` / `set_reasoning_effort`（同名重复注册抛错，故装载幂等——已加载时自有段变更跳过，只在开关真翻转时装/卸）。
-- 提示词段名 `model-fix:effort-tuning`、`order: 3200`。
+- 提示词段名 `model-fix:effort-tuning`、`order: 3200`；`text` 为按 `selfTune` 求值的函数。
 
 ## RPC
 

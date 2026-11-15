@@ -6,7 +6,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import { CLIENT_EXTERNALS, NODE_EXTERNALS } from './scripts/build-externals.mjs'
 
 /** 构建产物目录：非本仓源码，一律不检查 */
-const IGNORES = ['lib/', '.tmp-*']
+const IGNORES = ['lib/', 'dist/', '.test-dist/', '.tmp-*']
 
 /** 浏览器半 `@/` 值导入的放行根：跨半共享层与本半内部，其余即 Node 半专属源码 */
 const BROWSER_ALIAS_ROOTS = ['@/shared', '@/client']

@@ -42,9 +42,9 @@ interface HostToolsService {
     }): () => void
 }
 
-/** 宿主 `SystemPrompt.section` 的契约复制（静态文本段） */
+/** 宿主 `SystemPrompt.section` 的契约复制 */
 interface HostSystemPromptService {
-    section(section: { readonly name: string; readonly order: number; readonly text: string }): () => void
+    section(section: { readonly name: string; readonly order: number; readonly text: string | (() => string) }): () => void
 }
 
 /** 宿主 `SessionProjections` 的只读面（`modelSelection` 投影：`pending`/`lastUsed` 均可空） */
@@ -110,22 +110,18 @@ function renderJson(_args: unknown, value: unknown): ReadonlyArray<{ type: 'text
     return [{ type: 'text', text: JSON.stringify(value) }]
 }
 
-/** 系统提示词段：与两枚工具同装同卸 */
-const EFFORT_PROMPT = `You have two tools for reasoning effort tuning:
+/** 系统提示词段 */
+const EFFORT_PROMPT = `You can autonomously tune the reasoning effort of the current session to match the task difficulty. Two tools support this:
 - query_reasoning_efforts(): returns the current effort and the efforts available for the current model
 - set_reasoning_effort({effort}): switches the current session's model to the given effort
 
 Usage:
-1. Call query_reasoning_efforts before any switch, so you know where you are and what is available.
-2. Switch only by task difficulty: lower for mechanical execution, higher for deep exploration, design or complex reasoning.
-3. Otherwise stay put; do not switch on every request.
-4. If a switch fails, re-query and try once more; if it still fails, keep the current effort.`
+1. You MUST call query_reasoning_efforts before every adjustment — every time, with no exceptions — to learn the current effort and the exact available effort ids.
+2. Adjust only by task difficulty: lower for mechanical execution, higher for deep exploration, design or complex reasoning.
+3. Otherwise stay put; do not adjust on every request.
+4. If an adjustment fails, query again and try once more; if it still fails, keep the current effort.`
 
-/**
- * 装上「档位自调」：四个宿主服务**全部就绪**才注入（任一缺席子 fiber PENDING，静默）；
- * 按当前配置即刻装/卸，随后跟随自有段变更热更。
- * 工具与提示词的 disposer 挂在宿主服务自己的 ctx 上，子 fiber 卸载**不会**自动清理，必须经 `ctx.effect` 手动调。
- */
+/** 装上「档位自调」：四个宿主服务**全部就绪**才注入（任一缺席子 fiber PENDING，静默）。 */
 export function installSelfTune(ctx: Context): void {
     ctx.inject(['tools', 'systemPrompt', 'sessionController', 'sessionProjections'], (child) => {
         const tools = (child.get as (name: string) => HostToolsService)('tools')
@@ -133,35 +129,43 @@ export function installSelfTune(ctx: Context): void {
         const sessionController = (child.get as (name: string) => HostSessionController)('sessionController')
         const projections = (child.get as (name: string) => HostSessionProjections)('sessionProjections')
         const toolDisposers: (() => void)[] = []
-        let promptDisposer: (() => void) | null = null
+        let toolsLoaded = false
 
-        /** 卸载已注入的工具与提示词（重复调用安全：disposer 幂等） */
-        function unload(): void {
+        /** 卸载两枚工具（重复调用安全：disposer 幂等） */
+        function unloadTools(): void {
             for (const dispose of toolDisposers.splice(0)) dispose()
-            promptDisposer?.()
-            promptDisposer = null
+            toolsLoaded = false
         }
 
-        /** 装载注入面（已加载则幂等跳过）；注册中途抛错（如同名工具冲突）时回滚已注册部分 */
+        /** 装载两枚工具（已加载则幂等跳过）；注册中途抛错（如同名工具冲突）时回滚已注册部分 */
         function load(): void {
-            if (promptDisposer) return
+            if (toolsLoaded) return
             try {
                 toolDisposers.push(tools.register(queryTool(ctx, projections)))
                 toolDisposers.push(tools.register(setTool(sessionController, projections)))
-                promptDisposer = systemPrompt.section({ name: 'model-fix:effort-tuning', order: 3200, text: EFFORT_PROMPT })
+                toolsLoaded = true
             } catch (error) {
-                unload()
-                ctx.logger.warn(`${PLUGIN_NAME}: 档位自调注入失败，功能未启用：${errorText(error)}`)
+                unloadTools()
+                ctx.logger.warn(`${PLUGIN_NAME}: 档位自调工具注入失败，功能未启用：${errorText(error)}`)
             }
         }
 
         child.effect(function* () {
-            yield unload
+            yield unloadTools
+            try {
+                yield systemPrompt.section({
+                    name: 'model-fix:effort-tuning',
+                    order: 3200,
+                    text: () => getConfig().userExperience.selfTune ? EFFORT_PROMPT : '',
+                })
+            } catch (error) {
+                ctx.logger.warn(`${PLUGIN_NAME}: 档位自调提示词段注册失败：${errorText(error)}`)
+            }
             if (getConfig().userExperience.selfTune) load()
             child.on('settings/document-updated', (ns: string) => {
                 if (ns === PLUGIN_NS) {
                     if (getConfig().userExperience.selfTune) load()
-                    else unload()
+                    else unloadTools()
                 }
             })
         }, `${PLUGIN_NAME}: 档位自调`)
@@ -172,7 +176,7 @@ export function installSelfTune(ctx: Context): void {
 function queryTool(ctx: Context, projections: HostSessionProjections): Parameters<HostToolsService['register']>[0] {
     return {
         name: 'query_reasoning_efforts',
-        description: 'Query the current model and its available reasoning effort levels, and the effort in effect. Call this before every set_reasoning_effort.',
+        description: 'Query the current model and its available reasoning effort levels, and the effort in effect.',
         parameters: { type: 'object', properties: {} },
         output: {
             schema: { type: 'object' },
@@ -202,10 +206,10 @@ function queryTool(ctx: Context, projections: HostSessionProjections): Parameter
 function setTool(sessionController: HostSessionController, projections: HostSessionProjections): Parameters<HostToolsService['register']>[0] {
     return {
         name: 'set_reasoning_effort',
-        description: 'Set the reasoning effort for the current session\'s model. Pass an effort id from query_reasoning_efforts.',
+        description: 'Set the reasoning effort for the current session\'s model.',
         parameters: {
             type: 'object',
-            properties: { effort: { type: 'string', description: 'Reasoning effort id, exactly as returned in query_reasoning_efforts efforts' } },
+            properties: { effort: { type: 'string', description: 'Reasoning effort id.' } },
             required: ['effort'],
         },
         output: {
