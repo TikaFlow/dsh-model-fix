@@ -40,6 +40,13 @@ UI 数值的唯一出处是 `src/client/card-styles.ts`；宿主契约见 `docs/
 - **锚主视图会话**：子智能体视图下锚点取**直接父**（只看一层 ⇒ 嵌套时逐级上退），状态与标题都按锚点取。非空闲时显示宿主 `StateDot`，空闲回退「左」箭头；hover 临时换左箭头。
 - **点击行为分三支**：子智能体视图走 `ctx.uiWorkspace.openSession(父)`；主视图 + 根智能体 + 不在对话页签时切页签（宿主 `actions.setView` 插件侧不可达）；其余 `selectPanel(null)`。`uiWorkspace` 缺席时退化为 `selectPanel(null)`。
 
+## 浏览器标题前缀
+
+- 判定复用 `session-view.ts` 的 `inspect`，与「返回对话」同源。
+- 格式 `emoji · 宿主标题`，不放状态文案；映射：`backToChatRunning` ⏳ / 两个 `...Subagents...` ⚙️ / `WaitingApproval` 🔔 / `PlanReview` ✋ / `WaitingAnswer` ❓ / `Completed` ✅，空闲 👀。emoji 与语言无关，不订阅 `locale`。
+- 宿主 `DocumentTitle` 独占 `document.title` 且无插槽，故 `MutationObserver` 盯 `<head>` 捕获宿主写入后叠前缀；`lastWritten` 比对跳过自身 mutation 防回环，卸载还原基线。
+- 常开，不进 `behavior` 组，不升 `CONFIG_VERSION`。
+
 ## 经典设置
 
 - **靠 priority 遮蔽 `settings.launcher`**（规则见 `host/client.md`）：账号条目仍留账本，注销后自动复位 ⇒ 天然是「开关」语义。

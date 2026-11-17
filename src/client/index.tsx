@@ -34,6 +34,7 @@ import { applyFloatingButtons } from '@/client/floating-buttons'
 import { applyBackToChat } from '@/client/back-to-chat'
 import { applyFloatCard } from '@/client/float-card'
 import { applyClassicSetting } from '@/client/classic-setting'
+import { applyTitleIndicator } from '@/client/title-indicator'
 import { decodeHostModelSelection, HOST_MODEL_SELECTION_NS, type HostModelSelectionView } from '@/client/composer'
 
 /** 提供方 scope 的解码占位值：本卡只消费 snapshot.user（原始用户层），value 无用途；decode 必须永不返回 undefined */
@@ -111,4 +112,6 @@ function boot(
     floatingButtons.addButton(applyFloatCard(ctx, scope, cardProps))
     // 「经典设置」入口：遮蔽宿主账号菜单，侧栏底恢复为一枚设置按钮
     applyClassicSetting(ctx, scope)
+    // 浏览器标题前缀
+    applyTitleIndicator(ctx)
 }

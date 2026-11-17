@@ -48,6 +48,10 @@
 
 - `tools.register` definition 形状与 `systemPrompt.section` 形状；`selectModel` 失败仍抛 `RemoteError`；`resolveModelInfo` 返回的 `reasoning` 形状未变。
 
+### 浏览器标题前缀
+
+- 复核 `DocumentTitle` 仍以 `useEffect` 写 `document.title` 且无 title 插槽：`src/client/title-indicator.ts` 的 MutationObserver 以此为前提；宿主改写入方式须重测前缀是否被覆盖 / 回环。
+
 ### 功能专属
 
 - 宿主版本读取面两条：`pluginPackages.packageOf(specifier, parentURL)` 仍返回带 `version` 的包；`__DSH_BOOT__.release.version` 仍是版本号字符串。任一改形 ⇒ 降级为「版本未知」⇒ 不空转。

@@ -83,6 +83,8 @@
 | `src/client/floating-buttons.tsx` | 悬浮按钮组容器：中心列左侧直插 DOM + 独立 React 根；管定位 / 布局 / 渲染，导出 `addButton` |
 | `src/client/floating-button.ts` | 悬浮按钮的响应式数据契约与工厂（React 外部存储形态） |
 | `src/client/back-to-chat.tsx` | 「返回对话」按钮条目：自持 layout 依赖与配置 / 语言订阅，出响应式数据交容器渲染 |
+| `src/client/session-view.ts` | 当前会话状态判定的共享层：锚点选择 + 状态/标题投影，供「返回对话」与标题前缀共用 |
+| `src/client/title-indicator.ts` | 浏览器标题前缀：MutationObserver 捕获宿主写入的标题并叠加当前会话状态 emoji |
 | `src/client/float-card.tsx` | 悬浮按钮组里的卡片入口条目：图标取插件图标，点击打开与「模型优化」chip 同一张配置卡 |
 | `src/client/card-panel.tsx` | 配置卡弹层面板：输入框 chip 与悬浮按钮共用（宿主 Modal 的 headless 形态） |
 | `src/client/classic-setting.tsx` | 「经典设置」入口：以 `priority: -1` 遮蔽 `settings.launcher` 上的账号入口，渲染 1:1 复刻宿主 `dsh-v0.2.0-rc.2` 外壳回退按钮的触发器 |

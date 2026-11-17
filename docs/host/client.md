@@ -55,6 +55,11 @@
 - 经子 fiber `ctx.inject(['layout'], …)` 门控：服务到位按钮才可见，缺席则静默 PENDING。
 - DOM 锚点：`[data-slot="main"]` 锚点的父元素即 AppFrame 中心列（宿主 CSS Module 类名随构建 hash 变化，不可按类名找）。中心列没有 `position`（其定位上下文是整帧 `.frame`），按钮组要贴中心列左侧 ⇒ 就地补一条 inline `position: relative`（该元素只由宿主 className 渲染，inline style 不被覆盖，卸载时还原原值）。宿主 Modal 的 `z-index` 是 1000，按钮组取 999。
 
+## document.title：宿主 DocumentTitle 独占
+
+- `dsh-client-ui-layout` 的 `DocumentTitle`（`lib/client.js` 的 `DocumentTitle` / `AppFrame`）是 `AppFrame` 内置子组件，**无 slot、无服务、无 hook** 可供插件接入。它在 `useEffect` 里写标题：主视图（`activePanelId === null`）且有 mainView 会话时 `document.title = \`${session.title} — ${productTitle}\``，否则写 `productTitle`；依赖 `[productTitle, title]`，卸载时复位。
+- 本仓 `src/client/title-indicator.ts` 以 `MutationObserver` 在宿主写入后叠 emoji 前缀（手法见 `decisions-ui.md`）；宿主改写入方式须复核（见 `drift.md`）。
+
 ## uiSession：主视图会话与会话状态
 
 - `ctx.uiSession`（类 `UiSession`）：缺席则静默 PENDING（按钮按空闲显示）。`adapter.current.props.sessionId` 即**当前主视图会话**；子智能体被打开时 mainView 落到子会话上 ⇒ 主视图会话可以是子智能体。
