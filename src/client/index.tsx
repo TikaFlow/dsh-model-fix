@@ -1,6 +1,6 @@
 /** 浏览器半入口（dsh.client 声明的 web 侧 cordis 插件）。宿主 settings 面为 ctx.configForms，经 makeScope 包装后供卡片与记忆监听消费。
- * 六个席位一律经 `ctx.slots.inject` 注册的原因见 docs/decisions-ui.md「卡片与编排」。
- * 其中两席（插件详情页 / 组件实例页）在此直接注册；另三个 slot 承载的四个部件受「UI 与行为」组支配，由 visibility.tsx 编排挂载与卸载；末席 `settings.launcher` 由 classic-setting.tsx 遮蔽宿主账号入口 */
+ * 六处席位一律经 `ctx.slots.inject` 注册的原因见 docs/decisions-ui.md「卡片与编排」。
+ * 其中两席（插件详情页 / 组件实例页）在此直接注册；另三个 slot 承载的四个部件受本机设置支配，由 visibility.tsx 编排；末席 `settings.launcher` 由 classic-setting.tsx 遮蔽宿主账号入口。 */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // ctx.slots 服务面（SlotRegistry）
@@ -28,6 +28,7 @@ import { applyLocaleReporter } from '@/client/effort-name'
 import { API_NS as PI_AI_NS, PLUGIN_NAME, PLUGIN_NS as MODEL_FIX_NS } from '@/shared/constants'
 import { decodeSection } from '@/client/model'
 import type { Flags } from '@/client/model'
+import { createLocalSettings, seedLocalSettings } from '@/client/local-settings'
 import { makeScope, type DecodedScope } from '@/client/scope'
 import { applySlotVisibility } from '@/client/visibility'
 import { applyFloatingButtons } from '@/client/floating-buttons'
@@ -70,12 +71,16 @@ function boot(
     ctx.effect(() => ctx.locale.register(CARD_NS, { zh, en }), `${name}: 卡片词典`)
     // scope 的 form 订阅释放挂入本 fiber
     ctx.effect(() => () => { scope.dispose(); providersScope.dispose(); hostModelScope.dispose() }, `${name}: 设置作用域 释放`)
+    // 必须最先建、最先播种，否则首帧按默认值装卸 UI 再被播种结果抖一下
+    const local = createLocalSettings()
+    seedLocalSettings(scope, local)
     // 浏览器半调 Node 半的全部出口（写回端点 + 诊断链的读流）见 rpc-carrier.ts
     const { forceUpdate, restoreModels, catalogFreshness, verifyModels, probeEfforts } =
         makeRpcCarrier(rpc)
     // 共用的卡片入参：载体与 scope 逐席相同
     const cardProps = {
         scope,
+        local,
         providersScope,
         forceUpdate,
         restoreModels,
@@ -97,21 +102,19 @@ function boot(
         key: `${name}#${MODEL_FIX_NS}`,
         locale: CARD_NS,
     }, (props) => <Card {...props} defaultOpen {...cardProps} />))
-    // 三个 slot 上四个部件的挂载与卸载编排：受「UI 与行为」组支配，开=挂载、关=撤销条目（真卸载）
-    applySlotVisibility(ctx, scope, cardProps, { scope, hostModelScope, providersScope })
+    applySlotVisibility(ctx, scope, local, cardProps, { scope, hostModelScope, providersScope })
 
     // 每模型推理级别记忆的运行时监听见 memory-listener.ts
-    applyEffortMemoryListener(ctx, scope)
+    applyEffortMemoryListener(ctx, scope, local)
     // 界面语言上报：Node 半换名依赖它补齐自动探测的盲区，见 effort-name.ts
     applyLocaleReporter(ctx)
     // 宿主 Default 词条 patch：Scope 订阅挂进本 fiber，随卸载自动恢复原状，见 locale-patch.ts
     applyLocalePatch(ctx, scope)
-    // 悬浮按钮组：内容区左侧居中的一组悬浮按钮（容器常驻，条目自带依赖与响应式）
-    const floatingButtons = applyFloatingButtons(ctx)
-    floatingButtons.addButton(applyBackToChat(ctx, scope))
-    floatingButtons.addButton(applyFloatCard(ctx, scope, cardProps))
-    // 「经典设置」入口：遮蔽宿主账号菜单，侧栏底恢复为一枚设置按钮
-    applyClassicSetting(ctx, scope)
-    // 浏览器标题前缀
-    applyTitleIndicator(ctx)
+    // 悬浮按钮组：内容区左侧居中的一组悬浮按钮
+    const floatingButtons = applyFloatingButtons(ctx, local)
+    floatingButtons.addButton(applyBackToChat(ctx, local))
+    floatingButtons.addButton(applyFloatCard(ctx, local, cardProps))
+    // 「经典设置」入口：遮蔽宿主账号菜单
+    applyClassicSetting(ctx, local)
+    applyTitleIndicator(ctx, local)
 }

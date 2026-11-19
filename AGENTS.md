@@ -26,7 +26,7 @@ Node.js（ESM）+ `@deepseek-ai/cordis`；tsdown 双配置构建到 `lib/`（Nod
 | [`docs/decisions-config.md`](docs/decisions-config.md) | 裁决：快照、排除与列表、参数来源、填充与写回、写回端点 | 空壳字段判据只有 `stripEmptyFields` 一处，五条写回路径共用 | 动配置解析、填充、写回前读 |
 | [`docs/decisions-session.md`](docs/decisions-session.md) | 裁决：推理级别记忆、子智能体跟随、档位自调 | 记忆清理归 Node 半、设级别只能走浏览器半 | 动记忆、子智能体、自调前读 |
 | [`docs/decisions-diagnose.md`](docs/decisions-diagnose.md) | 裁决：验证与探测（共用层 + 各自特有） | 失败分类只认 `code`，不比对文案、不看 `status` | 动验证/探测前读 |
-| [`docs/decisions-ui.md`](docs/decisions-ui.md) | 裁决：卡片编排、本地化档位、悬浮按钮、返回对话、经典设置 | 开关必须落到「注册 / 撤销注册」，注册必须写在 `inject` 回调里；Tooltip 方向：卡片一律 `top`，悬浮按钮按吸附边动态取 | 改卡片/瓦片/悬浮按钮/弹层等任何 UI 前读 |
+| [`docs/decisions-ui.md`](docs/decisions-ui.md) | 裁决：卡片编排、本机设置、本地化档位、悬浮按钮、返回对话、经典设置 | 开关必须落到「注册 / 撤销注册」，注册必须写在 `inject` 回调里；本机设置（localStorage）与快照配置分属两套，Node 半不读前者；Tooltip 方向：卡片一律 `top`，悬浮按钮按吸附边动态取 | 改卡片/瓦片/悬浮按钮/弹层/本机开关等任何 UI 前读 |
 | [`docs/ui-fusion.md`](docs/ui-fusion.md) | UI 无痕融合纪律：复刻范围、同款来源与例外 | 官方用导出组件就用同一组件；官方自绘且无同款导出原语就在本地逐字复刻其源码——数值零自造 | 改任何 UI 前读；新增复刻条目或发现例外时改 |
 | [`docs/versioning.md`](docs/versioning.md) | 配置版本形态：递增判据、冻结类型与台阶链 | 只在真不兼容时递增 `CONFIG_VERSION`；组内新增键与新增顶级组两端都退得动，都不升版本 | 动 `CONFIG_VERSION` / 快照结构 / `src/upgrade.ts` 前读；上述变更时改 |
 | [`docs/workflow.md`](docs/workflow.md) | 命令、工具链陷阱、Git 钩子与测试规范 | 只认 `pnpm` 已定义脚本、不得裸跑 bin，且必须直接在 shell 里执行、不得经 Node 子进程包裹 pnpm；提交前必跑 `pnpm all` | 跑验证、加脚本、加测试前读；命令或陷阱变化时改 |

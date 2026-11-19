@@ -8,14 +8,25 @@ UI 数值的唯一出处是 `src/client/card-styles.ts`；宿主契约见 `docs/
 - **卡片按钮取「保存」不取「应用」**：写 settings 即前端职责终点。瓦片默认收起、同时只展开一个；「取消」键仅未保存时渲染。
 - **输入框弹层直接嵌卡片**：面板高度内容撑开、640px 封顶；该席禁折叠。
 - **开关必须落到「注册 / 撤销注册」**：宿主 tab 头按注册账本画，组件返回 `null` 只空内容。注册动作必须写在 `inject` 回调里。
-- **`behavior` 组管 UI 装卸不是插件行为**：开关只决定部件在不在，功能本体照常运行。缺省方向与其它组相反（缺字段落**可见**）；显式 `false` 才卸载。
+- **本机开关管 UI 装卸不是插件行为**：开关只决定部件在不在，功能本体照常运行；缺省为可见，显式 `false` 才卸载。
 - **工具栏两枚 chip 各占一个席位条目**：宿主 list 席位按 `id` 记账。
 - **chip 字色三档语义**：模型优化恒 `label-secondary`；跟随未生效降 `label-caption`；生效 success 绿、失败 warn 琥珀，另加 6px 状态点。
-- **「插件管理」唯一不可关闭、故不落配置**：`lockedRows` 恒开展示行，不绑键、不进脏检测。它们计入 Pill 阈值并排在真键之前。
+- **「插件管理」恒开展示行**：不绑键、不进脏检测，归「本机设置」瓦片；计入 Pill 阈值并排在真键之前。
 - **瓦片总控按 `every` 显示**：总开关本身无存储，只是批量操作。
-- **不引入 `failed` 态、不做「恢复默认」**：五组布尔恒合法、原子写，失败时 `dirty` 已传达。
+- **不引入 `failed` 态、不做「恢复默认」**：四组布尔恒合法、原子写，失败时 `dirty` 已传达。本机瓦片无 `dirty`。
 - **Tooltip 方向：卡片内一律 `side="top"`**（`portal` + `maxWidth` 收窄）；**悬浮按钮组是例外**——它直插 DOM，方向由吸附边反算（贴左则朝右、贴右则朝左…）。
 - **目录新鲜度走卡片 `setNotice`**：挂载时只读查询一次；无有效时间戳（0 / 缺失 / 非法 / 失败）即不显示，有则显示「前缀 + 本地时间」；随下一次操作被替代。
+
+## 本机设置
+
+- **判据：Node 半一次都不读**。
+- **11 项**：`behavior` 全组七项、`rememberEfforts` / `defaultHigh`、标题指示器、记住悬浮按钮位置。
+- **键位** `${PLUGIN_NS}.<kebab>`，权威表 `LOCAL_STORAGE_SUFFIX`；**值只认 `"true"` / `"false"`**，其余落该键默认，单键损坏不连累其他键。
+- **播种一次性、先于任何读取**，等首个 `ready` 帧才写（`loading` 期间 `value` 回落 `DEFAULT_CONFIG`），逐键「缺席才写」。
+- **快照旧值惰性保留**，不升 `CONFIG_VERSION`；手改 `cordis.patch.yml` 的这九键不再生效。
+- **一个瓦片装完**（`colLocal`）：点一下立即生效，不进草稿 / 脏检测，不受 `writable` 门控。
+- **存储访问只有一处实现**（`local-store.ts`）；`session-view.ts` 读的 `dsh.conversation.*` 是宿主的键。
+- **`applyGroup` 保留组内非行键**：否则会写出缺键快照、触发规范化重写。
 
 ## 本地化推理级别
 
@@ -27,13 +38,15 @@ UI 数值的唯一出处是 `src/client/card-styles.ts`；宿主契约见 `docs/
 ## 悬浮按钮组
 
 - **直插 DOM 不走宿主 slot**：所要贴的容器无席位可挂；中心列是宿主 React 树的一部分，宿主重挂即换节点 ⇒ `MutationObserver` 盯着重新挂载。
-- **吸附记录记「边 + 沿线像素」**：`localStorage` 键取 `${PLUGIN_NS}.floating-position`，值为单条 `{ edge, offset }`（左/右贴边记 y 像素、上/下贴边记 x 像素，写入前取整）；边或像素变化才写；读回整条校验，`edge` 不在 `SNAP_EDGES`、`offset` 非有限数或为负、旧纯字符串值、缺失、存储抛错时整条回落默认（左边 + 居中）；恢复与 resize 都把该像素原样喂给 `snappedOffset`，只做越界夹取，偏移不进配置。
+- **吸附记录记「边 + 沿线像素」**：键 `tikaflow-model-fix.floating-position`，值单条 `{ edge, offset }`；任一字段非法即整条回落默认（左边 + 居中）。校验在 `floating-snap.ts`。
+- **「记住悬浮按钮位置」门控的是「记」不是「能拖」**：关时拖拽照常、不落盘、下次回默认位；已有记录不删。
+- **跨标签页改位置即时重贴**，开关关着时不响应。
 - **按钮本体是独立 React 根**：图标是宿主 React 组件导出，渲染必须有根。
 - **容器不持宿主依赖，条目各自自治**：容器只管定位、布局与渲染；谁订阅谁退订。
 - **Tooltip 方向按吸附边反算**（贴左朝右、贴右朝左、贴上朝下、贴下朝上）。
 - **按钮数据是响应式的**：条目交出可改写的 `{ id, icon, title, active, onClick }`，容器用 `useSyncExternalStore` 读（快照引用稳定是 uSES 硬要求）。
 - **卡片入口条目自带弹层**：条目自持独立 React 根 ⇒ 容器的按钮数据契约不扩面板字段。
-- **`ctx.layout` 经子 fiber `inject` 门控**：可见性 = 配置开关 ∧ 服务到位。
+- **`ctx.layout` 经子 fiber `inject` 门控**：可见性 = 本机开关 ∧ 服务到位。
 
 ## 返回对话按钮
 
@@ -45,10 +58,10 @@ UI 数值的唯一出处是 `src/client/card-styles.ts`；宿主契约见 `docs/
 - 判定复用 `session-view.ts` 的 `inspect`，与「返回对话」同源。
 - 格式 `emoji · 宿主标题`，不放状态文案；映射：`backToChatRunning` ⏳ / 两个 `...Subagents...` ⚙️ / `WaitingApproval` 🔔 / `PlanReview` ✋ / `WaitingAnswer` ❓ / `Completed` ✅，空闲 👀。emoji 与语言无关，不订阅 `locale`。
 - 宿主 `DocumentTitle` 独占 `document.title` 且无插槽，故 `MutationObserver` 盯 `<head>` 捕获宿主写入后叠前缀；`lastWritten` 比对跳过自身 mutation 防回环，卸载还原基线。
-- 常开，不进 `behavior` 组，不升 `CONFIG_VERSION`。
+- **受「标题指示器」本机开关控制、默认 true**。关时还原 `base` 标题，observer 与订阅留着。
 
 ## 经典设置
 
 - **靠 priority 遮蔽 `settings.launcher`**（规则见 `host/client.md`）：账号条目仍留账本，注销后自动复位 ⇒ 天然是「开关」语义。
-- **遮蔽只在账本里另有占位者时才做**：宿主没挂账号包时注册只会把宿主自己的回退按钮换成复刻版；故按 `registrant` 判「有没有别人」。注册先后不可控 ⇒ 订阅账本变更、一变即重判。
+- **遮蔽只在账本里另有占位者时才做**：宿主没挂账号包时注册只会把宿主自己的回退按钮换成复刻版；故按 `registrant` 判「有没有别人」。注册先后不可控 ⇒ 订阅账本变更、一变即重判。开关判定源是本机设置。
 - **按钮 1:1 复刻 `dsh-v0.2.0-rc.2` 外壳的回退触发器**（该版 web-profile 未挂载账号包，显示的就是它）。

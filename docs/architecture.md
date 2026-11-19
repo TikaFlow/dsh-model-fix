@@ -79,12 +79,14 @@
 | `src/client/locale-patch.ts` | 宿主 model NS 词典的 Default 词条本地化 |
 | `src/client/locale-keys.ts` | 卡片文案键契约（键并入宿主 `LocaleNamespaceMap`） |
 | `src/client/locale-zh.ts` `src/client/locale-en.ts` | 卡片词典（中 / 英） |
-| `src/client/visibility.tsx` | 「UI 与行为」组：三个 slot 上四个部件的挂载 / 卸载 |
+| `src/client/visibility.tsx` | 席位可见性编排：四个部件按本机开关挂载 / 卸载 |
+| `src/client/local-store.ts` | localStorage 唯一实现：句柄、读写收口、跨标签页监听、单键记录 |
+| `src/client/local-settings.ts` | 本机设置：11 项的键表 / 默认值 / 播种来源、store、一次性播种 |
 | `src/client/floating-buttons.tsx` | 悬浮按钮组容器：中心列左侧直插 DOM + 独立 React 根；管定位 / 布局 / 渲染，导出 `addButton` |
 | `src/client/floating-button.ts` | 悬浮按钮的响应式数据契约与工厂（React 外部存储形态） |
 | `src/client/back-to-chat.tsx` | 「返回对话」按钮条目：自持 layout 依赖与配置 / 语言订阅，出响应式数据交容器渲染 |
 | `src/client/session-view.ts` | 当前会话状态判定的共享层：锚点选择 + 状态/标题投影，供「返回对话」与标题前缀共用 |
-| `src/client/title-indicator.ts` | 浏览器标题前缀：MutationObserver 捕获宿主写入的标题并叠加当前会话状态 emoji |
+| `src/client/title-indicator.ts` | 浏览器标题前缀：MutationObserver 捕获宿主写入的标题并叠加当前会话状态 emoji（受本机开关控制） |
 | `src/client/float-card.tsx` | 悬浮按钮组里的卡片入口条目：图标取插件图标，点击打开与「模型优化」chip 同一张配置卡 |
 | `src/client/card-panel.tsx` | 配置卡弹层面板：输入框 chip 与悬浮按钮共用（宿主 Modal 的 headless 形态） |
 | `src/client/classic-setting.tsx` | 「经典设置」入口：以 `priority: -1` 遮蔽 `settings.launcher` 上的账号入口，渲染 1:1 复刻宿主 `dsh-v0.2.0-rc.2` 外壳回退按钮的触发器 |
@@ -110,6 +112,7 @@
 
 - **段变更按 ns 分流**：自有段「自愈 → 填充 → 记忆清理」，`llm-pi-ai` 段「填充 → 保鲜刷新 → 记忆清理」，入口先判事件流守卫。
 - **记忆三条链**：浏览器半 `memory-listener` 管存取；Node 半 `memory.ts` 按宿主全量模型列表做失效清理；两条诊断链路（验证只读 / 探测写回）共用 probe 四层，进度走 SSE。
+- **本机设置不走快照**：11 项只存 localStorage（`local-settings.ts`），Node 半从不读；启动时一次性从快照播种，之后前端不再读快照。
 - **请求期链**：「跟随父智能体」按宿主版本分流——新宿主在 `agent/pre-step` 里 `agent.model.select()` 切路由、`agent/request` 只并输出预算，旧宿主在 `agent/request` 一步做完（分流见 `host/agent.md`）；`self-tune` 按开关装/卸注入面。两者均不写配置。
 - **只读遮蔽支线**：`effort-name` 遮 `resolveModelInfo`，判定逐次现算，不挂事件。
 - **启动链**（`runStartupChain`）：迁移 → 读缓存 → 填充 → 探测兜底回退 → 保鲜刷新 → 记忆清理；备份捕获在这一切之前。

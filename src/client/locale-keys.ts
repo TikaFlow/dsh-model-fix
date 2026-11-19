@@ -1,8 +1,9 @@
-/** 卡片文案的键契约（浏览器半）：命名空间、键名联合、宿主 ui-slots 的类型表并入，以及「配置项 → 文案键」的四张映射。
- * 这里只管「有哪些键、配置项对上哪个键」，键各自说了什么见 locale-zh.ts 与 locale-en.ts。四张映射按用途分：同一轴上「标题」与「释义」本是两句话，故行名与行内释义、组标题与组释义各成一张 */
+/** 卡片文案的键契约：命名空间、键名联合、宿主 ui-slots 类型表并入，以及「配置项 → 文案键」的映射。
+ * 键各自说了什么见 locale-zh.ts 与 locale-en.ts。 */
 
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type { Group, RowKey } from '@/client/model'
+import type { LocalFlagId } from '@/client/local-settings'
 
 export const CARD_NS = 'settings.modelFix'
 
@@ -163,9 +164,9 @@ export type CardKey =
     | 'chipFollowOff'
     | 'chipFollowOffTitle'
     | 'chipFollowFail'
-    // 「UI 与行为」组：七个可见性开关 + 一条恒定展示行（插件管理，不绑配置、不可关闭）
-    | 'colBehavior'
-    | 'hintBehavior'
+    // 「本机设置」瓦片
+    | 'colLocal'
+    | 'hintLocal'
     | 'rowShowInModels'
     | 'rowShowInBuiltinPlugins'
     | 'rowShowInComposer'
@@ -174,6 +175,8 @@ export type CardKey =
     | 'rowBackToChat'
     | 'rowShowInFloat'
     | 'rowClassicSetting'
+    | 'rowShowTitleIndicator'
+    | 'rowRememberFloatPosition'
     | 'tipShowInModels'
     | 'tipShowInBuiltinPlugins'
     | 'tipShowInComposer'
@@ -182,6 +185,8 @@ export type CardKey =
     | 'tipBackToChat'
     | 'tipShowInFloat'
     | 'tipClassicSetting'
+    | 'tipShowTitleIndicator'
+    | 'tipRememberFloatPosition'
     // 模型优化设置卡片：输入框 chip 与悬浮按钮共用同一句提示
     | 'tipOpenSettingCard'
     // 「返回对话」悬浮按钮自身的文案
@@ -203,24 +208,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     }
 }
 
-/** 组内行键的展示文案映射（组件按 GROUP_KEYS 取键） */
+/** 组内行键的展示文案（组件按 GROUP_KEYS 取键） */
 export const ROW_KEYS: Record<RowKey, CardKey> = {
     reasoning: 'rowReasoning',
     context: 'rowContext',
     image: 'rowImage',
     disableDeveloper: 'rowDisableDeveloper',
     disableStore: 'rowDisableStore',
-    rememberEfforts: 'rowRememberEfforts',
-    defaultHigh: 'rowDefaultHigh',
     forgetRemoved: 'rowForgetRemoved',
     followParent: 'rowFollowParent',
-    showInModels: 'rowShowInModels',
-    showInBuiltinPlugins: 'rowShowInBuiltinPlugins',
-    showInComposer: 'rowShowInComposer',
-    showFollowStatus: 'rowShowFollowStatus',
-    backToChat: 'rowBackToChat',
-    showInFloat: 'rowShowInFloat',
-    classicSetting: 'rowClassicSetting',
     selfTune: 'rowSelfTuneEffort',
     localizeEfforts: 'rowLocalizeEfforts',
     showOriginalEfforts: 'rowShowOriginalEfforts',
@@ -229,42 +225,61 @@ export const ROW_KEYS: Record<RowKey, CardKey> = {
     alwaysReasoning: 'rowAlwaysReasoning',
 }
 
-/** 配置组（瓦片）标题键映射 */
+/** 本机设置瓦片的行键（与 LOCAL_FLAG_IDS 同序） */
+export const LOCAL_ROW_KEYS: Record<LocalFlagId, CardKey> = {
+    showInModels: 'rowShowInModels',
+    showInBuiltinPlugins: 'rowShowInBuiltinPlugins',
+    showInComposer: 'rowShowInComposer',
+    showFollowStatus: 'rowShowFollowStatus',
+    showInFloat: 'rowShowInFloat',
+    backToChat: 'rowBackToChat',
+    classicSetting: 'rowClassicSetting',
+    rememberEfforts: 'rowRememberEfforts',
+    defaultHigh: 'rowDefaultHigh',
+    showTitleIndicator: 'rowShowTitleIndicator',
+    rememberFloatingPosition: 'rowRememberFloatPosition',
+}
+
+/** 本机设置瓦片每行的释义键 */
+export const LOCAL_TIP_KEYS: Record<LocalFlagId, CardKey> = {
+    showInModels: 'tipShowInModels',
+    showInBuiltinPlugins: 'tipShowInBuiltinPlugins',
+    showInComposer: 'tipShowInComposer',
+    showFollowStatus: 'tipShowFollowStatus',
+    showInFloat: 'tipShowInFloat',
+    backToChat: 'tipBackToChat',
+    classicSetting: 'tipClassicSetting',
+    rememberEfforts: 'tipRememberEfforts',
+    defaultHigh: 'tipDefaultHigh',
+    showTitleIndicator: 'tipShowTitleIndicator',
+    rememberFloatingPosition: 'tipRememberFloatPosition',
+}
+
+/** 配置组标题键 */
 export const COLUMN_KEYS: Record<Group, CardKey> = {
     autoFill: 'colAutoFill',
     allowUpdate: 'colAllowUpdate',
     compat: 'colCompat',
-    behavior: 'colBehavior',
     userExperience: 'colUserExperience',
 }
 
-/** 配置组释义键映射（瓦片展开体首行） */
+/** 配置组释义键 */
 export const HINT_KEYS: Record<Group, CardKey> = {
     autoFill: 'hintAutoFill',
     allowUpdate: 'hintAllowUpdate',
     compat: 'hintCompat',
-    behavior: 'hintBehavior',
     userExperience: 'hintUserExperience',
 }
 
-/** 行内设置项的 tooltip 释义键映射（瓦片展开体每行的帮助气泡） */
+/** 行内设置项的 tooltip 键 */
 export const TIP_KEYS: Record<RowKey, CardKey> = {
     reasoning: 'tipReasoning',
     context: 'tipContext',
     image: 'tipImage',
     disableDeveloper: 'tipDisableDeveloper',
     disableStore: 'tipDisableStore',
-    rememberEfforts: 'tipRememberEfforts',
-    defaultHigh: 'tipDefaultHigh',
     forgetRemoved: 'tipForgetRemoved',
     followParent: 'tipFollowParent',
-    showInModels: 'tipShowInModels',
-    showInBuiltinPlugins: 'tipShowInBuiltinPlugins',
-    showInComposer: 'tipShowInComposer',
-    showFollowStatus: 'tipShowFollowStatus',
-    backToChat: 'tipBackToChat',
-    showInFloat: 'tipShowInFloat',
-    classicSetting: 'tipClassicSetting',
     selfTune: 'tipSelfTuneEffort',
     localizeEfforts: 'tipLocalizeEfforts',
     showOriginalEfforts: 'tipShowOriginalEfforts',

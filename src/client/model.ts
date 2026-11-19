@@ -1,36 +1,47 @@
-/** 浏览器半纯映射层：`tikaflow-model-fix` 版本快照段 <-> 卡片配置（五组布尔 + excludes 列表）。跨半共享的常量、类型、解析函数单一来源在 `src/shared/`；本文件只保留 UI 层：组的行键表与渲染顺序、快照↔配置的 UI 派生、验证与探测候选的拍取与目标收敛。 */
+/** 浏览器半纯映射层：版本快照段 <-> 卡片配置。跨半共享的常量、类型、解析函数在 `src/shared/`；本文件只保留 UI 层派生。 */
 
 import type { PluginConfig } from '@/shared/types'
 import { isPlainObject, providersOf } from '@/shared/types'
 import { EFFORT_LEVELS } from '@/shared/constants'
-import { CONFIG_VERSION, DEFAULT_CONFIG, FIELD_KEYS, COMPAT_KEYS, USER_EXPERIENCE_KEYS, BEHAVIOR_KEYS, parseSnapshot, versionKey } from '@/shared/config-schema'
+import { CONFIG_VERSION, DEFAULT_CONFIG, FIELD_KEYS, COMPAT_KEYS, parseSnapshot, versionKey } from '@/shared/config-schema'
 
 export const VERSION_KEY = versionKey(CONFIG_VERSION)
 
-export type Group = 'autoFill' | 'allowUpdate' | 'compat' | 'behavior' | 'userExperience'
+export type Group = 'autoFill' | 'allowUpdate' | 'compat' | 'userExperience'
+
+/** 就地写字面量而非过滤 `USER_EXPERIENCE_KEYS`，是为了让行键类型真正收窄；两者之和恒等于全集由测试守护 */
+export const SERVER_USER_EXPERIENCE_KEYS = [
+    'forgetRemoved',
+    'followParent',
+    'selfTune',
+    'localizeEfforts',
+    'showOriginalEfforts',
+    'looseMatch',
+    'safeFill',
+    'alwaysReasoning',
+] as const
 
 export const GROUP_KEYS: Record<Group, readonly RowKey[]> = {
     autoFill: FIELD_KEYS,
     allowUpdate: FIELD_KEYS,
     compat: COMPAT_KEYS,
-    behavior: BEHAVIOR_KEYS,
-    userExperience: USER_EXPERIENCE_KEYS,
+    userExperience: SERVER_USER_EXPERIENCE_KEYS,
 }
 
-/** 瓦片顺序（含动态集合瓦片「排除提供方」）：自动填充 / 允许更新 / 兼容性 / 排除提供方 / 用户体验 / UI 与行为 */
-export const TILE_ORDER: readonly (Group | 'excludes')[] = ['autoFill', 'allowUpdate', 'compat', 'excludes', 'userExperience', 'behavior']
+/** 瓦片顺序：自动填充 / 允许更新 / 兼容性 / 排除提供方 / 用户体验 / 本机设置 */
+export const TILE_ORDER: readonly (Group | 'excludes' | 'local')[] = ['autoFill', 'allowUpdate', 'compat', 'excludes', 'userExperience', 'local']
 
-/** 全部布尔配置组：脏检测遍历用，由 TILE_ORDER 派生（去掉动态集合瓦片），顺序无关紧要 */
-const GROUPS: readonly Group[] = TILE_ORDER.filter((tile): tile is Group => tile !== 'excludes')
+/** 全部走后端的布尔配置组：脏检测遍历用 */
+const GROUPS: readonly Group[] = TILE_ORDER.filter(
+    (tile): tile is Group => tile !== 'excludes' && tile !== 'local',
+)
 
-/** 组内行键全集（词典键映射与各组行表的类型） */
 export type RowKey =
     | (typeof FIELD_KEYS)[number]
     | (typeof COMPAT_KEYS)[number]
-    | (typeof BEHAVIOR_KEYS)[number]
-    | (typeof USER_EXPERIENCE_KEYS)[number]
+    | (typeof SERVER_USER_EXPERIENCE_KEYS)[number]
 
-/** 卡片侧消费的完整当前配置（与 PluginConfig 同形：五组布尔 + excludes + efforts） */
+/** 卡片侧消费的完整当前配置 */
 export type Flags = PluginConfig
 
 /** 解码命名空间整段：只读当前版本快照（键见 `VERSION_KEY`）；段非法、快照缺失或非法均回退默认。永不返回 undefined（返回 undefined 会让宿主 scope 永挂 loading） */
@@ -46,7 +57,6 @@ function rowsOf(flags: Flags, group: Group): Record<string, boolean> {
 export function groupValue(flags: Flags, group: Group, key: RowKey): boolean {
     return rowsOf(flags, group)[key] === true
 }
-
 /** 跟随**实际生效**的判据：插件开关开着且宿主「允许 Agent 为子智能体选择模型」那段设置未开启（宿主那段开启时路由由模型自挑，跟随会推翻其合法选择）。
  * `hostEnabled` 由浏览器半读宿主 `subagent-model-selection-settings` 段得出；段读不到记 `undefined`＝视为未开启（与 Node 半 `subagent.ts` 的 try/catch 口径一致） */
 export function followingActive(flags: Flags, hostEnabled: boolean | undefined): boolean {
@@ -58,9 +68,9 @@ export function masterValue(flags: Flags, group: Group): boolean {
     return GROUP_KEYS[group].every((key) => groupValue(flags, group, key))
 }
 
-/** 整组同置：把 group 的全部行设为 value，返回新对象（不改入参） */
+/** 整组同置，**其余键原样保留**：否则会写出缺键快照、触发一次规范化重写 */
 export function applyGroup(flags: Flags, group: Group, value: boolean): Flags {
-    const rows: Record<string, boolean> = {}
+    const rows: Record<string, boolean> = { ...rowsOf(flags, group) }
     for (const key of GROUP_KEYS[group]) rows[key] = value
     return { ...flags, [group]: rows } as Flags
 }

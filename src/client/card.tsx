@@ -1,7 +1,7 @@
-/** 模型参数填充卡片（浏览器半）：复刻官方插件卡的可折叠卡片。六处挂载点（四个席位 + 输入框 / 悬浮按钮两处弹层）共用同一外壳，差异只有折叠态策略与是否允许折叠。
- * 本文件只做**卡片外壳的编排**：草稿与保存、写回动作、二次确认、瓦片与 footer 渲染；诊断两条链在 `card-verify.ts` / `card-probe.ts`，弹层外壳在 `diagnose-dialog.tsx`，记录区文案层在 `card-records.ts`。
- * 展开体为六张瓦片（顺序由 TILE_ORDER 单一分发），瓦片手风琴：默认收起、同时只开一个。编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键（efforts 取写入当刻实时值，卡片不拥有该字段）。
- * 样式数值见 `card-styles.ts`。行为细节见 docs/decisions-ui.md「卡片与编排」 */
+/** 模型参数填充卡片（浏览器半）：复刻官方插件卡的可折叠卡片。六处挂载点共用同一外壳，差异只有折叠态策略与是否允许折叠。
+ * 本文件只做**卡片外壳的编排**：草稿与保存、写回动作、二次确认、瓦片与 footer 渲染。展开体瓦片顺序由 TILE_ORDER 单一分发，手风琴：默认收起、同时只开一个。
+ * 编辑只改本地草稿，「保存」才经 settings scope 原子写当前版本快照键；本机设置那 11 项例外（点一下即写 localStorage）。
+ * 样式数值见 `card-styles.ts`，行为细节见 docs/decisions-ui.md「卡片与编排」 */
 
 import { useLayoutEffect, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 // primitives 由宿主模块表注入
@@ -17,7 +17,6 @@ import {
     addExclude,
     applyGroup,
     groupAllPicked,
-    groupValue,
     isDirty,
     masterValue,
     providerIdsOf,
@@ -28,7 +27,9 @@ import {
     TILE_ORDER,
 } from '@/client/model'
 import type { Flags, Group, RowKey } from '@/client/model'
-import { ExcludesTile, GroupTile } from '@/client/tile'
+import type { LocalFlagId, LocalSettings } from '@/client/local-settings'
+import { LOCAL_FLAG_IDS } from '@/client/local-settings'
+import { ExcludesTile, GroupTile, LocalTile } from '@/client/tile'
 import { CardMeta } from '@/client/card-meta'
 import { ConfirmModal } from '@/client/confirm'
 import { DiagnoseDialog } from '@/client/diagnose-dialog'
@@ -41,7 +42,6 @@ import { catalogFreshnessText, isWritebackTimeout, truncateMessage } from '@/cli
 import { useVerifyRun } from '@/client/card-verify'
 import { useProbeRun } from '@/client/card-probe'
 
-/** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
 const CHEVRON_DOWN = primitives.IconChevronDownOutlineRegular
 const { Tag } = primitives
 
@@ -49,6 +49,7 @@ const { Tag } = primitives
 export interface CardProps extends Omit<RpcCarrier, 'reportLocale'> {
     t: TranslateNS<'settings.modelFix'>
     scope: DecodedScope<Flags>
+    local: LocalSettings
     /** 宿主 llm-pi-ai 命名空间：只取 snapshot.user 的提供方 id，判定排除项是否命中 */
     providersScope: DecodedScope<readonly unknown[]>
     /** 初始折叠态：详情席位与选项卡席默认展开；模型页 footer 席不传即默认收起。同时决定保存成功后是否自动收起 */
@@ -62,14 +63,14 @@ export function Card(props: CardProps) {
     const scope = props.scope
     const { t } = props
     const snap = useSyncExternalStore(scope.subscribe, scope.getSnapshot, scope.getSnapshot)
-    // 提供方 id 来源 scope：只消费其 user 层（宿主 describe mirror 保证快照引用稳定）
+    const local = props.local
+    const localFlags = useSyncExternalStore(local.subscribe, local.getSnapshot, local.getSnapshot)
     const providersScope = props.providersScope
     const providersSnap = useSyncExternalStore(providersScope.subscribe, providersScope.getSnapshot, providersScope.getSnapshot)
     const providerIds = useMemo(
         () => providerIdsOf(providersSnap.status === 'ready' ? providersSnap.user : undefined),
         [providersSnap],
     )
-    // 验证候选与提供方 id 同源（同一份 llm-pi-ai user 层）
     const verifyCandidates = useMemo(
         () => verifyCandidatesOf(providersSnap.status === 'ready' ? providersSnap.user : undefined),
         [providersSnap],
@@ -81,7 +82,7 @@ export function Card(props: CardProps) {
     const collapsible = props.collapsible !== false
     // 折叠态为卡片本地状态（读姿而非配置）；草稿跨折叠存活
     const [open, setOpen] = useState(collapsible ? (props.defaultOpen ?? false) : true)
-    // 保存后自动收起只对默认收起的席位生效（默认展开的席位保存后保持展开）
+    // 自动收起只对默认收起的席位生效
     const autoCollapse = props.defaultOpen !== true
     // 瓦片折叠态：官方手风琴语义（同时只开一个、默认全收起）
     const [tileOpen, setTileOpen] = useState<string | null>(null)
@@ -100,7 +101,7 @@ export function Card(props: CardProps) {
     const dirty = draft !== null && saved !== undefined && isDirty(draft, saved)
     // 命中集合按草稿算（编辑中即所见即所得）
     const hits = useMemo(() => resolveHits(shown.excludes, providerIds), [shown.excludes, providerIds])
-    // 保存成功（保存结束且 dirty 归 false）后自动收起，仅限默认收起的席位；写失败保留草稿与展开态可重试
+    // 保存成功且 dirty 归 false 后自动收起；写失败保留草稿与展开态可重试
     useEffect(() => {
         if (busy === 'save') {
             saveStarted.current = true
@@ -188,25 +189,29 @@ export function Card(props: CardProps) {
                 settled?.()
             })
     }
-    // 落草稿；「记住推理级别」由开转关且仍有记忆时立即弹确认。记忆判据取实时值（草稿不拥有 efforts）
-    const commitDraft = (next: Flags) => {
-        setDraft(next)
+    const onCell = (group: Group, key: RowKey) => {
+        setNotice(null)
+        setDraft(toggleCell(shown, group, key))
+    }
+    const onMaster = (group: Group) => {
+        setNotice(null)
+        setDraft(applyGroup(shown, group, !masterValue(shown, group)))
+    }
+    const onLocalCell = (id: LocalFlagId) => {
+        setNotice(null)
+        // 关掉「记住推理级别」且仍有记忆时问一次是否清空
         if (
-            groupValue(shown, 'userExperience', 'rememberEfforts') &&
-            !groupValue(next, 'userExperience', 'rememberEfforts') &&
-            Object.keys(snap.value?.efforts ?? {}).length > 0
+            id === 'rememberEfforts' &&
+            localFlags.rememberEfforts &&
+            Object.keys(scope.getSnapshot().value?.efforts ?? {}).length > 0
         ) {
             setClearConfirmOpen(true)
         }
+        local.set(id, !localFlags[id])
     }
-    const onCell = (group: Group, key: RowKey) => {
+    const onLocalMaster = () => {
         setNotice(null)
-        commitDraft(toggleCell(shown, group, key))
-    }
-    // 整组总控：显示值取 masterValue（全开才显示开，部分选中显示关）；点击取反并把该组全部行设为同一值
-    const onMaster = (group: Group) => {
-        setNotice(null)
-        commitDraft(applyGroup(shown, group, !masterValue(shown, group)))
+        local.setAll(!LOCAL_FLAG_IDS.every((id) => localFlags[id]))
     }
     // 瓦片折叠：官方 toggleRow 同语义——点已开者即收起，否则切到该瓦片
     const onTileToggle = (key: string) => {
@@ -307,35 +312,51 @@ export function Card(props: CardProps) {
         <>
             {!ready ? <p className="dsh-mf-line" role="status">{t('loading')}</p> : null}
             {ready && !snap.writable ? <p className="dsh-mf-line dsh-mf-warn" role="status">{t('readOnly')}</p> : null}
-            {/* 五个布尔组由组枚举与键表派生，「排除提供方」形状不同单独分发；顺序见 TILE_ORDER */}
+            {/* 三种形状分别分发，顺序见 TILE_ORDER */}
             <div className="dsh-mf-items">
-                {TILE_ORDER.map((tile) => tile === 'excludes' ? (
-                    <ExcludesTile
-                        key={tile}
-                        t={t}
-                        flags={shown}
-                        hits={hits}
-                        open={tileOpen === tile}
-                        disabled={!canWrite}
-                        onToggle={() => { onTileToggle(tile) }}
-                        onAdd={onAddExclude}
-                        onRemove={onRemoveExclude}
-                    />
-                ) : (
-                    <GroupTile
-                        key={tile}
-                        group={tile}
-                        t={t}
-                        flags={shown}
-                        open={tileOpen === tile}
-                        disabled={!canWrite}
-                        onToggle={() => { onTileToggle(tile) }}
-                        onMaster={() => { onMaster(tile) }}
-                        onCell={(key) => { onCell(tile, key) }}
-                        // 「插件管理」是回入口，恒可见且不可关（故不绑配置键，见 tile.tsx 的 lockedRows）
-                        lockedRows={tile === 'behavior' ? [{ label: 'rowShowInPluginManager', tip: 'tipShowInPluginManager' }] : undefined}
-                    />
-                ))}
+                {TILE_ORDER.map((tile) => {
+                    if (tile === 'excludes') {
+                        return (
+                            <ExcludesTile
+                                key={tile}
+                                t={t}
+                                flags={shown}
+                                hits={hits}
+                                open={tileOpen === tile}
+                                disabled={!canWrite}
+                                onToggle={() => { onTileToggle(tile) }}
+                                onAdd={onAddExclude}
+                                onRemove={onRemoveExclude}
+                            />
+                        )
+                    }
+                    if (tile === 'local') {
+                        return (
+                            <LocalTile
+                                key={tile}
+                                t={t}
+                                flags={localFlags}
+                                open={tileOpen === tile}
+                                onToggle={() => { onTileToggle(tile) }}
+                                onMaster={onLocalMaster}
+                                onCell={onLocalCell}
+                            />
+                        )
+                    }
+                    return (
+                        <GroupTile
+                            key={tile}
+                            group={tile}
+                            t={t}
+                            flags={shown}
+                            open={tileOpen === tile}
+                            disabled={!canWrite}
+                            onToggle={() => { onTileToggle(tile) }}
+                            onMaster={() => { onMaster(tile) }}
+                            onCell={(key) => { onCell(tile, key) }}
+                        />
+                    )
+                })}
             </div>
             <div className="dsh-mf-footer">
                 <span className="dsh-mf-actions">

@@ -9,9 +9,7 @@ import type { UiSession } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { CARD_NS } from '@/client/locale-keys'
-import { groupValue } from '@/client/model'
-import type { Flags } from '@/client/model'
-import type { DecodedScope } from '@/client/scope'
+import type { LocalSettings } from '@/client/local-settings'
 import { createFloatingButton } from '@/client/floating-button'
 import type { FloatingButton } from '@/client/floating-button'
 import { PLUGIN_NAME } from '@/shared/constants'
@@ -37,7 +35,7 @@ function BackToChatIcon(props: { base: ReactNode }): ReactNode {
     )
 }
 
-export function applyBackToChat(ctx: ClientContext, scope: DecodedScope<Flags>): FloatingButton {
+export function applyBackToChat(ctx: ClientContext, local: LocalSettings): FloatingButton {
     const t = ctx.locale.bind(CARD_NS)
     let selectPanel: ((panelId: string | null) => void) | null = null
     let openSession: ((sessionId: SessionId) => void) | null = null
@@ -70,7 +68,7 @@ export function applyBackToChat(ctx: ClientContext, scope: DecodedScope<Flags>):
 
     const syncActive = (): void => {
         button.set({
-            active: selectPanel !== null && groupValue(scope.getSnapshot().value, 'behavior', 'backToChat'),
+            active: selectPanel !== null && local.getSnapshot().backToChat,
         })
     }
 
@@ -90,9 +88,9 @@ export function applyBackToChat(ctx: ClientContext, scope: DecodedScope<Flags>):
 
 
     ctx.effect(function* () {
-        // scope 订阅不推首值，先按当前快照补跑一次
-        const unsubscribeScope = scope.subscribe(syncActive)
-        yield unsubscribeScope
+        // subscribe 不推首值，先按当前快照补跑一次
+        const unsubscribeLocal = local.subscribe(syncActive)
+        yield unsubscribeLocal
         const unsubscribeLocale = ctx.locale.subscribe(syncStatus)
         yield unsubscribeLocale
         syncStatus()

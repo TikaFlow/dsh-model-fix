@@ -7,7 +7,9 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { TIP_MAX_WIDTH } from '@/client/card-styles'
 import type { FloatingButton } from '@/client/floating-button'
-import { PLUGIN_NAME, PLUGIN_NS } from '@/shared/constants'
+import { PLUGIN_NAME } from '@/shared/constants'
+import type { LocalSettings } from '@/client/local-settings'
+import { createFloatingPositionRecord } from '@/client/local-settings'
 import { EDGE_GAP, clampOffset, edgeDistances, edgeRecordChanged, nearestEdge, isVertical, parseEdgeRecord, snappedOffset, tooltipSideOf, type EdgeRecord, type SnapEdge } from '@/client/floating-snap'
 
 const CONTAINER_ID = 'tikaflow-model-fix-floating-buttons'
@@ -16,15 +18,10 @@ const BUTTON_CLASS = 'tikaflow-model-fix-floating-button'
 const BUTTON_ID_PREFIX = 'tikaflow-model-fix-floating-button-'
 const STYLE_ID = 'tikaflow-model-fix-floating-buttons-css'
 
-/** 吸附记录的持久化键 */
-const SNAP_STORE_KEY = `${PLUGIN_NS}.floating-position`
-
 const BUTTON_GAP = 8
 
-/** 拖拽位移超过该值才算拖拽，否则让按钮照常出 click */
 const DRAG_THRESHOLD = 4
 
-/** 按钮数值照宿主 `ui-chat` 的 `.toBottom` */
 const STYLE_TEXT = [
     `.${CONTAINER_CLASS}{position:absolute;left:${EDGE_GAP}px;top:50%;transform:translateY(-50%);z-index:999;display:flex;flex-direction:column-reverse;align-items:center;gap:${BUTTON_GAP}px}`,
     `.${CONTAINER_CLASS}.dragging{cursor:grabbing;user-select:none}`,
@@ -33,12 +30,11 @@ const STYLE_TEXT = [
     `.${BUTTON_CLASS}:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,rgb(65,118,230)));outline-offset:2px}`,
 ].join('\n')
 
-/** 调用顺序 = 渲染顺序 */
 interface FloatingButtonGroup {
     addButton(button: FloatingButton): void
 }
 
-/** 幂等注入：宿主 HMR 按 data-plugin 摘旧节点，故只同步内容不重建 */
+/** 宿主 HMR 按 data-plugin 摘旧节点，故只同步内容不重建 */
 function ensureStyles(): void {
     if (typeof document === 'undefined') return
     let tag = document.getElementById(STYLE_ID)
@@ -51,25 +47,7 @@ function ensureStyles(): void {
     if (tag.textContent !== STYLE_TEXT) tag.textContent = STYLE_TEXT
 }
 
-function readEdgeRecord(): EdgeRecord | null {
-    try {
-        if (!localStorage) return null
-        return parseEdgeRecord(localStorage.getItem(SNAP_STORE_KEY))
-    } catch {
-        return null
-    }
-}
-
-function storeEdgeRecord(record: EdgeRecord): void {
-    try {
-        if (!localStorage) return
-        localStorage.setItem(SNAP_STORE_KEY, JSON.stringify(record))
-    } catch {
-        return
-    }
-}
-
-/** 宿主 CSS Module 类名随构建 hash 变化，故按 slot 锚点定位中心列 */
+/** 宿主 CSS Module 类名随构建 hash 变化，故按 slot 锚点定位 */
 function centerColumn(): HTMLElement | null {
     const parent = document.querySelector('[data-slot="main"]')?.parentElement
     return parent instanceof HTMLElement ? parent : null
@@ -79,7 +57,6 @@ function centerColumn(): HTMLElement | null {
  * devDep 类型基线（0.2.1-rc.2）无 `left`，故按宿主的 prop 类型断言（运行时值原样传下去）*/
 type TooltipSide = 'right' | 'left' | 'bottom' | 'top'
 
-/** `active` 为假即不渲染，不占位不留 gap */
 function FloatingButtonItem(props: { button: FloatingButton; side: TooltipSide }): ReactNode {
     const state = useSyncExternalStore(props.button.subscribe, props.button.getSnapshot)
     if (!state.active) return null
@@ -110,19 +87,23 @@ function FloatingButtons(props: { buttons: readonly FloatingButton[]; side: Tool
 
 /**
  * 装上悬浮按钮组：容器常驻到插件卸载，按钮由 `addButton` 逐枚加入。
- * 中心列缺定位上下文，就地补一条 inline `position: relative`（宿主只由 className 渲染该元素，inline
- * 不被覆盖，卸载时还原原值）。
+ * 中心列缺定位上下文，就地补 inline `position: relative`（该元素只由宿主 className 渲染，inline 不被覆盖，卸载时还原）。
  */
-export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
+export function applyFloatingButtons(ctx: ClientContext, local: LocalSettings): FloatingButtonGroup {
     let buttons: readonly FloatingButton[] = []
     let root: { render(node: ReactNode): void; unmount(): void } | null = null
     let container: HTMLElement | null = null
-    /** 中心列原 inline position 值（空串 = 原本没有） */
+    /** 空串即原本没有 */
     let columnPosition = ''
     let column: HTMLElement | null = null
-    /** 当前吸附记录（null = 默认居中位） */
+    /** null 即默认居中位 */
     let currentSnap: EdgeRecord | null = null
-    /** Tooltip 方向：贴着容器所在的那一侧朝外，贴左边则朝右 */
+    /** 校验由 floating-snap 的 parseEdgeRecord 承担 */
+    const positionRecord = createFloatingPositionRecord<EdgeRecord>(
+        (raw) => parseEdgeRecord(raw) ?? undefined,
+        (record) => JSON.stringify(record),
+    )
+    const rememberPosition = (): boolean => local.getSnapshot().rememberFloatingPosition
     let tooltipSide: TooltipSide = 'right'
 
     const render = (): void => {
@@ -150,7 +131,6 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
 
     const restoreColumnContext = (): void => {
         if (column === null) return
-        // 置空串即移除该 inline 声明
         column.style.position = columnPosition
         column = null
         columnPosition = ''
@@ -197,7 +177,6 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         requestAnimationFrame(() => { if (column === target) applyCurrentPosition() })
     }
 
-    /** 容器相对父容器的当前几何 */
     const geometryOf = (target: HTMLElement): { offsetX: number; offsetY: number; width: number; height: number; parentWidth: number; parentHeight: number } | null => {
         if (container === null) return null
         const parent = target.getBoundingClientRect()
@@ -212,7 +191,6 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         }
     }
 
-    /** 写容器位置（像素坐标，覆盖 CSS 的居中默认值） */
     const place = (x: number, y: number): void => {
         if (container === null) return
         container.style.left = `${x}px`
@@ -220,14 +198,12 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         container.style.transform = 'none'
     }
 
-    /** 默认位置：左边贴边间距、纵向居中 */
     const applyDefaultPosition = (target: HTMLElement): void => {
         const geometry = geometryOf(target)
         if (geometry === null) return
         place(EDGE_GAP, clampOffset((geometry.parentHeight - geometry.height) / 2, geometry.height, geometry.parentHeight))
     }
 
-    /** 重新贴回当前边（尺寸或父容器变了都要重算） */
     const applyCurrentPosition = (): void => {
         if (column === null) return
         if (currentSnap === null) {
@@ -240,22 +216,21 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         place(snapped.x, snapped.y)
     }
 
-    /** 吸附边呈现：Tooltip 朝外 + 左右边竖排、上下边横排 */
     const applyEdgeChrome = (edge: SnapEdge): void => {
         tooltipSide = tooltipSideOf(edge)
         if (container === null) return
         container.style.flexDirection = isVertical(edge) ? 'column-reverse' : 'row'
     }
 
-    /** 初始化恢复：整条记录合法才采用，否则保持默认边与居中偏移 */
+    /** 记录整条合法才采用 */
     const restoreSnap = (): void => {
-        const stored = readEdgeRecord()
-        if (stored === null) return
+        if (!rememberPosition()) return
+        const stored = positionRecord.get()
+        if (stored === undefined) return
         currentSnap = stored
         applyEdgeChrome(stored.edge)
     }
 
-    /** 拖拽状态 */
     let dragging = false
     let dragMoved = false
     /** 拖拽松手后的那一次 click 要拦掉 */
@@ -320,15 +295,19 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         if (geometry === null) return
         const edge = nearestEdge(edgeDistances(geometry))
         applyEdgeChrome(edge)
-        // 方向变了容器尺寸也变，重量一次再定吸附位置
         const after = geometryOf(column)
         if (after === null) return
         const snapped = snappedOffset(edge, after)
         place(snapped.x, snapped.y)
         const record: EdgeRecord = { edge, offset: Math.round(isVertical(edge) ? snapped.y : snapped.x) }
-        if (edgeRecordChanged(currentSnap, record)) storeEdgeRecord(record)
+        // 关的是「记住」不是「能拖」：不落盘，但本次落点仍然生效
+        if (rememberPosition() && edgeRecordChanged(currentSnap, record)) storeEdgeRecord(record)
         currentSnap = record
         render()
+    }
+
+    const storeEdgeRecord = (record: EdgeRecord): void => {
+        positionRecord.set(record)
     }
 
     // 中心列属宿主 React 树，宿主重挂即换节点 ⇒ 容器跟着搬（React 根随节点走，不重建）
@@ -350,6 +329,28 @@ export function applyFloatingButtons(ctx: ClientContext): FloatingButtonGroup {
         if (container.parentElement !== target) target.appendChild(container)
     }
     ctx.effect(function* () {
+        // 开关切换：开→贴回已存记录，关→回默认位（不删已有记录）
+        let wasRemembered = rememberPosition()
+        const offLocal = local.subscribe(() => {
+            const now = rememberPosition()
+            if (now === wasRemembered) return
+            wasRemembered = now
+            if (now) {
+                restoreSnap()
+            } else {
+                currentSnap = null
+                applyEdgeChrome('left')
+            }
+            applyCurrentPosition()
+            render()
+        })
+        yield offLocal
+        const offPosition = positionRecord.subscribe(() => {
+            if (!rememberPosition()) return
+            restoreSnap()
+            applyCurrentPosition()
+        })
+        yield offPosition
         // 合并到下一帧只跑一次：逐个 mutation 各跑一次全树查询代价过高
         const observer = new MutationObserver(() => {
             if (scheduled !== NO_FRAME) return

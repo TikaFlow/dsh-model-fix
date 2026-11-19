@@ -34,3 +34,7 @@
 ## 附加字段的登记口径
 
 探测兜底备份落在自有段顶层 `probeBackup`，**不进版本快照、不动 `CONFIG_VERSION`**（它不是配置形态，只是崩溃恢复用的落盘副本）。
+
+## 不进快照的键
+
+本机设置 11 项只存 localStorage，不进版本快照、不升 `CONFIG_VERSION`；快照里残留的 `behavior` 段与两项 `userExperience` 键原样保留、前端不读。其默认值归 `LOCAL_DEFAULTS`，**不受台阶保护**。

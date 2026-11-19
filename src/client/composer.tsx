@@ -1,7 +1,7 @@
 /** 输入框工具行（conversation.input.left）的两枚 chip，各占一个席位条目：
  * · 「模型优化」（`ComposerEntry`）—— 常驻弱化态入口，点开弹层面板（宿主 Modal 的 headless 形态）
  * · 「跟随」状态灯（`FollowLamp`）—— 随 `followingActive(flags, hostEnabled)` 在亮绿/浅灰间切换；点击即 toggle 开关，写入失败时保持原态 + 琥珀色 + 宿主 Tooltip 提示原因
- * 宿主 list 席位按 `id` 记账（`id` 不同可并存），故两枚 chip 各注册一条、各受自己的 `behavior` 开关支配。配色/几何语义见 card-styles.ts */
+ * 宿主 list 席位按 `id` 记账（`id` 不同可并存），故两枚 chip 各注册一条、各受自己的本机可见性开关支配。配色/几何语义见 card-styles.ts */
 
 import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -38,7 +38,7 @@ export interface ComposerProps {
 /** 插槽 props 类型面：PropsRuntime<'conversation.input.left'> & PropsLocale<CARD_NS>（无 owner props） */
 type SlotProps = PropsRuntime<'conversation.input.left'> & PropsLocale<'settings.modelFix'>
 
-/** 「模型优化」入口 chip：点开弹层面板，承载完整配置卡。显隐由 `behavior.showInComposer` 决定（装卸在 visibility.ts） */
+/** 「模型优化」入口 chip：点开弹层面板，承载完整配置卡。显隐由本机开关 `showInComposer` 决定（装卸在 visibility.ts） */
 export function ComposerEntry(props: SlotProps & ComposerProps): ReactNode {
     const { t, scope, cardProps } = props
     const [open, setOpen] = useState(false)
@@ -68,7 +68,7 @@ export function ComposerEntry(props: SlotProps & ComposerProps): ReactNode {
     )
 }
 
-/** 「跟随」状态灯：亮绿＝子智能体跟随父智能体正在生效，浅灰＝未生效；点击即 toggle `userExperience.followParent`。显隐由 `behavior.showFollowStatus` 决定（装卸在 visibility.ts） */
+/** 「跟随」状态灯：亮绿＝子智能体跟随父智能体正在生效，浅灰＝未生效；点击即 toggle `userExperience.followParent`。显隐由本机开关 `showFollowStatus` 决定（装卸在 visibility.ts） */
 export function FollowLamp(props: SlotProps & ComposerProps): ReactNode {
     const { t, scope, hostModelScope } = props
 

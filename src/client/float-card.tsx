@@ -3,9 +3,7 @@
 import { createRoot } from 'react-dom/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { CARD_NS } from '@/client/locale-keys'
-import { groupValue } from '@/client/model'
-import type { Flags } from '@/client/model'
-import type { DecodedScope } from '@/client/scope'
+import type { LocalSettings } from '@/client/local-settings'
 import { ensureStyles } from '@/client/card-styles'
 import { CardPanel } from '@/client/card-panel'
 import type { CardProps } from '@/client/card'
@@ -38,7 +36,7 @@ function ensureIconStyles(): void {
 
 export function applyFloatCard(
     ctx: ClientContext,
-    scope: DecodedScope<Flags>,
+    local: LocalSettings,
     cardProps: Omit<CardProps, 't'>,
 ): FloatingButton {
     const t = ctx.locale.bind(CARD_NS)
@@ -63,18 +61,16 @@ export function applyFloatCard(
         },
     })
 
-    /** 可见性 = 「显示在悬浮按钮」开关 */
+    /** 可见性 = 「显示在悬浮按钮」本机开关 */
     const syncActive = (): void => {
-        button.set({
-            active: groupValue(scope.getSnapshot().value, 'behavior', 'showInFloat'),
-        })
+        button.set({ active: local.getSnapshot().showInFloat })
     }
 
 
     ctx.effect(function* () {
         yield () => root.unmount()
-        const unsubscribeScope = scope.subscribe(syncActive)
-        yield unsubscribeScope
+        const unsubscribeLocal = local.subscribe(syncActive)
+        yield unsubscribeLocal
         const unsubscribeLocale = ctx.locale.subscribe(() => { button.set({ title: t('tipOpenSettingCard') }) })
         yield unsubscribeLocale
         syncActive()

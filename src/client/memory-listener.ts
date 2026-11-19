@@ -10,16 +10,16 @@ import type { ModelSelection, ModelSelectionProjection } from '@deepseek-ai/dsh-
 import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client'
 // SessionId 品牌 id（sessions / modelDirectories 服务的键类型）
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { DEFAULT_CONFIG } from '@/shared/config-schema'
 import { MAX_ATTEMPTS, PLUGIN_NAME } from '@/shared/constants'
 import { VERSION_KEY } from '@/client/model'
 import type { Flags } from '@/client/model'
+import type { LocalSettings } from '@/client/local-settings'
 import { applyEffort, classifyTransition, sameSelection } from '@/client/effort'
 import type { DecodedScope } from '@/client/scope'
 import { isSettingsConflict } from '@/shared/errors'
 
 /** 挂上记忆监听子 fiber（宿主无 sessions/modelDirectories 时静默不启用） */
-export function applyEffortMemoryListener(ctx: ClientContext, scope: DecodedScope<Flags>): void {
+export function applyEffortMemoryListener(ctx: ClientContext, scope: DecodedScope<Flags>, local: LocalSettings): void {
     // 记忆写入带三条护栏（理由见 docs/decisions-session.md「推理级别记忆」）：
     // 1. 段未 ready 放弃——ConfigForm loading 时 value 回落 DEFAULT_CONFIG（efforts={}），整段 set 等于清空全部记忆。
     // 2. expectedRevision 围栏——与 Node 半 updateMemory 对称。
@@ -80,10 +80,11 @@ export function applyEffortMemoryListener(ctx: ClientContext, scope: DecodedScop
                     return
                 }
                 const dirState = dir.store.getSnapshot()
-                // 开关仅门控「保存」；恢复用的记忆始终取真实 efforts。兜底取共享层默认（段值不可用时与「全新用户」行为一致）
+                // 开关仅门控「保存」；恢复用的记忆始终取真实 efforts
                 const flags = scope.getSnapshot().value
-                const rememberEfforts = flags?.userExperience.rememberEfforts ?? DEFAULT_CONFIG.userExperience.rememberEfforts
-                const defaultHigh = flags?.userExperience.defaultHigh ?? DEFAULT_CONFIG.userExperience.defaultHigh
+                const localFlags = local.getSnapshot()
+                const rememberEfforts = localFlags.rememberEfforts
+                const defaultHigh = localFlags.defaultHigh
                 const memory = flags?.efforts ?? {}
                 const transition = classifyTransition(prev, next, memory, dirState.groups, defaultHigh)
 

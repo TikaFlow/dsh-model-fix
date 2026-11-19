@@ -5,10 +5,10 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { UiSession } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { CardKey } from '@/client/locale-keys'
+import type { LocalSettings } from '@/client/local-settings'
 import { IDLE_VIEW, inspect, type SessionView } from '@/client/session-view'
 import { PLUGIN_NAME } from '@/shared/constants'
 
-/** 状态 → emoji（对应 inspect 的非空闲产出） */
 const STATUS_EMOJI: Partial<Record<CardKey, string>> = {
     backToChatRunning: '⏳',
     backToChatSubagentsOne: '⚙️',
@@ -21,14 +21,22 @@ const STATUS_EMOJI: Partial<Record<CardKey, string>> = {
 
 const IDLE_EMOJI = '👀'
 
-export function applyTitleIndicator(ctx: ClientContext): void {
+export function applyTitleIndicator(ctx: ClientContext, local: LocalSettings): void {
     let base = typeof document === 'undefined' ? '' : document.title
-    /** 上次写入的完整标题，用于跳过自身 mutation（防回环） */
+    /** 跳过自身 mutation，防回环 */
     let lastWritten: string | null = null
     let view: SessionView = IDLE_VIEW
+    let enabled = local.getSnapshot().showTitleIndicator
 
-    const write = (): void => {
+    const apply = (): void => {
         if (typeof document === 'undefined') return
+        if (!enabled) {
+            if (lastWritten !== null) {
+                document.title = base
+                lastWritten = null
+            }
+            return
+        }
         const emoji = view.state === 'idle' ? IDLE_EMOJI : (STATUS_EMOJI[view.titleKey] ?? IDLE_EMOJI)
         document.title = `${emoji} · ${base}`
         lastWritten = document.title
@@ -37,17 +45,22 @@ export function applyTitleIndicator(ctx: ClientContext): void {
     let observer: MutationObserver | null = null
     const readStatus = (): void => {
         view = uiSession === null || sessions === null ? IDLE_VIEW : inspect(uiSession, sessions).view
-        write()
+        apply()
     }
 
     let uiSession: UiSession | null = null
     let sessions: ISessions | null = null
 
     ctx.effect(function* () {
+        const offLocal = local.subscribe(() => {
+            enabled = local.getSnapshot().showTitleIndicator
+            apply()
+        })
+        yield offLocal
         observer = new MutationObserver(() => {
             if (document.title === lastWritten) return
             base = document.title
-            write()
+            apply()
         })
         observer.observe(document.head, { childList: true, subtree: true, characterData: true })
         yield () => {

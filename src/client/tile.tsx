@@ -1,52 +1,54 @@
 import { useId, useRef, useState } from 'react'
-// primitives 由宿主模块表注入
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { EXCLUDE_ID_PATTERN, GROUP_KEYS, groupValue, masterValue } from '@/client/model'
 import type { Flags, Group, RowKey } from '@/client/model'
+import { LOCAL_FLAG_IDS } from '@/client/local-settings'
+import type { LocalFlags, LocalFlagId } from '@/client/local-settings'
 import type { CardKey } from '@/client/locale-keys'
-import { COLUMN_KEYS, HINT_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locale-keys'
+import { COLUMN_KEYS, HINT_KEYS, LOCAL_ROW_KEYS, LOCAL_TIP_KEYS, ROW_KEYS, TIP_KEYS } from '@/client/locale-keys'
 import { TIP_MAX_WIDTH } from '@/client/card-styles'
-/** 卡片的瓦片层：展开体里六张瓦片的两种形态——布尔矩阵配置组瓦片（官方「插件列表」项卡同款）与「排除提供方」的动态集合瓦片，渲染顺序由 model.ts 的 TILE_ORDER 单一分发。
- * 瓦片只管自己的 summary 与展开体结构，外加「排除提供方」那一份纯 UI 暂态（输入文本与校验反馈不属于配置）；展开态、启用态与全部写回回调都由卡片经 props 传入，故这里既不发请求也不碰 Connection。样式数值不在本文件，见 card-styles.ts */
 
-/** 瓦片 chevron：宿主 ui-primitives 导出的描边 chevron 图标 */
 const CHEVRON_DOWN = primitives.IconChevronDownOutlineRegular
 const { Pill, Switch, Tag, StateDot, Tooltip, IconInfoOutlineRegular, IconTrashOutlineRegular } = primitives
 
-/** 瓦片文案函数：与卡片 props 的 t 同型，同为 slots.register 的 locale 席位合成注入 */
 type TileTranslate = TranslateNS<'settings.modelFix'>
 
-/** Pill 组阈值：组内行数（真键 + 恒定展示行）≥ 5 时改用 Pill 胶囊布局，< 5 保持 Switch 行 */
+/** 组内行数（真键 + 恒定展示行）达此值即改用 Pill 胶囊 */
 const PILL_THRESHOLD = 5
 
-/** 组内一条**恒定不可改**的展示行：只出现在「UI 与行为」组（插件管理那一条），排在组内真键之前——它是回入口。不绑任何配置键，故不进 `GROUP_KEYS`，组总控、草稿、脏检测都看不见它 */
+/** 恒定不可改的展示行（「插件管理」）：不绑配置键，组总控、草稿、脏检测都看不见它 */
 interface LockedRow {
     label: CardKey
     tip: CardKey
 }
 
-/** 配置组瓦片：summary 为组名 + 整组开关 + 折叠箭头，展开体为组释义 + 子开关行；
- * 整行可点由 .dsh-mf-itemToggle 覆盖层承担（无 button 嵌套），可访问名用 aria-labelledby 指向可见标题。
- * 组内行数（真键 + 恒定展示行）≥ PILL_THRESHOLD 时，子开关改渲染为 Pill 胶囊组。 */
-export function GroupTile(props: {
-    group: Group
-    t: TileTranslate
-    flags: Flags
-    open: boolean
+interface MatrixRow {
+    id: string
+    label: CardKey
+    tip: CardKey
+    checked: boolean
     disabled: boolean
     onToggle: () => void
+}
+
+function RowMatrix(props: {
+    groupId: string
+    title: string
+    master: boolean
+    disabled: boolean
+    open: boolean
+    hint: string
+    lockedRows: readonly LockedRow[]
+    rows: readonly MatrixRow[]
+    t: TileTranslate
+    onToggle: () => void
     onMaster: () => void
-    onCell: (key: RowKey) => void
-    /** 恒定展示行（不绑配置、不受总控与脏检测影响），渲染在组内真键之前；缺省即无 */
-    lockedRows?: readonly LockedRow[]
 }) {
-    const { group, t, open, lockedRows = [] } = props
+    const { t, open, lockedRows, rows } = props
     const uid = useId()
-    const id = `${uid}-${group}`
-    const title = t(COLUMN_KEYS[group])
-    // 恒定展示行占着组内位置，须一并计入阈值
-    const usePills = lockedRows.length + GROUP_KEYS[group].length >= PILL_THRESHOLD
+    const id = `${uid}-${props.groupId}`
+    const usePills = lockedRows.length + rows.length >= PILL_THRESHOLD
     return (
         <div className="dsh-mf-item" role="group" data-open={open ? 'true' : undefined} aria-labelledby={`${id}-title`}>
             <div className="dsh-mf-itemHead">
@@ -58,13 +60,13 @@ export function GroupTile(props: {
                     aria-labelledby={`${id}-title`}
                     onClick={props.onToggle}
                 />
-                <strong className="dsh-mf-itemTitle" id={`${id}-title`}>{title}</strong>
+                <strong className="dsh-mf-itemTitle" id={`${id}-title`}>{props.title}</strong>
                 <span className="dsh-mf-itemTrailing">
                     <Switch
                         className="dsh-mf-itemSwitch"
-                        checked={masterValue(props.flags, group)}
+                        checked={props.master}
                         disabled={props.disabled}
-                        label={`${title} ${t('masterAll')}`}
+                        label={`${props.title} ${t('masterAll')}`}
                         onChange={props.onMaster}
                     />
                     <CHEVRON_DOWN size={12} className="dsh-mf-itemChevron" />
@@ -72,9 +74,9 @@ export function GroupTile(props: {
             </div>
             {open ? (
                 <div className="dsh-mf-itemBody" id={`${id}-body`}>
-                    <p className="dsh-mf-itemHint">{t(HINT_KEYS[group])}</p>
+                    <p className="dsh-mf-itemHint">{props.hint}</p>
                     {usePills ? (
-                        <div className="dsh-mf-pillGroup" role="group" aria-label={`${title} ${t('masterAll')}`}>
+                        <div className="dsh-mf-pillGroup" role="group" aria-label={`${props.title} ${t('masterAll')}`}>
                             {/* 宿主 Pill 不 forwardRef，Tooltip.cloneElement 注入的 ref 到不了 Pill 内部，
                                 故每颗 pill 都用 span 承接 ref 锚点（两种行共用此写法） */}
                             {lockedRows.map((row) => (
@@ -84,25 +86,20 @@ export function GroupTile(props: {
                                     </span>
                                 </Tooltip>
                             ))}
-                            {GROUP_KEYS[group].map((key) => {
-                                const tip = t(TIP_KEYS[key])
-                                const rowLabel = t(ROW_KEYS[key])
-                                const active = groupValue(props.flags, group, key)
-                                return (
-                                    <Tooltip key={key} label={tip} side="top" maxWidth={TIP_MAX_WIDTH} portal>
-                                        <span>
-                                            <Pill
-                                                active={active}
-                                                aria-pressed={active}
-                                                disabled={props.disabled}
-                                                onClick={() => { props.onCell(key) }}
-                                            >
-                                                {rowLabel}
-                                            </Pill>
-                                        </span>
-                                    </Tooltip>
-                                )
-                            })}
+                            {rows.map((row) => (
+                                <Tooltip key={row.id} label={t(row.tip)} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                                    <span>
+                                        <Pill
+                                            active={row.checked}
+                                            aria-pressed={row.checked}
+                                            disabled={row.disabled}
+                                            onClick={row.onToggle}
+                                        >
+                                            {t(row.label)}
+                                        </Pill>
+                                    </span>
+                                </Tooltip>
+                            ))}
                         </div>
                     ) : (
                         <>
@@ -116,32 +113,29 @@ export function GroupTile(props: {
                                             </button>
                                         </Tooltip>
                                     </span>
-                                    <Switch checked disabled label={`${t(row.label)} ${title}`} onChange={() => { /* 恒定展示行，无配置可写 */ }} />
+                                    <Switch checked disabled label={`${t(row.label)} ${props.title}`} onChange={() => { /* 恒定展示行，无配置可写 */ }} />
                                 </div>
                             ))}
-                            {GROUP_KEYS[group].map((key) => {
-                                const tip = t(TIP_KEYS[key])
-                                return (
-                                    <div key={key} className="dsh-mf-itemRow">
-                                        <span className="dsh-mf-itemLabelGroup">
-                                            <span className="dsh-mf-itemLabel">{t(ROW_KEYS[key])}</span>
-                                            {/* 设置项释义用宿主 Tooltip 原语（锚点形态照官方 settings-form .helpButton）。portal 必需：
-                                                瓦片 overflow:hidden 加 box-shadow 构成的层叠上下文会把气泡裁掉 */}
-                                            <Tooltip label={tip} side="top" maxWidth={TIP_MAX_WIDTH} portal>
-                                                <button type="button" className="dsh-mf-help" aria-label={tip}>
-                                                    <IconInfoOutlineRegular size={12} />
-                                                </button>
-                                            </Tooltip>
-                                        </span>
-                                        <Switch
-                                            checked={groupValue(props.flags, group, key)}
-                                            disabled={props.disabled}
-                                            label={`${t(ROW_KEYS[key])} ${title}`}
-                                            onChange={() => { props.onCell(key) }}
-                                        />
-                                    </div>
-                                )
-                            })}
+                            {rows.map((row) => (
+                                <div key={row.id} className="dsh-mf-itemRow">
+                                    <span className="dsh-mf-itemLabelGroup">
+                                        <span className="dsh-mf-itemLabel">{t(row.label)}</span>
+                                        {/* 设置项释义用宿主 Tooltip 原语（锚点形态照官方 settings-form .helpButton）。portal 必需：
+                                            瓦片 overflow:hidden 加 box-shadow 构成的层叠上下文会把气泡裁掉 */}
+                                        <Tooltip label={t(row.tip)} side="top" maxWidth={TIP_MAX_WIDTH} portal>
+                                            <button type="button" className="dsh-mf-help" aria-label={t(row.tip)}>
+                                                <IconInfoOutlineRegular size={12} />
+                                            </button>
+                                        </Tooltip>
+                                    </span>
+                                    <Switch
+                                        checked={row.checked}
+                                        disabled={row.disabled}
+                                        label={`${t(row.label)} ${props.title}`}
+                                        onChange={row.onToggle}
+                                    />
+                                </div>
+                            ))}
                         </>
                     )}
                 </div>
@@ -150,13 +144,80 @@ export function GroupTile(props: {
     )
 }
 
-/** 「排除提供方」瓦片：动态集合而非布尔矩阵（无整组开关语义）；summary 尾区为「N 命中」徽标，
- * 命中 = 该 id 存在于宿主 llm-pi-ai 的 user 层（0 命中也常驻、不得画成错误色）。
- * 只能手填——可先写尚未创建的提供方 id，待其创建后即生效。 */
+export function GroupTile(props: {
+    group: Group
+    t: TileTranslate
+    flags: Flags
+    open: boolean
+    disabled: boolean
+    onToggle: () => void
+    onMaster: () => void
+    onCell: (key: RowKey) => void
+}) {
+    const { group, t, flags } = props
+    return (
+        <RowMatrix
+            groupId={group}
+            t={t}
+            title={t(COLUMN_KEYS[group])}
+            hint={t(HINT_KEYS[group])}
+            master={masterValue(flags, group)}
+            disabled={props.disabled}
+            open={props.open}
+            lockedRows={[]}
+            rows={GROUP_KEYS[group].map((key) => ({
+                id: key,
+                label: ROW_KEYS[key],
+                tip: TIP_KEYS[key],
+                checked: groupValue(flags, group, key),
+                disabled: props.disabled,
+                onToggle: () => { props.onCell(key) },
+            }))}
+            onToggle={props.onToggle}
+            onMaster={props.onMaster}
+        />
+    )
+}
+
+/** 点一下立即生效：无草稿、不受 writable 门控 */
+export function LocalTile(props: {
+    t: TileTranslate
+    flags: LocalFlags
+    open: boolean
+    onToggle: () => void
+    onMaster: () => void
+    onCell: (id: LocalFlagId) => void
+}) {
+    const { t, flags } = props
+    return (
+        <RowMatrix
+            groupId="local"
+            t={t}
+            title={t('colLocal')}
+            hint={t('hintLocal')}
+            master={LOCAL_FLAG_IDS.every((id) => flags[id])}
+            disabled={false}
+            open={props.open}
+            lockedRows={[{ label: 'rowShowInPluginManager', tip: 'tipShowInPluginManager' }]}
+            rows={LOCAL_FLAG_IDS.map((id) => ({
+                id,
+                label: LOCAL_ROW_KEYS[id],
+                tip: LOCAL_TIP_KEYS[id],
+                checked: flags[id],
+                disabled: false,
+                onToggle: () => { props.onCell(id) },
+            }))}
+            onToggle={props.onToggle}
+            onMaster={props.onMaster}
+        />
+    )
+}
+
+/** 「排除提供方」瓦片：动态集合而非布尔矩阵；summary 尾区为「N 命中」徽标，命中即该 id 存在于宿主 user 层。
+ * 可先写尚未创建的提供方 id，待其创建后即生效。 */
 export function ExcludesTile(props: {
     t: TileTranslate
     flags: Flags
-    /** 命中的排除项（由卡片以宿主 user 层提供方 id 求交得出） */
     hits: ReadonlySet<string>
     open: boolean
     disabled: boolean
@@ -168,14 +229,12 @@ export function ExcludesTile(props: {
     const uid = useId()
     const id = `${uid}-excludes`
     const title = t('colExcludes')
-    // 输入文本与校验反馈是纯 UI 暂态（不属于配置），故留在瓦片本地
     const [text, setText] = useState('')
     const [error, setError] = useState<CardKey | undefined>()
     const errorId = useId()
     const inputRef = useRef<HTMLInputElement>(null)
     const commit = () => {
         const value = text.trim()
-        // 空输入静默忽略（无事发生即可，不必报错）
         if (value === '') {
             setError(undefined)
             return
@@ -191,7 +250,6 @@ export function ExcludesTile(props: {
         props.onAdd(value)
         setText('')
         setError(undefined)
-        // 焦点留在输入框：连续录入多项时不必每次回点
         inputRef.current?.focus()
     }
     return (

@@ -170,9 +170,9 @@ export const en: Record<CardKey, string> = {
     chipFollowOff: 'Follow',
     chipFollowOffTitle: 'Click to turn on: subagents will follow the parent agent\'s model and reasoning level',
     chipFollowFail: 'Save failed; the change did not take effect',
-    // 「UI 与行为」组：七个可见性开关 + 一条恒定展示行（插件管理，不绑配置、不可关闭）
-    colBehavior: 'UI & behavior',
-    hintBehavior: 'Controls this plugin\'s UI and behavior.',
+    // 「本机设置」瓦片
+    colLocal: 'Local settings',
+    hintLocal: 'These settings live in this browser only — they take effect instantly and do not travel to other machines.',
     rowShowInModels: 'Show in models',
     rowShowInBuiltinPlugins: 'Show in built-in plugins',
     rowShowInComposer: 'Show in toolbar',
@@ -181,6 +181,8 @@ export const en: Record<CardKey, string> = {
     rowBackToChat: 'Back to chat',
     rowShowInFloat: 'Show in floating buttons',
     rowClassicSetting: 'Classic settings',
+    rowShowTitleIndicator: 'Title indicator',
+    rowRememberFloatPosition: 'Remember button position',
     tipShowInModels: 'Shows this plugin\'s settings card at the bottom of the Models settings page.',
     tipShowInBuiltinPlugins: 'Shows this plugin\'s settings tab under Settings → Built-in plugins.',
     tipShowInComposer: 'Shows the "Model tuning" entry on the chat composer toolbar; clicking it opens the full settings.',
@@ -189,6 +191,8 @@ export const en: Record<CardKey, string> = {
     tipBackToChat: 'Shows a floating "Back to chat" button at the left edge in the content area; clicking it returns to the conversation in progress.',
     tipShowInFloat: 'Shows the card entry in the floating button group on the left of the content area.',
     tipClassicSetting: 'Turn this off to keep the host account menu (feedback and sign-in) in the sidebar.',
+    tipShowTitleIndicator: 'Prefixes the browser tab title with a status emoji (👀 idle, ⏳ running, ❓ waiting for answer, …).',
+    tipRememberFloatPosition: 'Remembers where you dragged the floating button group and which edge it snapped to; turn this off to always start at the left edge, centered.',
     // 模型优化设置卡片：输入框 chip 与悬浮按钮共用同一句提示
     tipOpenSettingCard: 'Open the Model tuning settings card',
     // 「返回对话」悬浮按钮自身的文案

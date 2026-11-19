@@ -11,6 +11,7 @@ import { run as runFix } from '@test/fix.test'
 import { run as runFloatingSnap } from '@test/floating-snap.test'
 import { run as runGuard } from '@test/guard.test'
 import { run as runLookup } from '@test/lookup.test'
+import { run as runLocalSettings } from '@test/local-settings.test'
 import { run as runMemory } from '@test/memory.test'
 import { run as runMigrate } from '@test/migrate.test'
 import { run as runUpgrade } from '@test/upgrade.test'
@@ -47,6 +48,8 @@ section('guard.test.ts')
 runGuard()
 section('lookup.test.ts')
 runLookup()
+section('local-settings.test.ts')
+runLocalSettings()
 section('memory.test.ts')
 await runMemory()
 section('migrate.test.ts')

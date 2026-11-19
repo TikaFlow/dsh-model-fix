@@ -169,9 +169,9 @@ export const zh: Record<CardKey, string> = {
     chipFollowOff: '跟随',
     chipFollowOffTitle: '点击开启：子智能体将跟随父智能体的模型与推理级别',
     chipFollowFail: '保存失败，操作未生效',
-    // 「UI 与行为」组：七个可见性开关 + 一条恒定展示行（插件管理，不绑配置、不可关闭）
-    colBehavior: 'UI 与行为',
-    hintBehavior: '控制本插件的 UI 与行为。',
+    // 「本机设置」瓦片
+    colLocal: '本机设置',
+    hintLocal: '这些设置只存在当前浏览器里，点一下立即生效、换电脑不跟随。',
     rowShowInModels: '显示在模型',
     rowShowInBuiltinPlugins: '显示在内置插件',
     rowShowInComposer: '显示在工具栏',
@@ -180,6 +180,8 @@ export const zh: Record<CardKey, string> = {
     rowBackToChat: '返回对话',
     rowShowInFloat: '显示在悬浮按钮',
     rowClassicSetting: '经典设置',
+    rowShowTitleIndicator: '标题指示器',
+    rowRememberFloatPosition: '记住悬浮按钮位置',
     tipShowInModels: '在「设置 → 模型」页底部显示本插件的配置卡片。',
     tipShowInBuiltinPlugins: '在「设置 → 内置插件」里显示本插件的配置选项卡。',
     tipShowInComposer: '在聊天输入框的工具栏上显示「模型优化」入口，点击即打开完整配置。',
@@ -188,6 +190,8 @@ export const zh: Record<CardKey, string> = {
     tipBackToChat: '在内容区左侧显示一枚「返回对话」悬浮按钮，点击即回到当前正在进行的对话。',
     tipShowInFloat: '在内容区左侧的悬浮按钮组中显示卡片入口。',
     tipClassicSetting: '若需要意见反馈、登录，关闭即可。',
+    tipShowTitleIndicator: '在浏览器标签页标题前叠一枚状态 emoji（👀 空闲、⏳ 进行中、❓ 等待回答等）。',
+    tipRememberFloatPosition: '记住悬浮按钮组拖到的位置与吸附边，下次打开仍贴在那儿；关闭后拖拽不回位、每次都在左侧居中。',
     // 模型优化设置卡片：输入框 chip 与悬浮按钮共用同一句提示
     tipOpenSettingCard: '打开模型优化设置卡片',
     // 「返回对话」悬浮按钮自身的文案

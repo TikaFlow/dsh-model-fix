@@ -7,6 +7,7 @@
 - **失效清理归 Node 半、按宿主全量模型列表剪枝，`fix` 不参与记忆生命周期**。缺席即删除、段删空折叠；**读不到 ≠ 不存在**（某 provider 读失败整段保留）。档位是否仍被公告不参与剪枝。
 - **清理写回前要求当前版本快照段已存在**：缺失时整轮跳过（settings 的 path 写入会就地创建缺失父键，只写 `efforts` 会落下残缺的当前版本快照，读取侧随后按默认补齐并忽略旧版本 ⇒ 整份配置被静默重置）。
 - **`rememberEfforts` 关闭只停「保存新的」，恢复照常**；清空由卡片在开关转关时立即确认（经 settings scope 直写，清空失败显式报错）。
+- **`rememberEfforts` / `defaultHigh` 存 localStorage（不进快照），`efforts` 数据仍在快照里** ⇒ 数据随 settings、策略随浏览器：换机器会出现「有记忆但策略回默认」。
 - **`defaultHigh` 三条护栏**：记忆优先、不覆盖既有级别、不干预同模型改级别（含手动选「provider default」）。
 - **浏览器半记忆写入三条护栏**（`rememberEffort`）：ConfigForm 未 ready 时基底不可信（`efforts` 回落 `{}`，整段 set 等于清空全部记忆）⇒ 放弃本次保存；ready 后带 `expectedRevision` 围栏重试；非冲突错误静默放过。
 

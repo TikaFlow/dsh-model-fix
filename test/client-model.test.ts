@@ -28,7 +28,7 @@ import {
 } from '@/client/model'
 import type { Flags } from '@/client/model'
 import { EFFORT_LEVELS } from '@/shared/constants'
-import { BEHAVIOR_KEYS } from '@/shared/config-schema'
+import { USER_EXPERIENCE_KEYS } from '@/shared/config-schema'
 
 /** 五组全开的配置（总控与整组置位用例的基准，无排除项，无记忆，用户体验与 UI 可见性各项全开） */
 const ALL_ON: Flags = {
@@ -184,8 +184,10 @@ export function run(): void {
     // 带 forgetRemoved false 的往返一致（关掉「忘记已删除模型」的存取回路）
     const WITHOUT_FORGET: Flags = { ...ALL_ON, userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: false, followParent: false, selfTune: false, localizeEfforts: true, showOriginalEfforts: true, looseMatch: true, safeFill: false, alwaysReasoning: false } }
     check('snapshot -> decode 往返含 forgetRemoved false', stable(decodeSection({ [VERSION_KEY]: toStored(WITHOUT_FORGET) })) === stable(WITHOUT_FORGET))
-    // ---------- 瓦片顺序：覆盖全部布尔组与「排除提供方」，无重复无遗漏（布尔组清单由它派生） ----------
-    check('TILE_ORDER 覆盖全部配置组与排除提供方', stable([...TILE_ORDER].sort()) === stable([...Object.keys(GROUP_KEYS), 'excludes'].sort()))
+    // ---------- 瓦片顺序：覆盖全部走后端的布尔组 + 排除提供方 + 本机设置，无重复无遗漏 ----------
+    check('TILE_ORDER 覆盖全部配置组与排除提供方与本机瓦片',
+        stable([...TILE_ORDER].sort()) === stable([...Object.keys(GROUP_KEYS), 'excludes', 'local'].sort()),
+        TILE_ORDER)
     // ---------- 组总控显示：全开才开，部分选中显示关（判据 every，与验证弹层分组「全选」同口径） ----------
     check('master 全开为开', masterValue(ALL_ON, 'autoFill') === true)
     check('master 全关为关', masterValue(DEFAULT_FLAGS, 'allowUpdate') === false)
@@ -228,14 +230,18 @@ export function run(): void {
         stable(applyGroup(DEFAULT_FLAGS, 'compat', false)) === stable({ ...DEFAULT_FLAGS, compat: { disableDeveloper: false, disableStore: false } }),
         applyGroup(DEFAULT_FLAGS, 'compat', false),
     )
-    // userExperience 组同样走总控/单格派生路径（多行组：总控整组同置）
+    // 整组同置只覆盖八项行键，rememberEfforts / defaultHigh 原样保留（它们不在 GROUP_KEYS 里）
     check(
-        'applyGroup userExperience 整组置关',
-        stable(applyGroup(DEFAULT_FLAGS, 'userExperience', false)) === stable({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: false, defaultHigh: false, forgetRemoved: false, followParent: false, selfTune: false, localizeEfforts: false, showOriginalEfforts: false, looseMatch: false, safeFill: false, alwaysReasoning: false } }),
+        'applyGroup userExperience 整组置关只动八项',
+        stable(applyGroup(DEFAULT_FLAGS, 'userExperience', false)) === stable({
+            ...DEFAULT_FLAGS,
+            userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: false, followParent: false, selfTune: false, localizeEfforts: false, showOriginalEfforts: false, looseMatch: false, safeFill: false, alwaysReasoning: false },
+        }),
+        applyGroup(DEFAULT_FLAGS, 'userExperience', false),
     )
     check(
-        'applyGroup userExperience 整组置开',
-        stable(applyGroup({ ...ALL_ON, userExperience: { rememberEfforts: false, defaultHigh: false, forgetRemoved: false, followParent: false, selfTune: false, localizeEfforts: false, showOriginalEfforts: false, looseMatch: false, safeFill: false, alwaysReasoning: false } }, 'userExperience', true)) === stable(ALL_ON),
+        'applyGroup userExperience 整组置开只动八项',
+        stable(applyGroup({ ...ALL_ON, userExperience: { ...ALL_ON.userExperience, forgetRemoved: false, followParent: false, selfTune: false, localizeEfforts: false, showOriginalEfforts: false, looseMatch: false, safeFill: false, alwaysReasoning: false } }, 'userExperience', true)) === stable(ALL_ON),
     )
     check('applyGroup 不改入参', DEFAULT_FLAGS.autoFill.reasoning === true && DEFAULT_FLAGS.compat.disableDeveloper === true)
     // ---------- 单格翻转不改其他格、不改入参 ----------
@@ -243,7 +249,7 @@ export function run(): void {
     check('toggleCell 仅翻转目标格', flipped.allowUpdate.context === true && flipped.allowUpdate.reasoning === false && flipped.autoFill === DEFAULT_FLAGS.autoFill)
     check('toggleCell 不改入参', DEFAULT_FLAGS.allowUpdate.context === false)
     check('toggleCell compat 仅翻转该行', stable(toggleCell(DEFAULT_FLAGS, 'compat', 'disableDeveloper').compat) === stable({ disableDeveloper: false, disableStore: true }))
-    check('toggleCell userExperience 仅翻转 defaultHigh 不动其余行', stable(toggleCell(DEFAULT_FLAGS, 'userExperience', 'defaultHigh').userExperience) === stable({ rememberEfforts: true, defaultHigh: false, forgetRemoved: true, followParent: false, selfTune: false, localizeEfforts: true, showOriginalEfforts: true, looseMatch: false, safeFill: false, alwaysReasoning: false }))
+    check('toggleCell userExperience 仅翻转 followParent 不动其余行', stable(toggleCell(DEFAULT_FLAGS, 'userExperience', 'followParent').userExperience) === stable({ rememberEfforts: true, defaultHigh: true, forgetRemoved: true, followParent: true, selfTune: false, localizeEfforts: true, showOriginalEfforts: true, looseMatch: false, safeFill: false, alwaysReasoning: false }))
     check('toggleCell userExperience 仅翻转 forgetRemoved 不动其余行', stable(toggleCell(DEFAULT_FLAGS, 'userExperience', 'forgetRemoved').userExperience) === stable({ rememberEfforts: true, defaultHigh: true, forgetRemoved: false, followParent: false, selfTune: false, localizeEfforts: true, showOriginalEfforts: true, looseMatch: false, safeFill: false, alwaysReasoning: false }))
     check('groupValue 按组取行值', groupValue(DEFAULT_FLAGS, 'compat', 'disableDeveloper') === true && groupValue(DEFAULT_FLAGS, 'allowUpdate', 'image') === false)
     // ---------- 排除项 id 合法性（与宿主 provider route id 同一规则） ----------
@@ -285,10 +291,11 @@ export function run(): void {
     // 顺序敏感是有意取舍：草稿只由已存值经增删派生，故不存在"换顺序即脏"的误报路径
     check('isDirty 排除列表换序视为脏', isDirty({ ...withTwo, excludes: ['lab-7', 'acme-gateway'] }, withTwo) === true)
     // userExperience 是用户配置（区别于 efforts 记忆）：改动要标脏，等值不脏
-    check('isDirty userExperience rememberEfforts 不同即为脏', isDirty({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: false, defaultHigh: true, forgetRemoved: true, followParent: false, selfTune: false, localizeEfforts: true, showOriginalEfforts: true, looseMatch: false, safeFill: false, alwaysReasoning: false } }, DEFAULT_FLAGS) === true)
-    check('isDirty userExperience forgetRemoved 不同即为脏', isDirty({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: true, defaultHigh: true, forgetRemoved: false, followParent: false, selfTune: false, localizeEfforts: true, showOriginalEfforts: true, looseMatch: false, safeFill: false, alwaysReasoning: false } }, DEFAULT_FLAGS) === true)
-    check('isDirty userExperience defaultHigh 不同即为脏', isDirty({ ...DEFAULT_FLAGS, userExperience: { rememberEfforts: true, defaultHigh: false, forgetRemoved: true, followParent: false, selfTune: false, localizeEfforts: true, showOriginalEfforts: true, looseMatch: false, safeFill: false, alwaysReasoning: false } }, DEFAULT_FLAGS) === true)
+    check('isDirty userExperience forgetRemoved 不同即为脏', isDirty({ ...DEFAULT_FLAGS, userExperience: { ...DEFAULT_FLAGS.userExperience, forgetRemoved: false } }, DEFAULT_FLAGS) === true)
     check('isDirty userExperience 等值不为脏', isDirty({ ...DEFAULT_FLAGS, userExperience: { ...DEFAULT_FLAGS.userExperience } }, DEFAULT_FLAGS) === false)
+    // 不在 GROUP_KEYS 里的两项不参与脏检测
+    check('isDirty 不看 rememberEfforts', isDirty({ ...DEFAULT_FLAGS, userExperience: { ...DEFAULT_FLAGS.userExperience, rememberEfforts: false } }, DEFAULT_FLAGS) === false)
+    check('isDirty 不看 defaultHigh', isDirty({ ...DEFAULT_FLAGS, userExperience: { ...DEFAULT_FLAGS.userExperience, defaultHigh: !DEFAULT_FLAGS.userExperience.defaultHigh } }, DEFAULT_FLAGS) === false)
     // efforts 的变化不标脏（运行时记忆，非用户配置，不应触发"未保存更改"）
     check('isDirty efforts 变化不标脏', isDirty({ ...DEFAULT_FLAGS, efforts: { a: { m: 'high' } } }, DEFAULT_FLAGS) === false)
     // followParent 是「用户体验」组的一行，随 GROUPS 遍历一并比较
@@ -407,18 +414,17 @@ export function run(): void {
     const followOff: Flags = { ...ALL_ON, userExperience: { ...ALL_ON.userExperience, followParent: false } }
     check('followingActive followParent=false：宿主未开启 → 不生效', !followingActive(followOff, false))
     check('followingActive followParent=false：宿主已开启 → 不生效', !followingActive(followOff, true))
-    // behavior 组七个开关各决定一个 UI 部件的在不在，取值与其它组同一函数
-    check('groupValue 默认配置 behavior 七项全开', BEHAVIOR_KEYS.every((key) => groupValue(DEFAULT_FLAGS, 'behavior', key)))
-    check('groupValue behavior 显式 false → 关', !groupValue({ ...ALL_ON, behavior: { ...ALL_ON.behavior, showInModels: false } }, 'behavior', 'showInModels'))
-    check('groupValue behavior 关一项不影响其余六项', !groupValue({ ...ALL_ON, behavior: { ...ALL_ON.behavior, showInComposer: false } }, 'behavior', 'showInComposer')
-        && ['showInModels', 'showInBuiltinPlugins', 'showInFloat', 'showFollowStatus', 'backToChat', 'classicSetting'].every((key) => groupValue({ ...ALL_ON, behavior: { ...ALL_ON.behavior, showInComposer: false } }, 'behavior', key as (typeof BEHAVIOR_KEYS)[number])))
-    // 「返回对话」悬浮按钮的开关：显式 false 即销毁按钮
-    check('groupValue behavior backToChat 显式 false → 关', !groupValue({ ...ALL_ON, behavior: { ...ALL_ON.behavior, backToChat: false } }, 'behavior', 'backToChat'))
-    // 七个开关是 behavior 组的全部行键，故组总控与脏检测都覆盖到它们
-    check('behavior 组行键为七个可见性开关', stable([...GROUP_KEYS.behavior]) === stable([...BEHAVIOR_KEYS]))
-    check('isDirty 覆盖 behavior 翻转', isDirty(
+    check('behavior 不是编辑面里的组', !('behavior' in GROUP_KEYS))
+    check('TILE_ORDER 含本机瓦片、不含 behavior', !TILE_ORDER.includes('behavior' as never) && TILE_ORDER.includes('local'))
+    check('isDirty 不看 behavior（快照里翻转不改脏）', !isDirty(
         { ...ALL_ON, behavior: { ...ALL_ON.behavior, showInModels: false } },
         ALL_ON,
     ))
-    check('isDirty 不受 behavior 之外的组影响（behavior 相同时不脏）', !isDirty(ALL_ON, ALL_ON))
+    check('userExperience 行键为八项（不含 rememberEfforts / defaultHigh）', stable([...GROUP_KEYS.userExperience].sort()) === stable([
+        'alwaysReasoning', 'followParent', 'forgetRemoved', 'localizeEfforts', 'looseMatch', 'safeFill', 'selfTune', 'showOriginalEfforts',
+    ]))
+    // 两表之和恒等于 schema 全集：任一端新增键时这里立刻炸
+    check('userExperience 行键 + 迁移走的两项 = schema 全集',
+        stable([...GROUP_KEYS.userExperience, 'rememberEfforts', 'defaultHigh'].sort()) === stable([...USER_EXPERIENCE_KEYS].sort()))
+    check('isDirty 同值时恒不脏', !isDirty(ALL_ON, ALL_ON))
 }

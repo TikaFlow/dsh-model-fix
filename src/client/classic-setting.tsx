@@ -13,10 +13,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // primitives 由宿主模块表注入
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
-import { groupValue } from '@/client/model'
-import type { Flags } from '@/client/model'
 import { CARD_NS } from '@/client/locale-keys'
-import type { DecodedScope } from '@/client/scope'
+import type { LocalSettings } from '@/client/local-settings'
 import { PLUGIN_NAME } from '@/shared/constants'
 
 const STYLE_ID = 'dsh-model-fix-classic-setting-css'
@@ -73,17 +71,17 @@ function ClassicSettingButton({ wide, settingsOpen, settingsShortcut, openSettin
 }
 
 /**
- * 装上经典设置入口：开 `behavior.classicSetting` 即注册（遮蔽账号入口）、关即注销。
+ * 装上经典设置入口：开「经典设置」本机开关即注册（遮蔽账号入口）、关即注销。
  * 账本里没有别的占位者时不注册——那种宿主本就显示自己的回退按钮。
  */
-export function applyClassicSetting(ctx: ClientContext, scope: DecodedScope<Flags>): void {
+export function applyClassicSetting(ctx: ClientContext, local: LocalSettings): void {
     ctx.slots.inject('settings.launcher', () => {
         let mounted: (() => void) | undefined
         /** 账本里是否有本插件之外的占位者（宿主账号入口） */
         const hasOther = (): boolean => ctx.slots.entries('settings.launcher')
             .some(entry => entry.registrant !== PLUGIN_NAME)
         const reconcile = (): void => {
-            const wanted = groupValue(scope.getSnapshot().value, 'behavior', 'classicSetting') && hasOther()
+            const wanted = local.getSnapshot().classicSetting && hasOther()
             if (wanted && mounted === undefined) {
                 ensureStyles()
                 mounted = ctx.slots.register({
@@ -97,11 +95,11 @@ export function applyClassicSetting(ctx: ClientContext, scope: DecodedScope<Flag
             }
         }
         // 开关与账本变化都重算（两者注册先后不可控）
-        const offScope = scope.subscribe(reconcile)
+        const offLocal = local.subscribe(reconcile)
         const offLedger = ctx.slots.subscribe('settings.launcher', reconcile)
         reconcile()
         return () => {
-            offScope()
+            offLocal()
             offLedger()
             mounted?.()
             mounted = undefined
