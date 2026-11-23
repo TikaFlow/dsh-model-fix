@@ -78,13 +78,13 @@ UI界面还提供了一些额外功能：
 在 DSH 中，点击「插件」-->「添加插件」，复制以下链接到输入框，完成安装并立即启用：
 
 ```txt
-https://github.com/TikaFlow/dsh-model-fix/releases/download/v0.51.1/dsh-model-fix.tgz
+https://github.com/TikaFlow/dsh-model-fix/releases/download/v0.51.3/dsh-model-fix.tgz
 ```
 
 或在命令行执行：
 
 ```bash
-dsh plugin --profile web add https://github.com/TikaFlow/dsh-model-fix/releases/download/v0.51.1/dsh-model-fix.tgz
+dsh plugin --profile web add https://github.com/TikaFlow/dsh-model-fix/releases/download/v0.51.3/dsh-model-fix.tgz
 ```
 
 ### 方式三：通过 Git 安装（不推荐）
@@ -99,7 +99,7 @@ dsh plugin --profile web add github:TikaFlow/dsh-model-fix
 
 DSH 正在快速迭代，本插件所兼容的 DSH 宿主版本追随较新版本。若插件功能异常，请检查 DSH 版本是否满足插件依赖版本。
 
-支持范围：DSH `0.2.1-rc.2` ~ `0.2.2-rc.5`
+支持范围：DSH `0.2.1-rc.2` ~ `0.2.3-alpha.2`
 
 ## 使用说明
 
