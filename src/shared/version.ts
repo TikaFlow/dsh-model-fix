@@ -22,6 +22,15 @@ export function hostVersionNow(ctx: Context): string | undefined {
     }
 }
 
+/** 浏览器半读宿主版本号：缺席、类型不对、读不到都返回 undefined。 */
+export function clientVersionNow(): string | undefined {
+    if (typeof window === 'undefined') return undefined
+    const version = (window as unknown as {
+        __DSH_BOOT__?: { release?: { version?: unknown } }
+    }).__DSH_BOOT__?.release?.version
+    return typeof version === 'string' && version.length > 0 ? version : undefined
+}
+
 const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-(alpha|rc)\.(\d+))?$/
 
 const STAGE_RANK: Readonly<Record<string, number>> = { alpha: 0, rc: 1 }
@@ -58,4 +67,10 @@ export function compareHostVersion(a: string, b: string): number | undefined {
         || left.patch - right.patch
         || left.stageRank - right.stageRank
         || left.revision - right.revision
+}
+
+/** 宿主版本是否已达某起点；版本未知按未达处理 */
+export function versionSince(version: string | undefined, since: string): boolean {
+    if (version === undefined) return false
+    return (compareHostVersion(version, since) ?? -1) >= 0
 }

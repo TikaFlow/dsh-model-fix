@@ -14,6 +14,7 @@ import { createFloatingButton } from '@/client/floating-button'
 import type { FloatingButton } from '@/client/floating-button'
 import { PLUGIN_NAME } from '@/shared/constants'
 import { findChatTab, inspect, readStoredViewId, type BackTarget, IDLE_VIEW } from '@/client/session-view'
+import { sessionStatusInject } from '@/client/session-status-inject'
 
 const CHAT_VIEW_ID = 'chat'
 
@@ -106,7 +107,7 @@ export function applyBackToChat(ctx: ClientContext, local: LocalSettings): Float
     ctx.inject(['uiWorkspace'], (child) => {
         openSession = (sessionId) => { (child.get('uiWorkspace') as UiWorkspaceNav).openSession(sessionId) }
     })
-    ctx.inject(['uiSession', 'sessions'], (child) => {
+    ctx.inject(sessionStatusInject(['uiSession', 'sessions']), (child) => {
         child.effect(function* () {
             uiSession = child.get('uiSession') as UiSession
             sessions = child.get('sessions') as ISessions

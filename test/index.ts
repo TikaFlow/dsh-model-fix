@@ -24,6 +24,7 @@ import { run as runRpcCarrier } from '@test/rpc-carrier.test'
 import { run as runRpcRoute } from '@test/rpc-route.test'
 import { run as runRpc } from '@test/rpc.test'
 import { run as runSelfTune } from '@test/self-tune.test'
+import { run as runSessionStatusInject } from '@test/session-status-inject.test'
 import { run as runSubagent } from '@test/subagent.test'
 import { run as runVerify } from '@test/verify.test'
 import { section, summary } from '@test/helper'
@@ -76,6 +77,8 @@ section('rpc.test.ts')
 await runRpc()
 section('self-tune.test.ts')
 await runSelfTune()
+section('session-status-inject.test.ts')
+runSessionStatusInject()
 section('fix.test.ts')
 await runFix()
 section('floating-snap.test.ts')

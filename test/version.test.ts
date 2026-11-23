@@ -1,5 +1,5 @@
 // shared/version.ts 纯函数测试
-import { compareHostVersion, parseHostVersion } from '@/shared/version'
+import { compareHostVersion, parseHostVersion, versionSince } from '@/shared/version'
 import { check, stable } from '@test/helper'
 
 export function run(): void {
@@ -17,4 +17,11 @@ export function run(): void {
     check('compare 相等为 0', compareHostVersion('0.2.1-rc.2', '0.2.1-rc.2') === 0)
     check('compare major 优先', (compareHostVersion('0.9.9', '1.0.0-alpha.1') ?? 0) < 0)
     check('compare 任一侧非法为 undefined', compareHostVersion('0.2.1', 'x') === undefined)
+
+    check('versionSince 达标与未达',
+        versionSince('0.2.3-alpha.1', '0.2.3-alpha.1')
+        && versionSince('0.2.3-alpha.2', '0.2.3-alpha.1')
+        && versionSince('0.2.3', '0.2.3-alpha.1')
+        && !versionSince('0.2.2-rc.5', '0.2.3-alpha.1'))
+    check('versionSince 未知按未达', !versionSince(undefined, '0.2.3-alpha.1') && !versionSince('x', '0.2.3-alpha.1'))
 }

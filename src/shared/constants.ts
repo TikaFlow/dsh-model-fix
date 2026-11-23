@@ -51,6 +51,9 @@ export const ENDPOINT_CATALOG_FRESHNESS = 'catalogFreshness'
 /** 宿主自此版本起 `agent/request` 禁止修改路由，必须在 `agent/pre-step` 中 `agent.model.select()` */
 export const HOST_MODEL_SELECT_SINCE = '0.2.2-alpha.2'
 
+/** 宿主自此版本起会话状态拆成独立服务 uiSession.sessionStatus，读取它的 fiber 必须在 inject 中声明 */
+export const HOST_SESSION_STATUS_SERVICE_SINCE = '0.2.3-alpha.1'
+
 /** settings 写回冲突与语言上报共用的重试次数（跨半共享）。值变更须同步两端 */
 export const MAX_ATTEMPTS = 3
 

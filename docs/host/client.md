@@ -64,6 +64,7 @@
 
 - `ctx.uiSession`（类 `UiSession`）：缺席则静默 PENDING（按钮按空闲显示）。`adapter.current.props.sessionId` 即**当前主视图会话**；子智能体被打开时 mainView 落到子会话上 ⇒ 主视图会话可以是子智能体。
 - `sessionStatus`：`Map<SessionId, { running; pendingInteraction; completionUnread }>`。宿主工作区会话行的状态判定（`ui-workspace/src/client/rows/Rows.tsx` 的 `sessionStatuses`，**未导出**）依次为 pendingInteraction → `warning`、running → `ongoing`、子智能体在跑 → `ongoing`、`completionUnread` → `done`、其余 `idle`；本仓本地复刻同一套判定，状态文案沿用 `ui-workspace/src/client/locales.ts` 的 `status.*` 键。
+- **状态源分版**（≥ `0.2.3-alpha.1`）：`sessionStatus` 拆成独立服务 `uiSession.sessionStatus`，读取它的 fiber 须在 inject 声明该名（否则抛 `cannot get property ... without inject`）；旧宿主是 `UiSession` 字段，声明该名会永久 PENDING。本仓按宿主版本二选一构造 inject（`src/client/session-status-inject.ts`），读取表达式两版相同。
 - `completionUnread` 只给**非主视图**会话置（`isMain` = `retainedBy.mainView > 0`）。
 - 层级事实：`origin === 'subagent'` 才标记子智能体（**fork 子会话也带 `parentId` 但 origin 不是它**）；`parentId` 只到**直接父**（list 只透传 header 一层），父目录未物化时 retain 回退分支不写它 ⇒ 该窗口内按当前会话显示。工作区不渲染子智能体行 ⇒ 永显示主视图会话行。会话标题取 `byId[id].displayTitle`（持久化标题 → descriptor label → 会话 id）。
 - 子智能体目录投影 `subagentCatalog` 只在 `@deepseek-ai/dsh-subagent` 的类型面声明（该包会把 Node 侧 `ctx.sessions` 增补带进来），本仓按契约复制最小面。

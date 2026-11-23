@@ -7,6 +7,7 @@ import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { CardKey } from '@/client/locale-keys'
 import type { LocalSettings } from '@/client/local-settings'
 import { IDLE_VIEW, inspect, type SessionView } from '@/client/session-view'
+import { sessionStatusInject } from '@/client/session-status-inject'
 import { PLUGIN_NAME } from '@/shared/constants'
 
 const STATUS_EMOJI: Partial<Record<CardKey, string>> = {
@@ -71,7 +72,7 @@ export function applyTitleIndicator(ctx: ClientContext, local: LocalSettings): v
         }
     }, `${PLUGIN_NAME}: 浏览器标题前缀 observer`)
 
-    ctx.inject(['uiSession', 'sessions'], (child) => {
+    ctx.inject(sessionStatusInject(['uiSession', 'sessions']), (child) => {
         child.effect(function* () {
             uiSession = child.get('uiSession') as UiSession
             sessions = child.get('sessions') as ISessions

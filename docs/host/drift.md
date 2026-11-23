@@ -48,6 +48,10 @@
 
 - `tools.register` definition 形状与 `systemPrompt.section` 形状；`selectModel` 失败仍抛 `RemoteError`；`resolveModelInfo` 返回的 `reasoning` 形状未变。
 
+### 会话状态源分版
+
+- 复核 `sessionStatus` 的提供形态与服务名是否变化（契约见 `client.md`）；变动则同步 `src/client/session-status-inject.ts`。
+
 ### 浏览器标题前缀
 
 - 复核 `DocumentTitle` 仍以 `useEffect` 写 `document.title` 且无 title 插槽：`src/client/title-indicator.ts` 的 MutationObserver 以此为前提；宿主改写入方式须重测前缀是否被覆盖 / 回环。
